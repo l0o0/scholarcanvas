@@ -61,6 +61,7 @@ export interface BoardNode {
   data: BoardNodeData;
   width?: number;
   height?: number;
+  extra?: Record<string, unknown>;
 }
 
 export interface BoardEdge {
@@ -74,6 +75,7 @@ export interface BoardEdge {
   color?: string;
   /** Legacy edges omit this field and render with an arrow. */
   arrow?: boolean;
+  extra?: Record<string, unknown>;
 }
 
 export interface BoardViewport {
@@ -88,6 +90,12 @@ export interface BoardDocument {
   nodes: BoardNode[];
   edges: BoardEdge[];
   viewport?: BoardViewport;
+  metadata?: {
+    title?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  };
+  extra?: Record<string, unknown>;
 }
 
 export type WhiteboardSnapshot = BoardDocument;
@@ -107,6 +115,25 @@ const KINDS = new Set<BoardNodeKind>([
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function withoutKeys(
+  source: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> | undefined {
+  const blocked = new Set(keys);
+  const entries = Object.entries(source).filter(([key]) => !blocked.has(key));
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function mergeExtra(
+  source: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> | undefined {
+  const explicit = asRecord(source.extra) ?? {};
+  const unknown = withoutKeys(source, [...keys, "extra"]) ?? {};
+  const merged = { ...explicit, ...unknown };
+  return Object.keys(merged).length ? merged : undefined;
 }
 
 function parsePoint(value: unknown): { x: number; y: number } | undefined {
@@ -134,80 +161,95 @@ function parseNode(value: unknown): BoardNode | null {
   const kind = KINDS.has(data.kind as BoardNodeKind)
     ? (data.kind as BoardNodeKind)
     : type;
+  const normalizedData: BoardNodeData = {
+    ...data,
+    kind,
+    title: typeof data.title === "string" ? data.title : "Untitled",
+  } as BoardNodeData;
+  const optionalValues: Record<string, unknown> = {
+    subtitle: typeof data.subtitle === "string" ? data.subtitle : undefined,
+    preview: typeof data.preview === "string" ? data.preview : undefined,
+    itemID: typeof data.itemID === "number" ? data.itemID : undefined,
+    noteID: typeof data.noteID === "number" ? data.noteID : undefined,
+    attachmentID:
+      typeof data.attachmentID === "number" ? data.attachmentID : undefined,
+    pdfPage: typeof data.pdfPage === "number" ? data.pdfPage : undefined,
+    image: typeof data.image === "string" ? data.image : undefined,
+    asset: typeof data.asset === "string" ? data.asset : undefined,
+    from: parsePoint(data.from),
+    to: parsePoint(data.to),
+    stroke: typeof data.stroke === "string" ? data.stroke : undefined,
+    fill: typeof data.fill === "string" ? data.fill : undefined,
+    strokeWidth:
+      typeof data.strokeWidth === "number" ? data.strokeWidth : undefined,
+    radius: typeof data.radius === "number" ? data.radius : undefined,
+    dashed: typeof data.dashed === "boolean" ? data.dashed : undefined,
+    fontFamily:
+      typeof data.fontFamily === "string" ? data.fontFamily : undefined,
+    fontSize: typeof data.fontSize === "number" ? data.fontSize : undefined,
+    fontWeight:
+      data.fontWeight === "bold" || data.fontWeight === "normal"
+        ? data.fontWeight
+        : undefined,
+    fontStyle:
+      data.fontStyle === "italic" || data.fontStyle === "normal"
+        ? data.fontStyle
+        : undefined,
+    textDecoration:
+      data.textDecoration === "underline" ||
+      data.textDecoration === "line-through" ||
+      data.textDecoration === "none"
+        ? data.textDecoration
+        : undefined,
+    textAlign:
+      data.textAlign === "left" ||
+      data.textAlign === "center" ||
+      data.textAlign === "right"
+        ? data.textAlign
+        : undefined,
+    verticalAlign:
+      data.verticalAlign === "top" ||
+      data.verticalAlign === "middle" ||
+      data.verticalAlign === "bottom"
+        ? data.verticalAlign
+        : undefined,
+    textColor: typeof data.textColor === "string" ? data.textColor : undefined,
+    textOpacity:
+      typeof data.textOpacity === "number" ? data.textOpacity : undefined,
+    strokeOpacity:
+      typeof data.strokeOpacity === "number" ? data.strokeOpacity : undefined,
+    fillStyle:
+      data.fillStyle === "none" ||
+      data.fillStyle === "solid" ||
+      data.fillStyle === "hatch"
+        ? data.fillStyle
+        : undefined,
+    strokeStyle:
+      data.strokeStyle === "solid" ||
+      data.strokeStyle === "dotted" ||
+      data.strokeStyle === "dashed"
+        ? data.strokeStyle
+        : undefined,
+  };
+  for (const [key, value] of Object.entries(optionalValues)) {
+    if (value === undefined) delete normalizedData[key];
+    else normalizedData[key] = value;
+  }
   return {
     id: node.id,
     type,
     position: { x: position.x, y: position.y },
     width: typeof node.width === "number" ? node.width : undefined,
     height: typeof node.height === "number" ? node.height : undefined,
-    data: {
-      kind,
-      title: typeof data.title === "string" ? data.title : "Untitled",
-      subtitle: typeof data.subtitle === "string" ? data.subtitle : undefined,
-      preview: typeof data.preview === "string" ? data.preview : undefined,
-      itemID: typeof data.itemID === "number" ? data.itemID : undefined,
-      noteID: typeof data.noteID === "number" ? data.noteID : undefined,
-      attachmentID:
-        typeof data.attachmentID === "number" ? data.attachmentID : undefined,
-      pdfPage: typeof data.pdfPage === "number" ? data.pdfPage : undefined,
-      image: typeof data.image === "string" ? data.image : undefined,
-      asset: typeof data.asset === "string" ? data.asset : undefined,
-      from: parsePoint(data.from),
-      to: parsePoint(data.to),
-      stroke: typeof data.stroke === "string" ? data.stroke : undefined,
-      fill: typeof data.fill === "string" ? data.fill : undefined,
-      strokeWidth:
-        typeof data.strokeWidth === "number" ? data.strokeWidth : undefined,
-      radius: typeof data.radius === "number" ? data.radius : undefined,
-      dashed: typeof data.dashed === "boolean" ? data.dashed : undefined,
-      fontFamily:
-        typeof data.fontFamily === "string" ? data.fontFamily : undefined,
-      fontSize: typeof data.fontSize === "number" ? data.fontSize : undefined,
-      fontWeight:
-        data.fontWeight === "bold" || data.fontWeight === "normal"
-          ? data.fontWeight
-          : undefined,
-      textAlign:
-        data.textAlign === "left" ||
-        data.textAlign === "center" ||
-        data.textAlign === "right"
-          ? data.textAlign
-          : undefined,
-      textColor:
-        typeof data.textColor === "string" ? data.textColor : undefined,
-      fontStyle:
-        data.fontStyle === "italic" || data.fontStyle === "normal"
-          ? data.fontStyle
-          : undefined,
-      textDecoration:
-        data.textDecoration === "underline" ||
-        data.textDecoration === "line-through" ||
-        data.textDecoration === "none"
-          ? data.textDecoration
-          : undefined,
-      verticalAlign:
-        data.verticalAlign === "top" ||
-        data.verticalAlign === "middle" ||
-        data.verticalAlign === "bottom"
-          ? data.verticalAlign
-          : undefined,
-      textOpacity:
-        typeof data.textOpacity === "number" ? data.textOpacity : undefined,
-      strokeOpacity:
-        typeof data.strokeOpacity === "number" ? data.strokeOpacity : undefined,
-      fillStyle:
-        data.fillStyle === "none" ||
-        data.fillStyle === "solid" ||
-        data.fillStyle === "hatch"
-          ? data.fillStyle
-          : undefined,
-      strokeStyle:
-        data.strokeStyle === "solid" ||
-        data.strokeStyle === "dotted" ||
-        data.strokeStyle === "dashed"
-          ? data.strokeStyle
-          : undefined,
-    },
+    data: normalizedData,
+    extra: mergeExtra(node, [
+      "id",
+      "type",
+      "position",
+      "data",
+      "width",
+      "height",
+    ]),
   };
 }
 
@@ -229,6 +271,17 @@ function parseEdge(value: unknown): BoardEdge | null {
     dashed: typeof edge.dashed === "boolean" ? edge.dashed : undefined,
     color: typeof edge.color === "string" ? edge.color : undefined,
     arrow: typeof edge.arrow === "boolean" ? edge.arrow : undefined,
+    extra: mergeExtra(edge, [
+      "id",
+      "source",
+      "target",
+      "sourceHandle",
+      "targetHandle",
+      "label",
+      "dashed",
+      "color",
+      "arrow",
+    ]),
   };
 }
 
@@ -317,6 +370,7 @@ export function parseBoardDocument(value: unknown): BoardDocument {
     ? raw.edges.map(parseEdge).filter((edge): edge is BoardEdge => !!edge)
     : [];
   const viewport = asRecord(raw.viewport);
+  const metadata = asRecord(raw.metadata);
   return {
     v: BOARD_DOCUMENT_VERSION,
     engine: BOARD_ENGINE,
@@ -329,6 +383,28 @@ export function parseBoardDocument(value: unknown): BoardDocument {
       typeof viewport.zoom === "number"
         ? { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
         : { x: 0, y: 0, zoom: 1 },
+    metadata: metadata
+      ? {
+          title:
+            typeof metadata.title === "string" ? metadata.title : undefined,
+          createdAt:
+            typeof metadata.createdAt === "string"
+              ? metadata.createdAt
+              : undefined,
+          updatedAt:
+            typeof metadata.updatedAt === "string"
+              ? metadata.updatedAt
+              : undefined,
+        }
+      : undefined,
+    extra: mergeExtra(raw, [
+      "v",
+      "engine",
+      "nodes",
+      "edges",
+      "viewport",
+      "metadata",
+    ]),
   };
 }
 

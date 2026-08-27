@@ -71,7 +71,7 @@
   top: 16px;
   transform: translateX(-50%);
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   max-width: calc(100% - 36px);
   gap: 2px;

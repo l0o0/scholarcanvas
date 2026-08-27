@@ -133,7 +133,7 @@ export function TopIsland(props: {
             : labels.saved}
       </span>
       {props.selectedNodeCount >= 2 ? (
-        <>
+        <div className="zmd-board-top-group">
           <span className="zmd-board-toolbar-sep" />
           <button
             type="button"
@@ -195,10 +195,10 @@ export function TopIsland(props: {
               </button>
             </>
           ) : null}
-        </>
+        </div>
       ) : null}
       {props.selectedEdgeCount >= 1 ? (
-        <>
+        <div className="zmd-board-top-group">
           <span className="zmd-board-toolbar-sep" />
           <button
             type="button"
@@ -221,7 +221,7 @@ export function TopIsland(props: {
           >
             <IconArrow />
           </button>
-        </>
+        </div>
       ) : null}
       <span className="zmd-board-toolbar-sep" />
       <button type="button" title={labels.fitView} onClick={props.onFitView}>

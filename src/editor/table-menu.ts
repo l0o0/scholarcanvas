@@ -1,7 +1,11 @@
 import type { TableAction, TableTarget } from "./table-operations";
+import type { TableSelectionAction } from "./table-operations";
+import type { TableSelection } from "./table-selection";
+
+export type TableMenuAction = TableAction | TableSelectionAction;
 
 export interface TableMenuItem {
-  action: TableAction;
+  action: TableMenuAction;
   label: string;
   disabled: boolean;
   checked?: boolean;
@@ -22,7 +26,6 @@ const columnItems: Array<[TableAction, string]> = [
   ["insert-column-right", "在右侧插入列"],
   ["move-column-left", "向左移动列"],
   ["move-column-right", "向右移动列"],
-  ["delete-column", "删除列"],
 ];
 
 const alignmentItems: Array<[TableAction, string]> = [
@@ -32,7 +35,7 @@ const alignmentItems: Array<[TableAction, string]> = [
   ["align-right", "右对齐"],
 ];
 
-function alignmentFor(action: TableAction) {
+function alignmentFor(action: TableMenuAction) {
   if (action === "align-left") return "left";
   if (action === "align-center") return "center";
   if (action === "align-right") return "right";
@@ -42,6 +45,7 @@ function alignmentFor(action: TableAction) {
 export function tableMenuItems(
   target: TableTarget,
   readOnly: boolean,
+  selection: TableSelection = null,
 ): TableMenuGroups {
   const header = target.rowIndex === 0;
   const firstBody = target.rowIndex === 1;
@@ -72,13 +76,94 @@ export function tableMenuItems(
         ? { checked: alignmentFor(action) === target.alignment }
         : {}),
     }));
+  if (selection) {
+    const selectionItems: TableMenuItem[] = [
+      ["clear-selection", "清空选中的单元格"],
+      [
+        "delete-selection",
+        selection.kind === "row" ? "删除选中的行" : "删除选中的列",
+      ],
+    ].map(([action, label]) => ({
+      action: action as TableSelectionAction,
+      label,
+      disabled:
+        readOnly ||
+        (action === "delete-selection" &&
+          (selection.kind === "row"
+            ? selection.rowIndex < 1 || target.bodyRowCount < 1
+            : target.columnCount <= 1)),
+    }));
+    const selectedGroups =
+      selection.kind === "row"
+        ? [
+            map(rowItems),
+            selectionItems,
+            [
+              {
+                action: "align-selection-default" as const,
+                label: "默认对齐",
+                disabled: readOnly,
+                checked: false,
+              },
+              {
+                action: "align-selection-left" as const,
+                label: "左对齐",
+                disabled: readOnly,
+                checked: false,
+              },
+              {
+                action: "align-selection-center" as const,
+                label: "居中对齐",
+                disabled: readOnly,
+                checked: false,
+              },
+              {
+                action: "align-selection-right" as const,
+                label: "右对齐",
+                disabled: readOnly,
+                checked: false,
+              },
+            ],
+          ]
+        : [
+            map(columnItems),
+            selectionItems,
+            [
+              {
+                action: "align-selection-default" as const,
+                label: "默认对齐",
+                disabled: readOnly,
+                checked: target.alignment === null,
+              },
+              {
+                action: "align-selection-left" as const,
+                label: "左对齐",
+                disabled: readOnly,
+                checked: target.alignment === "left",
+              },
+              {
+                action: "align-selection-center" as const,
+                label: "居中对齐",
+                disabled: readOnly,
+                checked: target.alignment === "center",
+              },
+              {
+                action: "align-selection-right" as const,
+                label: "右对齐",
+                disabled: readOnly,
+                checked: target.alignment === "right",
+              },
+            ],
+          ];
+    return selectedGroups;
+  }
   return [map(rowItems), map(columnItems), map(alignmentItems)];
 }
 
 export interface TableContextMenuOptions {
   document: Document;
   parent: HTMLElement;
-  onAction: (action: TableAction) => void;
+  onAction: (action: TableMenuAction) => void;
 }
 
 export interface TableContextMenu {

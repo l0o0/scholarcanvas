@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
 import type { KeyBinding } from "@codemirror/view";
 
@@ -42,6 +42,7 @@ export interface LiveTableRow extends TableRowLayout {
   columnCount: number;
   alignments: TableAlignment[];
   isLast: boolean;
+  visibleRowCount: number;
 }
 
 function ancestor(node: SyntaxNode | null, name: string) {
@@ -78,7 +79,17 @@ function rowCells(state: EditorState, node: SyntaxNode) {
   const cells: TableCellRange[] = [];
   let cursor = node.from;
   for (const pipe of pipes) {
-    if (pipe.from > cursor) cells.push(trimCell(state, cursor, pipe.from));
+    if (pipe.from > cursor) {
+      cells.push(trimCell(state, cursor, pipe.from));
+    } else if (pipe.from > node.from) {
+      // Empty cell between adjacent pipes (`a||b`) — keep the column.
+      cells.push({
+        from: cursor,
+        to: cursor,
+        outerFrom: cursor,
+        outerTo: cursor,
+      });
+    }
     cursor = pipe.to;
   }
   if (cursor < node.to) cells.push(trimCell(state, cursor, node.to));
@@ -112,10 +123,13 @@ export function tableLayoutAt(
   state: EditorState,
   position: number,
 ): TableLayout | null {
-  const resolved = syntaxTree(state).resolveInner(
-    Math.max(0, Math.min(position, state.doc.length)),
-    -1,
-  );
+  const safePosition = Math.max(0, Math.min(position, state.doc.length));
+  // Ensure the tree covers the queried position (it can be partially
+  // parsed right after init or under load).
+  const tree =
+    ensureSyntaxTree(state, Math.min(state.doc.length, safePosition + 1)) ??
+    syntaxTree(state);
+  const resolved = tree.resolveInner(safePosition, -1);
   const table = ancestor(resolved, "Table");
   if (!table) return null;
 
@@ -150,8 +164,12 @@ export function tableLayoutAt(
     }
   }
 
-  const columnCount =
-    rows.find((row) => row.kind === "header")?.cells.length || 0;
+  const columnCount = Math.max(
+    0,
+    ...rows
+      .filter((row) => row.kind !== "delimiter")
+      .map((row) => row.cells.length),
+  );
   while (alignments.length < columnCount) alignments.push(null);
   return {
     from: table.from,
@@ -162,9 +180,43 @@ export function tableLayoutAt(
   };
 }
 
+export interface TableCellIdentity {
+  tableFrom: number;
+  rowIndex: number;
+  columnIndex: number;
+}
+
+/** Widgets must only reuse DOM when they represent the same logical cell. */
+export function sameTableCellIdentity(
+  a: TableCellIdentity,
+  b: TableCellIdentity,
+): boolean {
+  return (
+    a.tableFrom === b.tableFrom &&
+    a.rowIndex === b.rowIndex &&
+    a.columnIndex === b.columnIndex
+  );
+}
+
+/** Document range the Live cell widget should own, including padding. */
+export function cellWidgetRange(cell: TableCellRange): {
+  from: number;
+  to: number;
+  point: boolean;
+} {
+  if (cell.outerFrom < cell.outerTo) {
+    return { from: cell.outerFrom, to: cell.outerTo, point: false };
+  }
+  if (cell.from < cell.to)
+    return { from: cell.from, to: cell.to, point: false };
+  return { from: cell.from, to: cell.to, point: true };
+}
+
 export function liveTableRows(state: EditorState): LiveTableRow[] {
   const positions: number[] = [];
-  const cursor = syntaxTree(state).cursor();
+  // Full-tree iteration needs the whole document parsed.
+  const tree = ensureSyntaxTree(state, state.doc.length) ?? syntaxTree(state);
+  const cursor = tree.cursor();
   do {
     if (cursor.name === "Table") positions.push(cursor.from);
   } while (cursor.next());
@@ -188,6 +240,7 @@ export function liveTableRows(state: EditorState): LiveTableRow[] {
       columnCount: table.columnCount,
       alignments: table.alignments,
       isLast: index === visibleRows.length - 1,
+      visibleRowCount: visibleRows.length,
     }));
   });
 }

@@ -5,7 +5,13 @@ export {
   registerFileOpenInterceptor,
   unregisterFileOpenInterceptor,
 } from "./open";
-export { openMarkdownTab, flushAllSessions } from "./tab";
+export {
+  openMarkdownTab,
+  closeMarkdownTab,
+  flushAllSessions,
+  flushSessionsForWindow,
+} from "./tab";
+export { openMarkdownWindow, closeAllMarkdownWindows } from "./window";
 export {
   registerMenus,
   registerItemContextMenu,
@@ -22,3 +28,23 @@ export {
   parseFrontmatter,
   stripFrontmatter,
 } from "./frontmatter";
+export {
+  markdownApi,
+  MarkdownApiError,
+  applyFrontmatterPatch,
+  type MarkdownApi,
+  type MarkdownAttachmentInfo,
+  type ListOptions,
+  type CreateOptions,
+  type CreateLinkedOptions,
+  type FrontmatterPatch,
+  type UpdateOptions,
+  type WriteResult,
+  type SessionSummary,
+  type MarkdownApiErrorCode,
+} from "./api";
+export {
+  registerSidebarSection,
+  unregisterSidebarSection,
+  disposeSidebarForWindow,
+} from "./sidebar";

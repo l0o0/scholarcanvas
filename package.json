@@ -1,24 +1,24 @@
 {
-  "name": "zotero-markdown",
+  "name": "bamboo",
   "type": "module",
-  "version": "0.1.1",
+  "version": "0.1.7",
   "description": "Native Markdown attachment support for Zotero — open, edit, and create .md files as first-class citizens.",
   "config": {
-    "addonName": "Zotero Markdown",
-    "addonID": "zotero-markdown@l0o0.github.io",
-    "addonRef": "zoteromarkdown",
-    "addonInstance": "ZoteroMarkdown",
-    "prefsPrefix": "extensions.zotero.zoteromarkdown"
+    "addonName": "Bamboo 竹子",
+    "addonID": "bamboo@@linxzh.com",
+    "addonRef": "bamboo",
+    "addonInstance": "Bamboo",
+    "prefsPrefix": "extensions.zotero.bamboo"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/l0o0/zotero-markdown.git"
+    "url": "git+https://github.com/l0o0/bamboo.git"
   },
   "author": "l0o0",
   "bugs": {
-    "url": "https://github.com/l0o0/zotero-markdown/issues"
+    "url": "https://github.com/l0o0/bamboo/issues"
   },
-  "homepage": "https://github.com/l0o0/zotero-markdown#readme",
+  "homepage": "https://github.com/l0o0/bamboo#readme",
   "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@9.15.9",
   "engines": {
@@ -33,18 +33,32 @@
     "test": "zotero-plugin test",
     "whiteboard:dev": "pnpm --filter @zotero-markdown/whiteboard dev",
     "whiteboard:build": "pnpm --filter @zotero-markdown/whiteboard build",
-    "test:unit": "tsx --test test/editor-channel.test.ts test/editor-table.test.ts test/editor-table-cell-edit.test.ts test/editor-table-edge-actions.test.ts test/editor-table-operations.test.ts test/editor-table-menu.test.ts test/editor-theme.test.ts test/live-preview-*.test.ts test/markdown-filename.test.ts test/markdown-images.test.ts test/markdown-status.test.ts test/markdown-toolbar.test.ts test/more-menu.test.ts test/frontmatter-title-sync.test.ts test/whiteboard-protocol.test.ts test/whiteboard-session-registry.test.ts test/whiteboard-snapshot.test.ts test/whiteboard-detect.test.ts test/whiteboard-node-registry.test.ts test/whiteboard-draw.test.ts test/whiteboard-toolbar.test.ts test/whiteboard-color.test.ts test/whiteboard-app-state.test.ts test/whiteboard-export.test.ts test/whiteboard-localization.test.ts test/whiteboard-module-api.test.ts",
+    "test:unit": "tsx --test test/api-frontmatter-patch.test.ts test/bamboo-branding.test.ts test/markdown-api-guards.test.ts test/preview-worker-protocol.test.ts test/preview-worker-client.test.ts test/async-render.test.ts test/preview-render-state.test.ts test/markdown-error-i18n.test.ts test/editor-channel.test.ts test/editor-outline.test.ts test/editor-outline-bridge.test.ts test/editor-table.test.ts test/editor-table-cell-edit.test.ts test/editor-table-edge-actions.test.ts test/editor-table-operations.test.ts test/editor-table-menu.test.ts test/editor-theme.test.ts test/live-preview-*.test.ts test/markdown-create-target.test.ts test/markdown-filename.test.ts test/markdown-storage-filename.test.ts test/markdown-window-registry.test.ts test/markdown-window.test.ts test/markdown-images.test.ts test/image-import-safety.test.ts test/markdown-outline-sidebar.test.ts test/markdown-modal.test.ts test/markdown-shortcut.test.ts test/markdown-settings-entry.test.ts test/markdown-settings-pages.test.ts test/markdown-sidebar.test.ts test/markdown-status.test.ts test/markdown-toolbar.test.ts test/more-menu.test.ts test/frontmatter-title-sync.test.ts test/document-sync.test.ts test/save-coordinator.test.ts test/session-registry.test.ts test/preview-document.test.ts test/release-config.test.ts test/zotero-pane-compat.test.ts test/whiteboard-protocol.test.ts test/whiteboard-session-registry.test.ts test/whiteboard-snapshot.test.ts test/whiteboard-detect.test.ts test/whiteboard-node-registry.test.ts test/whiteboard-draw.test.ts test/whiteboard-toolbar.test.ts test/whiteboard-color.test.ts test/whiteboard-app-state.test.ts test/whiteboard-export.test.ts test/whiteboard-localization.test.ts test/whiteboard-module-api.test.ts",
     "update-deps": "pnpm update --save"
   },
   "dependencies": {
-    "@codemirror/commands": "^6.10.4",
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/lang-cpp": "^6.0.3",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-go": "^6.0.1",
+    "@codemirror/lang-html": "^6.4.12",
+    "@codemirror/lang-java": "^6.0.2",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lang-rust": "^6.0.2",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/lang-yaml": "^6.1.3",
     "@codemirror/language": "^6.12.4",
+    "@codemirror/legacy-modes": "^6.5.3",
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.7.1",
-    "@codemirror/view": "^6.43.8",
+    "@codemirror/view": "^6.43.9",
+    "@lezer/highlight": "^1.2.3",
     "@lezer/markdown": "^1.7.2",
     "@xyflow/react": "^12.11.3",
+    "highlight.js": "^11.12.0",
     "markdown-it": "^15.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -52,9 +66,9 @@
   },
   "devDependencies": {
     "@types/chai": "^5.2.3",
-    "@types/markdown-it": "^14.1.2",
+    "@types/markdown-it": "^14.2.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@zotero-plugin/eslint-config": "^0.6.10",

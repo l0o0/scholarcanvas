@@ -1,6 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { MORE_MENU_SECTIONS } from "../src/modules/markdown/more-menu.ts";
+import {
+  EDITOR_MODE_OPTIONS,
+  findShortcutLabel,
+  MORE_MENU_SECTIONS,
+} from "../src/modules/markdown/more-menu.ts";
 
 describe("more menu", () => {
   it("keeps document, editor, export, and other actions separated", () => {
@@ -14,5 +18,25 @@ describe("more menu", () => {
         ["import-external-images", "cleanup-images", "shortcuts", "settings"],
       ],
     );
+  });
+
+  it("lists the three editor modes for an inline fold", () => {
+    assert.deepEqual(
+      EDITOR_MODE_OPTIONS.map((option) => option.mode),
+      ["live", "source", "preview"],
+    );
+  });
+
+  it("opens settings as a direct command without a submenu chevron", () => {
+    const settings = MORE_MENU_SECTIONS.flat().find(
+      (item) => item.action === "settings",
+    );
+    assert.ok(settings);
+    assert.notEqual(settings.submenu, true);
+  });
+
+  it("uses the native find shortcut label for each platform", () => {
+    assert.equal(findShortcutLabel("MacIntel"), "⌘F");
+    assert.equal(findShortcutLabel("Win32"), "Ctrl+F");
   });
 });

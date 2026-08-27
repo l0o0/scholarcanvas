@@ -1,6 +1,8 @@
 import { config } from "../package.json";
 import hooks from "./hooks";
 import { createZToolkit } from "./utils/ztoolkit";
+import { getString } from "./utils/locale";
+import type { MarkdownApi } from "./modules/markdown/api";
 
 class Addon {
   public data: {
@@ -14,7 +16,15 @@ class Addon {
     };
   };
   public hooks: typeof hooks;
-  public api: object;
+  public api: {
+    version: number;
+    openMarkdown?: typeof import("./modules/markdown").openMarkdownAttachment;
+    createMarkdown?: typeof import("./modules/markdown").createMarkdownAttachment;
+    /** Populated on startup (see hooks.ts). */
+    markdown?: MarkdownApi;
+    /** Public localization helper for runtime/manual integration checks. */
+    getString: typeof getString;
+  };
 
   constructor() {
     this.data = {
@@ -25,7 +35,7 @@ class Addon {
       ztoolkit: createZToolkit(),
     };
     this.hooks = hooks;
-    this.api = {};
+    this.api = { version: 1, getString };
   }
 }
 

@@ -1,5 +1,5 @@
 ---
-name: Zotero Markdown
+name: Bamboo 竹子
 description: A focused Markdown editor that feels native to Zotero and readable at writing speed.
 colors:
   canvas: "#fbfbfc"
@@ -53,13 +53,13 @@ components:
     size: "{spacing.control}"
 ---
 
-# Design System: Zotero Markdown
+# Design System: Bamboo 竹子
 
 ## Overview
 
 **Creative North Star: "The Quiet Research Desk"**
 
-Zotero Markdown is a compact, native-feeling writing surface for researchers working inside Zotero. Its interface should recede while the document remains legible, using a restrained neutral palette, thin structural borders, and one consistent icon vocabulary.
+Bamboo 竹子 is a compact, native-feeling writing surface for researchers working inside Zotero. Its interface should recede while the document remains legible, using a restrained neutral palette, thin structural borders, and one consistent icon vocabulary.
 
 The editor is document-first, not an IDE or a dashboard. Live Preview uses a centered reading column; the toolbar and status bar align to the same horizontal rhythm. The UI should feel deliberate and calm, never like a collection of floating controls.
 
@@ -123,9 +123,9 @@ The toolbar is a single, centered icon toolbelt. It follows the Live Preview tex
 
 ### More Menu
 
-- **Surface:** 220px menu whose left edge aligns with the more button, with an 8px radius, one-pixel border, and restrained shadow.
+- **Surface:** a compact `max-content` menu (12–16rem) whose right edge aligns with the more button, with an 8px radius, one-pixel border, and restrained shadow.
 - **Grouping:** do not render category headings; separate document, editing, export, and other actions with one-pixel dividers.
-- **Submenus:** Mode opens a compact secondary menu to the right of the main menu with Live, Source, and Preview. Settings remains a reserved submenu entry.
+- **Submenus:** Mode expands an indented inline list with a check on the current mode. Settings remains a reserved submenu entry.
 - **Unavailable actions:** every planned-but-unimplemented action gives immediate lightweight feedback instead of silently doing nothing.
 
 ### Editor Column

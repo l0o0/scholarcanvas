@@ -1,10 +1,10 @@
-# Zotero Markdown
+# Bamboo 竹子
 
-[![zotero target version](https://img.shields.io/badge/Zotero-7%2F8-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![version](https://img.shields.io/badge/version-0.0.1-blue?style=flat-square)](https://github.com/l0o0/zotero-markdown)
+[![Zotero compatibility](https://img.shields.io/badge/Zotero-9%2F10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+[![version](https://img.shields.io/badge/version-0.1.7-blue?style=flat-square)](https://github.com/l0o0/bamboo/releases)
 [![license](https://img.shields.io/badge/license-AGPL--3.0-orange?style=flat-square)](./LICENSE)
 
-**Native Markdown for Zotero.** Treat `.md` files as first-class attachments — open, edit, preview, and create them inside Zotero.
+**Bamboo 竹子 brings native Markdown to Zotero.** Treat `.md` files as first-class attachments — open, edit, preview, and create them inside Zotero.
 
 [English](README.md) | [简体中文](doc/README-zhCN.md)
 
@@ -14,22 +14,11 @@
 
 Zotero is excellent for collecting and organizing research. In the AI era, **plain Markdown files** are the common currency of knowledge tools (Obsidian, LLMs, static sites, git).
 
-[Better Notes](https://github.com/windingwind/zotero-better-notes) greatly improves Zotero’s built-in **Notes**, but those notes are still Zotero notes — not native `.md` files on disk.
-
-**Zotero Markdown** fills that gap:
-
-|                 | Better Notes            | **Zotero Markdown**                      |
-| --------------- | ----------------------- | ---------------------------------------- |
-| Primary surface | Zotero Note (rich text) | Real **`.md` attachment files**          |
-| File on disk    | Optional sync/export    | The file _is_ the note                   |
-| Obsidian / AI   | Bridge / export         | Drop-in plain text                       |
-| Relationship    | —                       | **Complementary** — we don’t touch Notes |
-
-> Make Zotero great again for knowledge management — one native Markdown file at a time.
+[Better Notes](https://github.com/windingwind/zotero-better-notes) greatly improves Zotero's built-in **Notes**, but those notes are still Zotero notes — not native `.md` files on disk. **Bamboo 竹子** fills that gap: it complements Better Notes without touching Notes, and its Markdown files are drop-in plain text for Obsidian and AI workflows.
 
 ---
 
-## Features (v0.1)
+## Features
 
 - **Open** `.md` / `.markdown` attachments in a main-window **tab** (not the system app)
 - **Edit** in a fast built-in editor — line numbers, Tab indentation, word/char counts, and toolbar shortcuts for common Markdown syntax (bold, italic, headings, links)
@@ -38,8 +27,10 @@ Zotero is excellent for collecting and organizing research. In the AI era, **pla
 - **New Markdown…** from the item context menu (stored attachment by default)
 - Supports **stored** and **linked** attachments
 - Preference to enable/disable intercepting open
+- Kebab menu with document info, safe renaming, folder reveal, and plugin settings
+- Import remote Markdown images into the note's local `assets/` directory for offline use
 
-### Planned (not in v0.1)
+### Planned
 
 - Wiki-links `[[...]]` and in-library jump
 - YAML frontmatter ↔ Zotero fields
@@ -51,42 +42,15 @@ Zotero is excellent for collecting and organizing research. In the AI era, **pla
 
 ## Install
 
-### From XPI (release)
-
-1. Download the latest `.xpi` from [Releases](https://github.com/l0o0/zotero-markdown/releases)
-2. In Zotero: **Tools → Plugins → gear → Install Plugin From File…**
-3. Restart Zotero if prompted
+Download the latest `bamboo-v{version}.xpi` from [Releases](https://github.com/l0o0/bamboo/releases), then in Zotero: **Tools → Plugins → gear → Install Plugin From File…** and restart if prompted.
 
 ### Development build
 
 ```bash
 pnpm install
 pnpm run build
-# XPI: .scaffold/build/zotero-markdown.xpi
+# XPI: .scaffold/build/bamboo-v{version}.xpi
 ```
-
-### Publish a release (XPI)
-
-CI builds the XPI and creates a GitHub Release when you push a version tag.
-
-1. Bump `version` in `package.json` (e.g. `0.1.1`)
-2. Commit the bump
-3. Tag and push:
-
-```bash
-git tag v0.1.1
-git push origin main
-git push origin v0.1.1
-```
-
-Or use **Actions → Release → Run workflow** and enter the tag (e.g. `v0.1.1`).
-
-Assets on the release:
-
-- `zotero-markdown.xpi` — installable plugin
-- `update.json` / `update-beta.json` — auto-update manifests (also on the floating `release` tag used by `updateURL` in `zotero-plugin.config.ts`)
-
-No extra secrets are required for public repos (`GITHUB_TOKEN` is enough).
 
 ---
 
@@ -99,13 +63,19 @@ No extra secrets are required for public repos (`GITHUB_TOKEN` is enough).
 4. Double-click any `.md` attachment later to reopen the editor.
 5. Or right-click a `.md` attachment → **Open with Markdown Editor**.
 
+Use the tab's kebab menu for document metadata, renaming, opening the containing
+folder, and Markdown-specific settings. **Import external images** downloads
+`http(s)` image references into the attachment's `assets/` directory and
+rewrites the Markdown links to local paths, so the document remains usable
+offline.
+
 Drag existing `.md` files into Zotero (or attach linked files) — double-click still opens them here.
 
 ---
 
 ## Requirements
 
-- Zotero **7** or **8** (including beta)
+- Zotero **9** or **10**
 - Desktop app (not Zotero Web)
 
 ---
@@ -117,7 +87,7 @@ Uses [zotero-plugin-scaffold](https://github.com/northword/zotero-plugin-scaffol
 ### Setup
 
 ```bash
-# Copy env and point at your Zotero binary / profile / data dir
+# Copy env and point at your Zotero binary / profile / data dir (see .env.example)
 cp .env.example .env
 
 pnpm install
@@ -136,38 +106,67 @@ China mainland users: project `.npmrc` already uses [npmmirror](https://npmmirro
 | `pnpm run lint:check` | Prettier + ESLint            |
 | `pnpm run lint:fix`   | Auto-fix lint                |
 
-### Layout
-
-```
-src/
-  hooks.ts                 # lifecycle
-  modules/markdown/
-    detect.ts              # is this a markdown attachment?
-    create.ts              # new stored .md
-    open.ts                # FileHandlers interceptor
-    tab.ts                 # tab UI, autosave
-    editor.ts              # built-in editor (line numbers, shortcuts, stats)
-    preview.ts             # markdown-it render
-    menu.ts                # context menus
-    styles.ts              # injected CSS
-addon/                     # bootstrap, locale, prefs, icons
-```
-
-### `.env` (dev only)
-
-See [`.env.example`](./.env.example). Typical keys:
-
-- `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` — Zotero binary
-- `ZOTERO_PLUGIN_PROFILE_PATH` — dev profile
-- `ZOTERO_PLUGIN_DATA_DIR` — optional data directory
-
 ---
 
 ## Configuration
 
-**Edit → Settings → Zotero Markdown**
+**Edit → Settings → Bamboo 竹子**
 
 - **Enable Markdown editor for .md attachments** — when off, Zotero opens `.md` with the system handler again
+
+---
+
+## API for other plugins
+
+Bamboo 竹子 exposes its in-process API at `Zotero.Bamboo.api.markdown`
+for other plugins / MCP bridges to create and edit `.md` documents inside Zotero.
+All methods are async, JSON-friendly, and reject with `MarkdownApiError`
+(`error.code` is stable).
+
+```js
+const md = Zotero.Bamboo.api.markdown;
+
+// List markdown attachments in the user library
+const docs = await md.list({ q: "note" });
+
+// Read one
+const { content } = await md.read(docs[0].itemID);
+
+// Create under a literature item, then edit
+const created = await md.create({
+  parentItemID: 123,
+  initialContent: "# Title",
+});
+await md.update(created.itemID, { content: "# New\n\nupdated" });
+
+// Patch frontmatter only
+await md.patchFrontmatter(created.itemID, {
+  set: { tags: ["ai", "draft"] },
+  delete: ["old-key"],
+});
+
+// Open / flush / close editor tabs
+await md.openTab(created.itemID);
+await md.flush(created.itemID);
+await md.closeTab(tabID);
+```
+
+Methods: `list`, `stat`, `read`, `create`, `createLinked`, `update`,
+`patchFrontmatter`, `rename`, `trash`, `openTab`, `closeTab`, `sessions`,
+`flush`, `toHtml`, `render`, `documentTitle`.
+
+Error codes: `ITEM_NOT_FOUND`, `NOT_MARKDOWN`, `WRITE_CONFLICT`,
+`WRITE_FAILED`, `INVALID_ARGUMENT`, `NOT_OPEN`.
+
+Notes:
+
+- All writes go through the same persistence path as the editor (file write,
+  image-asset cleanup, item-title sync, Zotero file-sync marking).
+- `update` rejects with `WRITE_CONFLICT` when an open editor tab has unsaved
+  changes — pass `force: true` to overwrite.
+- `rename` renames the underlying file; for linked attachments this renames
+  the file on disk.
+- API version: `Zotero.Bamboo.api.version` (currently `2`).
 
 ---
 
@@ -178,7 +177,7 @@ No. Better Notes improves Zotero Notes. This plugin only handles **real Markdown
 
 **Where are files stored?**
 
-- _New Markdown…_ creates a **stored** attachment under Zotero’s storage.
+- _New Markdown…_ creates a **stored** attachment under Zotero's storage.
 - You can also attach **linked** files pointing at an Obsidian vault or any folder.
 
 **Will Zotero sync my `.md` files?**  

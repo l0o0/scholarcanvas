@@ -1,12 +1,23 @@
 import { defineConfig } from "zotero-plugin-scaffold";
 import pkg from "./package.json";
 
+const scriptBuildTime = new Date().toISOString();
+
+// Extra options forwarded to bumpp's `versionBump` (not yet typed by the
+// scaffold): bump the README version badges together with package.json so
+// `pnpm release` keeps them in sync automatically.
+const releaseBumpp = {
+  release: "prompt",
+  files: ["package.json", "README.md", "doc/README-zhCN.md"],
+};
+
 export default defineConfig({
   source: ["src", "addon"],
   dist: ".scaffold/build",
   name: pkg.config.addonName,
   id: pkg.config.addonID,
   namespace: pkg.config.addonRef,
+  xpiName: `bamboo-v${pkg.version}`,
   updateURL: `https://github.com/{{owner}}/{{repo}}/releases/download/release/${
     pkg.version.includes("-") ? "update-beta.json" : "update.json"
   }`,
@@ -31,6 +42,8 @@ export default defineConfig({
         entryPoints: ["src/index.ts"],
         define: {
           __env__: `"${process.env.NODE_ENV}"`,
+          __buildVersion__: JSON.stringify(pkg.version),
+          __buildTime__: JSON.stringify(scriptBuildTime),
         },
         bundle: true,
         target: "firefox115",
@@ -53,11 +66,22 @@ export default defineConfig({
         loader: { ".css": "css", ".woff2": "dataurl", ".woff": "dataurl" },
         outfile: `.scaffold/build/addon/content/whiteboard/whiteboard.js`,
       },
+      {
+        entryPoints: ["src/workers/preview-worker.ts"],
+        bundle: true,
+        minify: true,
+        target: "firefox115",
+        outfile: `.scaffold/build/addon/content/workers/preview-worker.js`,
+      },
     ],
   },
 
   test: {
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}.data.initialized`,
+  },
+
+  release: {
+    bumpp: releaseBumpp,
   },
 
   // If you need to see a more detailed log, uncomment the following line:

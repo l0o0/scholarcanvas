@@ -16,6 +16,8 @@ declare const rootURI: string;
 declare const addon: import("../src/addon").default;
 
 declare const __env__: "production" | "development";
+declare const __buildVersion__: string;
+declare const __buildTime__: string;
 
 /** Firefox / Zotero PathUtils (IOUtils companion). */
 declare namespace PathUtils {
@@ -37,7 +39,7 @@ declare namespace IOUtils {
   function getChildren(path: string): Promise<string[]>;
   function stat(
     path: string,
-  ): Promise<{ type?: "directory" | "other" | "regular" }>;
+  ): Promise<{ type?: "directory" | "other" | "regular"; size?: number }>;
 }
 
 declare const IOUtils: typeof IOUtils;

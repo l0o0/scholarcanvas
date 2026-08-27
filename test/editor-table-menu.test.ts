@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { tableMenuItems } from "../src/editor/table-menu.ts";
 import type { TableTarget } from "../src/editor/table-operations.ts";
+import type { TableSelection } from "../src/editor/table-selection.ts";
 
 function target(overrides: Partial<TableTarget> = {}): TableTarget {
   return {
@@ -33,7 +34,6 @@ describe("table context menu state", () => {
           "insert-column-right",
           "move-column-left",
           "move-column-right",
-          "delete-column",
         ],
         ["align-default", "align-left", "align-center", "align-right"],
       ],
@@ -52,7 +52,7 @@ describe("table context menu state", () => {
     assert.equal(state["delete-row"], true);
   });
 
-  it("disables boundary moves and final-column deletion", () => {
+  it("disables boundary moves", () => {
     const first = tableMenuItems(target({ rowIndex: 1 }), false).flat();
     assert.equal(
       first.find((item) => item.action === "move-row-up")?.disabled,
@@ -61,14 +61,6 @@ describe("table context menu state", () => {
     const last = tableMenuItems(target({ rowIndex: 3 }), false).flat();
     assert.equal(
       last.find((item) => item.action === "move-row-down")?.disabled,
-      true,
-    );
-    const one = tableMenuItems(
-      target({ columnCount: 1, columnIndex: 0 }),
-      false,
-    ).flat();
-    assert.equal(
-      one.find((item) => item.action === "delete-column")?.disabled,
       true,
     );
   });
@@ -88,5 +80,51 @@ describe("table context menu state", () => {
         .flat()
         .every((item) => item.disabled),
     );
+  });
+
+  it("scopes menu actions to a selected row", () => {
+    const selection: TableSelection = {
+      kind: "row",
+      tableFrom: 0,
+      rowIndex: 1,
+    };
+    const actions = tableMenuItems(target(), false, selection)
+      .flat()
+      .map((item) => item.action);
+    assert.ok(actions.includes("clear-selection"));
+    assert.ok(actions.includes("delete-selection"));
+    assert.ok(actions.includes("insert-row-above"));
+    assert.ok(!actions.includes("insert-column-left"));
+    assert.ok(
+      !actions.some((action) =>
+        ["copy", "cut", "paste"].includes(String(action)),
+      ),
+    );
+  });
+
+  it("disables deletion for a selected final column", () => {
+    const selection: TableSelection = {
+      kind: "column",
+      tableFrom: 0,
+      columnIndex: 0,
+    };
+    const deleteItem = tableMenuItems(
+      target({ columnCount: 1, columnIndex: 0 }),
+      false,
+      selection,
+    )
+      .flat()
+      .find((item) => item.action === "delete-selection");
+    assert.equal(deleteItem?.disabled, true);
+  });
+
+  it("disables every mutation action in read-only selection menus", () => {
+    const selection: TableSelection = {
+      kind: "column",
+      tableFrom: 0,
+      columnIndex: 1,
+    };
+    const items = tableMenuItems(target(), true, selection).flat();
+    assert.ok(items.every((item) => item.disabled));
   });
 });

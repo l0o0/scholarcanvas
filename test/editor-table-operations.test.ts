@@ -4,10 +4,14 @@ import { EditorState } from "@codemirror/state";
 import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import {
+  planTableMoveColumnTo,
+  planTableMoveRowTo,
   planTableOperation,
+  planTableSelectionOperation,
   tableTargetAt,
   type TableAction,
 } from "../src/editor/table-operations.ts";
+import type { TableSelection } from "../src/editor/table-selection.ts";
 
 const source =
   "Before\n\n" +
@@ -156,5 +160,123 @@ describe("table column and alignment operations", () => {
     assert.match(inserted.doc, /\[A\]\(https:\/\/example\.com\)/);
     assert.match(inserted.doc, /x \\\| y/);
     assert.match(inserted.doc, /\| Short \| {2}\| {2}\|/);
+  });
+});
+
+describe("table selection operations", () => {
+  it("deletes a selected body row in one replacement", () => {
+    const state = stateFor(source);
+    const selection: TableSelection = {
+      kind: "row",
+      tableFrom: source.indexOf("| Name"),
+      rowIndex: 1,
+    };
+    const plan = planTableSelectionOperation(
+      state,
+      selection,
+      "delete-selection",
+    );
+    assert.ok(plan);
+    assert.equal(plan.changes.from, selection.tableFrom);
+    assert.equal(plan.changes.to, state.doc.length - "\n\nAfter".length);
+    const next = state.update({ changes: plan.changes }).state;
+    assert.doesNotMatch(next.doc.toString(), /\| A \| \*\*1\*\* \|/);
+    assert.match(next.doc.toString(), /\| B \| 2 \|/);
+    assert.deepEqual(plan.nextTableSelection, {
+      kind: "row",
+      tableFrom: selection.tableFrom,
+      rowIndex: 1,
+    });
+  });
+
+  it("deletes a selected column and selects the new final column", () => {
+    const state = stateFor(source);
+    const selection: TableSelection = {
+      kind: "column",
+      tableFrom: source.indexOf("| Name"),
+      columnIndex: 1,
+    };
+    const plan = planTableSelectionOperation(
+      state,
+      selection,
+      "delete-selection",
+    );
+    assert.ok(plan);
+    const next = state.update({ changes: plan.changes }).state;
+    assert.match(next.doc.toString(), /\| Name \|\n\| :--- \|\n\| A \|/);
+    assert.doesNotMatch(next.doc.toString(), /Value|\*\*1\*\*|\| B \| 2 \|/);
+    assert.deepEqual(plan.nextTableSelection, {
+      kind: "column",
+      tableFrom: selection.tableFrom,
+      columnIndex: 0,
+    });
+  });
+
+  it("clears selected cells without changing table pipes or delimiter", () => {
+    const state = stateFor(source);
+    const rowSelection: TableSelection = {
+      kind: "row",
+      tableFrom: source.indexOf("| Name"),
+      rowIndex: 1,
+    };
+    const plan = planTableSelectionOperation(
+      state,
+      rowSelection,
+      "clear-selection",
+    );
+    assert.ok(plan);
+    const next = state.update({ changes: plan.changes }).state;
+    assert.match(next.doc.toString(), /\| {2}\| {2}\|/);
+    assert.match(next.doc.toString(), /\| :--- \| ---: \|/);
+    assert.deepEqual(plan.nextTableSelection, rowSelection);
+  });
+
+  it("rejects deleting the final remaining column", () => {
+    const doc = "| Name |\n| --- |\n| A |";
+    const state = stateFor(doc);
+    const selection: TableSelection = {
+      kind: "column",
+      tableFrom: 0,
+      columnIndex: 0,
+    };
+    assert.equal(
+      planTableSelectionOperation(state, selection, "delete-selection"),
+      null,
+    );
+  });
+});
+
+describe("table drag reordering", () => {
+  const doc =
+    "| A | B | C |\n" +
+    "| --- | --- | --- |\n" +
+    "| 1 | 2 | 3 |\n" +
+    "| 4 | 5 | 6 |";
+
+  it("moves a body row directly to another body index", () => {
+    const state = stateFor(doc);
+    const plan = planTableMoveRowTo(state, doc.indexOf("| A"), 1, 2);
+    assert.ok(plan);
+    const next = state.update({ changes: plan.changes }).state;
+    assert.match(next.doc.toString(), /\| 4 \| 5 \| 6 \|\n\| 1 \| 2 \| 3 \|/);
+  });
+
+  it("rejects header row drags and out-of-range row targets", () => {
+    const state = stateFor(doc);
+    assert.equal(planTableMoveRowTo(state, doc.indexOf("| A"), 0, 1), null);
+    assert.equal(planTableMoveRowTo(state, doc.indexOf("| A"), 1, 99), null);
+  });
+
+  it("moves a column and its alignment directly", () => {
+    const state = stateFor(doc);
+    const plan = planTableMoveColumnTo(state, doc.indexOf("| A"), 0, 2);
+    assert.ok(plan);
+    const next = state.update({ changes: plan.changes }).state;
+    assert.match(next.doc.toString(), /\| B \| C \| A \|/);
+  });
+
+  it("rejects out-of-range column targets", () => {
+    const state = stateFor(doc);
+    assert.equal(planTableMoveColumnTo(state, doc.indexOf("| A"), 0, 3), null);
   });
 });

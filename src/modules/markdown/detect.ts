@@ -1,8 +1,14 @@
 /** Extensions treated as Markdown. */
 const MD_EXTENSIONS = new Set(["md", "markdown", "mdown", "mkd", "mkdn"]);
 
+/** Whether a filename (path or bare name) has a Markdown extension. */
+export function isMarkdownFilename(filename: string): boolean {
+  const ext = getExtension(filename);
+  return !!ext && MD_EXTENSIONS.has(ext);
+}
+
 /**
- * Whether an item is a file attachment that should open in Zotero Markdown.
+ * Whether an item is a file attachment that should open in Bamboo.
  */
 export function isMarkdownAttachment(
   item: Zotero.Item | false | undefined,
@@ -13,8 +19,7 @@ export function isMarkdownAttachment(
   }
 
   const filename = item.attachmentFilename || "";
-  const ext = getExtension(filename);
-  if (ext && MD_EXTENSIONS.has(ext)) return true;
+  if (isMarkdownFilename(filename)) return true;
 
   const contentType = (item.attachmentContentType || "").toLowerCase();
   return contentType === "text/markdown" || contentType === "text/x-markdown";
@@ -52,6 +57,15 @@ export function buildTimestampedMarkdownFilename(
     pad2(now.getMinutes()),
   ].join("-");
   return `${base || "Note"}-${timestamp}.md`;
+}
+
+export function markdownDocumentTitle(filename: string): string {
+  return filename.replace(/\.md$/i, "") || "Note";
+}
+
+export function markdownAttachmentTitle(documentTitle: string): string {
+  const title = documentTitle.trim() || "Note";
+  return /\.md$/i.test(title) ? title : `${title}.md`;
 }
 
 function pad2(value: number): string {

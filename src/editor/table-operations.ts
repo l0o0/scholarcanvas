@@ -1,5 +1,6 @@
 import type { EditorState } from "@codemirror/state";
 import { tableLayoutAt, type TableAlignment, type TableLayout } from "./table";
+import { selectionAfterDelete, type TableSelection } from "./table-selection";
 
 export type TableAction =
   | "insert-row-above"
@@ -17,6 +18,14 @@ export type TableAction =
   | "align-center"
   | "align-right";
 
+export type TableSelectionAction =
+  | "clear-selection"
+  | "delete-selection"
+  | "align-selection-default"
+  | "align-selection-left"
+  | "align-selection-center"
+  | "align-selection-right";
+
 export interface TableTarget {
   tableFrom: number;
   rowIndex: number;
@@ -30,6 +39,10 @@ export interface TableOperationPlan {
   changes: { from: number; to: number; insert: string };
   selection: { anchor: number; head: number };
   target: TableTarget;
+}
+
+export interface TableSelectionOperationPlan extends TableOperationPlan {
+  nextTableSelection: TableSelection;
 }
 
 interface EditableTable {
@@ -266,6 +279,203 @@ export function planTableOperation(
       bodyRowCount: table.body.length,
       columnCount: table.header.length,
       alignment: table.alignments[next.columnIndex] || null,
+    },
+  };
+}
+
+function selectionAlignment(
+  action: TableSelectionAction,
+): TableAlignment | undefined {
+  if (action === "align-selection-default") return null;
+  if (action === "align-selection-left") return "left";
+  if (action === "align-selection-center") return "center";
+  if (action === "align-selection-right") return "right";
+  return undefined;
+}
+
+function selectionTarget(
+  tableFrom: number,
+  table: EditableTable,
+  selection: Exclude<TableSelection, null>,
+): TableTarget {
+  const rowIndex = selection.kind === "row" ? selection.rowIndex : 0;
+  const columnIndex = selection.kind === "column" ? selection.columnIndex : 0;
+  return {
+    tableFrom,
+    rowIndex,
+    columnIndex,
+    bodyRowCount: table.body.length,
+    columnCount: table.header.length,
+    alignment: table.alignments[columnIndex] || null,
+  };
+}
+
+/** Plan one atomic change for a selected row or column. */
+export function planTableSelectionOperation(
+  state: EditorState,
+  selection: Exclude<TableSelection, null>,
+  action: TableSelectionAction,
+): TableSelectionOperationPlan | null {
+  const layout = layoutForTable(state, selection.tableFrom);
+  if (!layout) return null;
+  const table = editableTable(state, layout);
+
+  if (selection.kind === "row") {
+    if (selection.rowIndex < 1 || selection.rowIndex > table.body.length) {
+      return null;
+    }
+    const bodyRow = table.body[selection.rowIndex - 1];
+    if (action === "clear-selection") {
+      bodyRow.fill("");
+    } else if (action === "delete-selection") {
+      table.body.splice(selection.rowIndex - 1, 1);
+    } else {
+      const alignment = selectionAlignment(action);
+      if (alignment === undefined) return null;
+      table.alignments.fill(alignment);
+    }
+  } else {
+    if (
+      selection.columnIndex < 0 ||
+      selection.columnIndex >= table.header.length
+    ) {
+      return null;
+    }
+    if (action === "clear-selection") {
+      table.header[selection.columnIndex] = "";
+      for (const row of table.body) row[selection.columnIndex] = "";
+    } else if (action === "delete-selection") {
+      if (table.header.length <= 1) return null;
+      for (const row of [table.header, ...table.body]) {
+        row.splice(selection.columnIndex, 1);
+      }
+      table.alignments.splice(selection.columnIndex, 1);
+    } else {
+      const alignment = selectionAlignment(action);
+      if (alignment === undefined) return null;
+      table.alignments[selection.columnIndex] = alignment;
+    }
+  }
+
+  const changes = {
+    from: layout.from,
+    to: layout.to,
+    insert: serialize(table),
+  };
+  const nextState = state.update({ changes }).state;
+  const nextLayout = tableLayoutAt(nextState, layout.from + 1);
+  if (!nextLayout) return null;
+
+  let nextTableSelection: TableSelection = selection;
+  if (action === "delete-selection") {
+    nextTableSelection = selectionAfterDelete(
+      selection,
+      nextLayout,
+      selection.kind === "row" ? selection.rowIndex : selection.columnIndex,
+    );
+  }
+  const target = nextTableSelection
+    ? selectionTarget(layout.from, table, nextTableSelection)
+    : selectionTarget(layout.from, table, {
+        kind: "row",
+        tableFrom: layout.from,
+        rowIndex: 0,
+      });
+  const selectionPosition = cellSelection(
+    layout.from,
+    table,
+    target.rowIndex,
+    Math.min(target.columnIndex, Math.max(0, table.header.length - 1)),
+  );
+  return {
+    changes,
+    selection: selectionPosition,
+    target,
+    nextTableSelection,
+  };
+}
+
+function layoutForTable(state: EditorState, tableFrom: number) {
+  const position = Math.max(0, Math.min(state.doc.length, tableFrom + 1));
+  const layout = tableLayoutAt(state, position);
+  return layout && layout.from === tableFrom ? layout : null;
+}
+
+/** Move a visible body row directly to another body row index in one edit. */
+export function planTableMoveRowTo(
+  state: EditorState,
+  tableFrom: number,
+  fromRowIndex: number,
+  toRowIndex: number,
+): TableOperationPlan | null {
+  const layout = layoutForTable(state, tableFrom);
+  if (!layout) return null;
+  const table = editableTable(state, layout);
+  if (
+    fromRowIndex < 1 ||
+    toRowIndex < 1 ||
+    fromRowIndex > table.body.length ||
+    toRowIndex > table.body.length ||
+    fromRowIndex === toRowIndex
+  ) {
+    return null;
+  }
+  const [moved] = table.body.splice(fromRowIndex - 1, 1);
+  table.body.splice(toRowIndex - 1, 0, moved);
+  const insert = serialize(table);
+  const selection = cellSelection(layout.from, table, toRowIndex, 0);
+  return {
+    changes: { from: layout.from, to: layout.to, insert },
+    selection,
+    target: {
+      tableFrom: layout.from,
+      rowIndex: toRowIndex,
+      columnIndex: 0,
+      bodyRowCount: table.body.length,
+      columnCount: table.header.length,
+      alignment: table.alignments[0] || null,
+    },
+  };
+}
+
+/** Move a column directly to another column index in one edit. */
+export function planTableMoveColumnTo(
+  state: EditorState,
+  tableFrom: number,
+  fromColumnIndex: number,
+  toColumnIndex: number,
+): TableOperationPlan | null {
+  const layout = layoutForTable(state, tableFrom);
+  if (!layout) return null;
+  const table = editableTable(state, layout);
+  const count = table.header.length;
+  if (
+    fromColumnIndex < 0 ||
+    toColumnIndex < 0 ||
+    fromColumnIndex >= count ||
+    toColumnIndex >= count ||
+    fromColumnIndex === toColumnIndex
+  ) {
+    return null;
+  }
+  for (const row of [table.header, ...table.body]) {
+    const [moved] = row.splice(fromColumnIndex, 1);
+    row.splice(toColumnIndex, 0, moved);
+  }
+  const [alignment] = table.alignments.splice(fromColumnIndex, 1);
+  table.alignments.splice(toColumnIndex, 0, alignment);
+  const insert = serialize(table);
+  const selection = cellSelection(layout.from, table, 0, toColumnIndex);
+  return {
+    changes: { from: layout.from, to: layout.to, insert },
+    selection,
+    target: {
+      tableFrom: layout.from,
+      rowIndex: 0,
+      columnIndex: toColumnIndex,
+      bodyRowCount: table.body.length,
+      columnCount: table.header.length,
+      alignment: table.alignments[toColumnIndex] || null,
     },
   };
 }

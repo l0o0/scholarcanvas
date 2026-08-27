@@ -4,8 +4,10 @@
  */
 
 export const EDITOR_MESSAGE_SOURCE = "zotero-markdown-editor" as const;
+export const EDITOR_PROTOCOL_VERSION = 1;
 
 export type EditorTheme = "light" | "dark";
+export type EditorSurface = "default" | "sidebar";
 
 /** Live Preview (document-like) vs full raw source. */
 export type EditorMode = "live" | "source";
@@ -14,6 +16,15 @@ export interface EditorStats {
   chars: number;
   lines: number;
   words: number;
+}
+
+export type EditorHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
+
+export interface EditorOutlineItem {
+  id: string;
+  level: EditorHeadingLevel;
+  text: string;
+  from: number;
 }
 
 export type EditorCommand = "undo" | "redo" | "find";
@@ -29,11 +40,20 @@ export interface EditorInitPayload {
   theme: EditorTheme;
   /** Default interpreted as `"live"` by the iframe bootstrap. */
   mode?: EditorMode;
+  /** Layout density for the editor host. */
+  surface?: EditorSurface;
+}
+
+export interface EditorDocChange {
+  from: number;
+  to: number;
+  insert: string;
 }
 
 export type EditorProtocolMessage = {
   source: typeof EDITOR_MESSAGE_SOURCE;
   channel?: string;
+  v?: typeof EDITOR_PROTOCOL_VERSION;
 };
 
 /** Parent → iframe */
@@ -73,6 +93,11 @@ export type ParentToEditorMessage = (
       type: "prefixLine";
       payload: { prefix: string };
     }
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "revealPosition";
+      payload: { position: number };
+    }
   | { source: typeof EDITOR_MESSAGE_SOURCE; type: "focus" }
   | { source: typeof EDITOR_MESSAGE_SOURCE; type: "requestMeasure" }
   | {
@@ -98,7 +123,31 @@ export type ParentToEditorMessage = (
   | {
       source: typeof EDITOR_MESSAGE_SOURCE;
       type: "setImageAssets";
-      payload: { assets: ImageAssetMap };
+      payload: {
+        assets: ImageAssetMap;
+        /**
+         * `true` (default) replaces the iframe's whole asset map — the
+         * parent sends the complete set for the current document. `false`
+         * merges a single newly resolved asset so a partial push (e.g. right
+         * after an image insert) does not drop already-loaded images.
+         */
+        replace?: boolean;
+      };
+    }
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "requestSnapshot";
+      payload: { requestId: number };
+    }
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "assetResolved";
+      payload: {
+        requestId: number;
+        reference: string;
+        dataUrl?: string;
+        error?: string;
+      };
     }
   | { source: typeof EDITOR_MESSAGE_SOURCE; type: "destroy" }
 ) &
@@ -109,8 +158,33 @@ export type EditorToParentMessage = (
   | { source: typeof EDITOR_MESSAGE_SOURCE; type: "ready" }
   | {
       source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "outline";
+      payload: { items: EditorOutlineItem[]; activeID: string | null };
+    }
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "outlineActive";
+      payload: { activeID: string | null };
+    }
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
       type: "change";
-      payload: { value: string; stats: EditorStats };
+      payload: { rev: number; changes: EditorDocChange[] };
+    }
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "snapshot";
+      payload: {
+        requestId: number;
+        rev: number;
+        value: string;
+        stats: EditorStats;
+      };
+    }
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "resolveAsset";
+      payload: { requestId: number; reference: string };
     }
   | { source: typeof EDITOR_MESSAGE_SOURCE; type: "save" }
   | {
@@ -147,6 +221,19 @@ export function isEditorProtocolMessage(
   if (!data || typeof data !== "object") return false;
   const msg = data as { source?: string; type?: string };
   return msg.source === EDITOR_MESSAGE_SOURCE && typeof msg.type === "string";
+}
+
+/** Apply non-overlapping original-document changes from last to first. */
+export function applyDocChanges(
+  value: string,
+  changes: readonly EditorDocChange[],
+): string {
+  let next = value;
+  for (let index = changes.length - 1; index >= 0; index--) {
+    const change = changes[index];
+    next = next.slice(0, change.from) + change.insert + next.slice(change.to);
+  }
+  return next;
 }
 
 export function computeStats(text: string): EditorStats {

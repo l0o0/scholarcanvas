@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildTimestampedMarkdownFilename } from "../src/modules/markdown/detect";
+import {
+  buildTimestampedMarkdownFilename,
+  isMarkdownFilename,
+  markdownAttachmentTitle,
+  markdownDocumentTitle,
+} from "../src/modules/markdown/detect";
 
 const fixedTime = new Date(2026, 7, 13, 14, 35, 42);
 
@@ -16,4 +21,43 @@ test("normalizes whitespace and repeated separators in generated filenames", () 
     buildTimestampedMarkdownFilename("  Multi  Agent -- Notes  ", fixedTime),
     "Multi-Agent-Notes-2026-08-13-14-35.md",
   );
+});
+
+test("uses the timestamped filename stem as the document title", () => {
+  assert.equal(
+    markdownDocumentTitle("Note-2026-08-13-14-35.md"),
+    "Note-2026-08-13-14-35",
+  );
+  assert.equal(markdownDocumentTitle("Note.md"), "Note");
+});
+
+test("keeps the Markdown suffix on attachment titles without duplicating it", () => {
+  assert.equal(markdownAttachmentTitle("Meeting notes"), "Meeting notes.md");
+  assert.equal(markdownAttachmentTitle("Meeting notes.md"), "Meeting notes.md");
+});
+
+test("recognizes Markdown filenames and paths only", () => {
+  for (const ok of [
+    "note.md",
+    "note.markdown",
+    "note.mdown",
+    "note.mkd",
+    "note.mkdn",
+    "Note.MD",
+    "/vault/sub/note.md",
+    "C:\\vault\\note.md",
+  ]) {
+    assert.equal(isMarkdownFilename(ok), true, ok);
+  }
+  for (const bad of [
+    "",
+    "note",
+    "note.txt",
+    "note.md.txt",
+    "/etc/passwd",
+    "assets/image.png",
+    "note.md/",
+  ]) {
+    assert.equal(isMarkdownFilename(bad), false, bad);
+  }
 });

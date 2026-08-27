@@ -1,16 +1,33 @@
 import { getPref } from "../../utils/prefs";
-import { defaultMarkdownFilename } from "./detect";
+import { resolveMarkdownCollectionID } from "./create-target";
+import { defaultMarkdownFilename, markdownDocumentTitle } from "./detect";
 import { buildNoteWithFrontmatter } from "./frontmatter";
 import { openMarkdownAttachment } from "./open";
+import { createMarkdownImportPaths } from "./storage-filename";
 
 /**
  * Create a stored .md attachment under a regular item (or top-level), then open it.
  */
 export async function createMarkdownAttachment(
   parentItem?: Zotero.Item | null,
-  options: { open?: boolean; initialContent?: string } = {},
+  options: {
+    open?: boolean;
+    initialContent?: string;
+    /** Suppress UI side effects (ProgressWindow, pane selection) for API use. */
+    silent?: boolean;
+    /** Target library for top-level attachments (defaults to user library). */
+    libraryID?: number;
+    /** Target collection for top-level attachments (defaults to the selection). */
+    collectionID?: number;
+  } = {},
 ): Promise<Zotero.Item | null> {
-  const { open = true, initialContent } = options;
+  const {
+    open = true,
+    initialContent,
+    silent = false,
+    libraryID,
+    collectionID,
+  } = options;
 
   let parent: Zotero.Item | undefined;
   if (parentItem) {
@@ -25,27 +42,34 @@ export async function createMarkdownAttachment(
     }
   }
 
-  const titleBase = parent
-    ? parent.getField("title") || parent.getDisplayTitle()
-    : "Note";
+  // `getDisplayTitle` may return a Promise in some builds; only use it when
+  // it is already a string (it would otherwise end up in the filename).
+  const fieldTitle = parent ? String(parent.getField("title") || "") : "";
+  const display = parent?.getDisplayTitle?.();
+  const displayTitle =
+    display && typeof (display as { then?: unknown }).then !== "function"
+      ? String(display)
+      : "";
+  const titleBase = parent ? fieldTitle || displayTitle || "Note" : "Note";
   const filename = defaultMarkdownFilename(String(titleBase));
+  const documentTitle = markdownDocumentTitle(filename);
 
   const useFrontmatter = getPref("frontmatter") !== false;
   const content =
     initialContent ??
     (useFrontmatter
       ? buildNoteWithFrontmatter({
-          title: String(titleBase),
+          title: documentTitle,
           parent: parent || null,
         })
-      : buildPlainContent(String(titleBase), parent));
+      : buildPlainContent(documentTitle, parent));
 
-  const tmpDir = Zotero.getTempDirectory().path;
-  const tmpPath = PathUtils.join(
-    tmpDir,
-    `zotero-markdown-${Date.now()}-${filename}`,
+  const { directory: tmpDirectory, file: tmpPath } = createMarkdownImportPaths(
+    Zotero.getTempDirectory().path,
+    filename,
   );
 
+  await IOUtils.makeDirectory(tmpDirectory, { ignoreExisting: true });
   await Zotero.File.putContentsAsync(tmpPath, content);
 
   try {
@@ -53,25 +77,18 @@ export async function createMarkdownAttachment(
     // Standalone attachments need a real libraryID; fall back to user library.
     // Child attachments inherit library from parentItemID (do not pass both
     // parentItemID and collections — Zotero throws).
-    const selectedLibraryIDs = pane?.getSelectedLibraryIDs?.();
-    const libraryID =
-      parent?.libraryID ??
-      (selectedLibraryIDs?.[0] as number | undefined) ??
-      Zotero.Libraries.userLibraryID;
+    const targetLibraryID =
+      parent?.libraryID ?? libraryID ?? Zotero.Libraries.userLibraryID;
 
-    const selectedCollections = pane?.getSelectedCollections?.(true);
     const collection = !parent
-      ? (selectedCollections?.[0] as number | undefined)
+      ? resolveMarkdownCollectionID(pane, collectionID)
       : undefined;
-    const collections =
-      typeof collection === "number" && collection > 0
-        ? [collection]
-        : undefined;
+    const collections = collection == null ? undefined : [collection];
 
     ztoolkit.log("createMarkdownAttachment import", {
       tmpPath,
       parentItemID: parent?.id,
-      libraryID: parent ? undefined : libraryID,
+      libraryID: parent ? undefined : targetLibraryID,
       collections,
     });
 
@@ -79,7 +96,7 @@ export async function createMarkdownAttachment(
       file: tmpPath,
       parentItemID: parent?.id,
       // Only for top-level items; parent path uses parentItemID alone
-      libraryID: parent ? undefined : libraryID,
+      libraryID: parent ? undefined : targetLibraryID,
       collections,
       title: filename,
       contentType: "text/markdown",
@@ -94,14 +111,20 @@ export async function createMarkdownAttachment(
       attachment.attachmentContentType = "text/markdown";
       await attachment.saveTx({ skipSelect: true });
     }
+    if (attachment.getField("title") !== filename) {
+      attachment.setField("title", filename);
+      await attachment.saveTx({ skipSelect: true });
+    }
 
     // Select so the item is visible in the library / item list
-    try {
-      if (pane?.selectItem) {
-        await pane.selectItem(attachment.id);
+    if (!silent) {
+      try {
+        if (pane?.selectItem) {
+          await pane.selectItem(attachment.id);
+        }
+      } catch (e) {
+        ztoolkit.log("selectItem after create failed", e);
       }
-    } catch (e) {
-      ztoolkit.log("selectItem after create failed", e);
     }
 
     if (open) {
@@ -111,17 +134,19 @@ export async function createMarkdownAttachment(
     return attachment;
   } catch (e) {
     ztoolkit.log("createMarkdownAttachment failed", e);
-    new ztoolkit.ProgressWindow(addon.data.config.addonName)
-      .createLine({
-        text: `Create failed: ${e instanceof Error ? e.message : String(e)}`,
-        type: "fail",
-      })
-      .show();
+    if (!silent) {
+      new ztoolkit.ProgressWindow(addon.data.config.addonName)
+        .createLine({
+          text: `Create failed: ${e instanceof Error ? e.message : String(e)}`,
+          type: "fail",
+        })
+        .show();
+    }
     return null;
   } finally {
     try {
-      if (await IOUtils.exists(tmpPath)) {
-        await IOUtils.remove(tmpPath);
+      if (await IOUtils.exists(tmpDirectory)) {
+        await IOUtils.remove(tmpDirectory, { recursive: true });
       }
     } catch {
       // ignore cleanup errors

@@ -6,8 +6,12 @@ import { getPref } from "../../utils/prefs";
 import { ensureDOMGlobals } from "../../utils/dom";
 import {
   EDITOR_MESSAGE_SOURCE,
+  EDITOR_PROTOCOL_VERSION,
+  applyDocChanges,
   computeStats,
   type EditorMode,
+  type EditorOutlineItem,
+  type EditorSurface,
   type ImageAssetMap,
   type EditorStats,
   type EditorTheme,
@@ -27,6 +31,7 @@ export interface MarkdownEditorHandle {
     scrollDOM: HTMLElement;
   };
   getValue: () => string;
+  requestSnapshot: () => Promise<string>;
   setValue: (value: string) => void;
   replaceRange: (from: number, to: number, insert: string) => void;
   focus: () => void;
@@ -40,11 +45,14 @@ export interface MarkdownEditorHandle {
   ) => void;
   wrapSelection: (before: string, after?: string) => void;
   prefixLine: (prefix: string) => void;
+  revealPosition: (position: number) => void;
   /** Push light/dark to the iframe CM theme (also auto-synced from OS/Zotero). */
   setTheme: (theme: EditorTheme) => void;
   /** Switch Live Preview vs full Source mode inside the iframe. */
   setMode: (mode: EditorMode) => void;
-  setImageAssets: (assets: ImageAssetMap) => void;
+  setReadOnly: (readOnly: boolean) => void;
+  /** Push the complete asset map (default) or merge a single new asset. */
+  setImageAssets: (assets: ImageAssetMap, replace?: boolean) => void;
 }
 
 /** Shared dark-mode detection (Zotero follows prefers-color-scheme). */
@@ -79,6 +87,7 @@ type PendingCommand = Extract<
       | "command"
       | "wrapSelection"
       | "prefixLine"
+      | "revealPosition"
       | "focus"
       | "requestMeasure"
       | "setTheme"
@@ -86,9 +95,14 @@ type PendingCommand = Extract<
       | "setReadOnly"
       | "setMode"
       | "setImageAssets"
+      | "requestSnapshot"
+      | "assetResolved"
       | "init";
   }
 >;
+
+/** Upper bound for commands queued while the iframe is not ready yet. */
+const MAX_PENDING_COMMANDS = 256;
 
 function editorPageURL(): string {
   const ref = addon.data.config.addonRef;
@@ -106,23 +120,41 @@ export function createMarkdownEditor(
     doc?: string;
     readOnly?: boolean;
     onChange?: (value: string) => void;
+    onOutline?: (
+      items: readonly EditorOutlineItem[],
+      activeID: string | null,
+    ) => void;
+    onOutlineActive?: (activeID: string | null) => void;
     onSave?: () => void;
     onPasteImage?: (payload: {
       bytes: ArrayBuffer;
       mimeType: string;
       name: string;
     }) => void;
+    onResolveAsset?: (
+      reference: string,
+    ) => Promise<{ dataUrl?: string; error?: string }>;
     win?: Window;
     channel?: string;
+    surface?: EditorSurface;
   } = {},
 ): MarkdownEditorHandle {
+  ztoolkit.log("[Bamboo][EditorDebug] create-start", {
+    channel: options.channel,
+    docLength: options.doc?.length ?? 0,
+    surface: options.surface ?? "default",
+  });
   const {
     doc = "",
     readOnly = false,
     onChange,
+    onOutline,
+    onOutlineActive,
     onSave,
     onPasteImage,
+    onResolveAsset,
   } = options;
+  const surface = options.surface ?? "default";
 
   const ownerWin =
     options.win || parent.ownerDocument?.defaultView || undefined;
@@ -141,10 +173,8 @@ export function createMarkdownEditor(
 
   const iframe = documentRef.createElement("iframe") as HTMLIFrameElement;
   iframe.className = "zmd-codemirror-iframe";
-  iframe.setAttribute(
-    "src",
-    `${editorPageURL()}?channel=${encodeURIComponent(channel)}`,
-  );
+  const iframeSrc = `${editorPageURL()}?channel=${encodeURIComponent(channel)}`;
+  iframe.setAttribute("src", iframeSrc);
   Object.assign(iframe.style, {
     border: "none",
     width: "100%",
@@ -156,6 +186,23 @@ export function createMarkdownEditor(
     background: "transparent",
   });
 
+  // Diagnostics: distinguish "page never loaded" from "page loaded but the
+  // iframe never posted ready" (e.g. a script error in editor.js).
+  let iframeLoaded = false;
+  iframe.addEventListener("load", () => {
+    iframeLoaded = true;
+    ztoolkit.log("[Bamboo][EditorDebug] iframe-load", {
+      channel,
+      src: iframeSrc,
+    });
+    if (!iframeReady) {
+      ztoolkit.log("Markdown editor iframe loaded but no ready yet", {
+        channel,
+        src: iframeSrc,
+      });
+    }
+  });
+
   wrap.appendChild(iframe);
   parent.appendChild(wrap);
 
@@ -163,6 +210,11 @@ export function createMarkdownEditor(
   let iframeReady = false;
   let lastValue = doc;
   let lastStats: EditorStats = computeStats(doc);
+  let snapshotSeq = 0;
+  const pendingSnapshots = new Map<
+    number,
+    { resolve: (value: string) => void; timer: number }
+  >();
   const pending: PendingCommand[] = [];
 
   let resolveReady!: () => void;
@@ -172,8 +224,21 @@ export function createMarkdownEditor(
 
   const post = (message: ParentToEditorMessage) => {
     const target = iframe.contentWindow;
-    if (!target) return false;
-    target.postMessage({ ...message, channel }, "*");
+    if (!target) {
+      ztoolkit.log("[Bamboo][EditorDebug] post-no-content-window", {
+        channel,
+        type: message.type,
+      });
+      return false;
+    }
+    ztoolkit.log("[Bamboo][EditorDebug] post-to-iframe", {
+      channel,
+      type: message.type,
+    });
+    target.postMessage(
+      { ...message, channel, v: EDITOR_PROTOCOL_VERSION },
+      "*",
+    );
     return true;
   };
 
@@ -197,6 +262,12 @@ export function createMarkdownEditor(
         for (let i = pending.length - 1; i >= 0; i--) {
           if (pending[i].type === message.type) pending.splice(i, 1);
         }
+      }
+      // Bound the queue: if the iframe never becomes ready, commands must
+      // not accumulate without limit (requestSnapshot messages are not
+      // deduplicated). Drop the oldest entries beyond the cap.
+      if (pending.length >= MAX_PENDING_COMMANDS) {
+        pending.splice(0, pending.length - MAX_PENDING_COMMANDS + 1);
       }
       pending.push(message);
       return;
@@ -233,6 +304,7 @@ export function createMarkdownEditor(
     const data = event.data as EditorToParentMessage;
     switch (data.type) {
       case "ready": {
+        ztoolkit.log("[Bamboo][EditorDebug] iframe-ready", { channel });
         iframeReady = true;
         // Re-resolve at ready time (theme may have changed while loading)
         currentTheme = resolveEditorTheme(ownerWin);
@@ -246,6 +318,7 @@ export function createMarkdownEditor(
             fontSize: resolveFontSize(),
             theme: currentTheme,
             mode: currentMode,
+            surface,
           },
         });
         flushPending();
@@ -253,9 +326,41 @@ export function createMarkdownEditor(
         break;
       }
       case "change": {
+        lastValue = applyDocChanges(lastValue, data.payload.changes);
+        lastStats = computeStats(lastValue);
+        onChange?.(lastValue);
+        break;
+      }
+      case "outline": {
+        onOutline?.(data.payload.items, data.payload.activeID);
+        break;
+      }
+      case "outlineActive": {
+        onOutlineActive?.(data.payload.activeID);
+        break;
+      }
+      case "snapshot": {
         lastValue = data.payload.value;
         lastStats = data.payload.stats;
-        onChange?.(lastValue);
+        const pendingSnapshot = pendingSnapshots.get(data.payload.requestId);
+        if (pendingSnapshot) {
+          pendingSnapshots.delete(data.payload.requestId);
+          ownerWin?.clearTimeout?.(pendingSnapshot.timer);
+          pendingSnapshot.resolve(data.payload.value);
+        }
+        break;
+      }
+      case "resolveAsset": {
+        if (!onResolveAsset) break;
+        const { requestId, reference } = data.payload;
+        void onResolveAsset(reference).then((asset) => {
+          if (destroyed) return;
+          sendOrQueue({
+            source: EDITOR_MESSAGE_SOURCE,
+            type: "assetResolved",
+            payload: { requestId, reference, ...asset },
+          });
+        });
         break;
       }
       case "save": {
@@ -267,7 +372,7 @@ export function createMarkdownEditor(
         break;
       }
       case "imageDebug": {
-        const message = `[Zotero Markdown][ImageDebug] ${data.payload.event}`;
+        const message = `[Bamboo][ImageDebug] ${data.payload.event}`;
         try {
           Zotero.debug(
             `${message} ${JSON.stringify(data.payload.details || {})}`,
@@ -278,7 +383,10 @@ export function createMarkdownEditor(
         break;
       }
       case "error": {
-        ztoolkit.log("Markdown editor iframe error:", data.payload.message);
+        ztoolkit.log("[Bamboo][EditorDebug] iframe-error", {
+          channel,
+          message: data.payload.message,
+        });
         break;
       }
       default:
@@ -321,13 +429,16 @@ export function createMarkdownEditor(
     // ignore
   }
 
-  // Fallback: if ready never arrives, still resolve after timeout so callers don't hang
+  // Fallback: if ready never arrives, still resolve after the timeout so
+  // callers awaiting `ready` do not hang forever. The editor itself keeps
+  // queueing (bounded) commands and recovers if `ready` arrives late.
   ownerWin?.setTimeout?.(() => {
     if (!iframeReady && !destroyed) {
       ztoolkit.log(
         "Markdown editor iframe ready timeout; commands will queue until ready",
+        { channel, src: iframeSrc, loaded: iframeLoaded },
       );
-      // Do not resolve yet — keep waiting; getValue still works via cache
+      resolveReady();
     }
   }, 8000);
 
@@ -352,6 +463,22 @@ export function createMarkdownEditor(
       scrollDOM: iframe,
     },
     getValue: () => lastValue,
+    requestSnapshot: () => {
+      if (destroyed) return Promise.resolve(lastValue);
+      const requestId = ++snapshotSeq;
+      return new Promise<string>((resolve) => {
+        const timer = ownerWin?.setTimeout?.(() => {
+          pendingSnapshots.delete(requestId);
+          resolve(lastValue);
+        }, 400) as unknown as number;
+        pendingSnapshots.set(requestId, { resolve, timer });
+        sendOrQueue({
+          source: EDITOR_MESSAGE_SOURCE,
+          type: "requestSnapshot",
+          payload: { requestId },
+        });
+      });
+    },
     setValue: (value: string) => {
       lastValue = value;
       lastStats = computeStats(value);
@@ -405,6 +532,13 @@ export function createMarkdownEditor(
         payload: { prefix },
       });
     },
+    revealPosition: (position: number) => {
+      sendOrQueue({
+        source: EDITOR_MESSAGE_SOURCE,
+        type: "revealPosition",
+        payload: { position },
+      });
+    },
     setTheme: (theme: EditorTheme) => {
       applyTheme(theme);
     },
@@ -417,16 +551,28 @@ export function createMarkdownEditor(
         payload: { mode: currentMode },
       });
     },
-    setImageAssets: (assets: ImageAssetMap) => {
+    setReadOnly: (readOnly: boolean) => {
+      sendOrQueue({
+        source: EDITOR_MESSAGE_SOURCE,
+        type: "setReadOnly",
+        payload: { readOnly },
+      });
+    },
+    setImageAssets: (assets: ImageAssetMap, replace = true) => {
       sendOrQueue({
         source: EDITOR_MESSAGE_SOURCE,
         type: "setImageAssets",
-        payload: { assets },
+        payload: { assets, replace },
       });
     },
     destroy: () => {
       if (destroyed) return;
       destroyed = true;
+      for (const [id, pendingSnapshot] of pendingSnapshots) {
+        ownerWin?.clearTimeout?.(pendingSnapshot.timer);
+        pendingSnapshot.resolve(lastValue);
+        pendingSnapshots.delete(id);
+      }
       try {
         colorSchemeMql?.removeEventListener?.("change", onColorSchemeChange);
       } catch {

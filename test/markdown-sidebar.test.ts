@@ -1,0 +1,336 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, it } from "node:test";
+import {
+  canReuseSidebarEditor,
+  planSidebarVisibility,
+  sidebarFocusAction,
+  SidebarControllerRegistry,
+  shouldMountSidebarUI,
+  shouldUseSidebarFocusMode,
+} from "../src/modules/markdown/sidebar-state.ts";
+import { sidebarEditorGeometryCSS } from "../src/modules/markdown/styles.ts";
+
+describe("Markdown sidebar state", () => {
+  it("uses Fluent attributes so localization preserves the section body", () => {
+    for (const locale of ["en-US", "zh-CN"]) {
+      const source = readFileSync(
+        new URL(`../addon/locale/${locale}/mainWindow.ftl`, import.meta.url),
+        "utf8",
+      );
+      assert.match(
+        source,
+        /^sidebar-section-label\s*=\s*\n\s+\.label\s*=\s*Markdown\s*$/m,
+      );
+      assert.match(
+        source,
+        /^sidebar-section-tooltip\s*=\s*\n\s+\.tooltiptext\s*=\s*.+$/m,
+      );
+    }
+  });
+
+  it("keeps a parent attachment list beside the editor", () => {
+    assert.deepEqual(planSidebarVisibility("editor", true), {
+      list: true,
+      editor: true,
+      hint: false,
+      empty: false,
+    });
+  });
+
+  it("shows only the editor for a directly selected attachment", () => {
+    assert.deepEqual(planSidebarVisibility("editor", false), {
+      list: false,
+      editor: true,
+      hint: false,
+      empty: false,
+    });
+  });
+
+  it("preserves a parent attachment list beside a tab-conflict hint", () => {
+    assert.deepEqual(planSidebarVisibility("hint", true), {
+      list: true,
+      editor: false,
+      hint: true,
+      empty: false,
+    });
+  });
+
+  it("shows only the empty state", () => {
+    assert.deepEqual(planSidebarVisibility("empty", true), {
+      list: false,
+      editor: false,
+      hint: false,
+      empty: true,
+    });
+  });
+
+  it("reuses only the editor for the same attachment", () => {
+    assert.equal(canReuseSidebarEditor(true, 42, 42), true);
+    assert.equal(canReuseSidebarEditor(true, 42, 43), false);
+    assert.equal(canReuseSidebarEditor(false, 42, 42), false);
+  });
+
+  it("mounts the editor only during Zotero's render lifecycle", () => {
+    assert.equal(shouldMountSidebarUI("init"), false);
+    assert.equal(shouldMountSidebarUI("itemChange"), false);
+    assert.equal(shouldMountSidebarUI("toggle"), false);
+    assert.equal(shouldMountSidebarUI("render"), true);
+  });
+
+  it("uses fixed focus mode only for a directly selected Markdown attachment", () => {
+    assert.equal(shouldUseSidebarFocusMode(true), true);
+    assert.equal(shouldUseSidebarFocusMode(false), false);
+  });
+
+  it("releases focus for other sidenav panes and restores it for Markdown", () => {
+    const markdownPaneID = "bamboo@@linxzh.com-zmd-markdown";
+    assert.equal(sidebarFocusAction("info", markdownPaneID), "release");
+    assert.equal(sidebarFocusAction("attachments", markdownPaneID), "release");
+    assert.equal(sidebarFocusAction(markdownPaneID, markdownPaneID), "focus");
+    assert.equal(sidebarFocusAction(null, markdownPaneID), "ignore");
+  });
+
+  it("isolates controllers for multiple sections in the same window", () => {
+    const registry = new SidebarControllerRegistry<
+      object,
+      object,
+      { id: string }
+    >();
+    const win = {};
+    const oldBody = {};
+    const currentBody = {};
+    const oldController = { id: "old" };
+    const currentController = { id: "current" };
+
+    registry.bind(win, oldBody, oldController);
+    registry.bind(win, currentBody, currentController);
+
+    assert.equal(registry.release(win, oldBody), oldController);
+    assert.equal(registry.get(currentBody), currentController);
+    assert.deepEqual(registry.releaseWindow(win), [currentController]);
+  });
+
+  it("enumerates all live controllers across windows and releases them", () => {
+    const registry = new SidebarControllerRegistry<
+      object,
+      object,
+      { id: string }
+    >();
+    const winA = {};
+    const winB = {};
+    const bodyA = {};
+    const bodyB = {};
+    const bodyB2 = {};
+    const controllerA = { id: "a" };
+    const controllerB = { id: "b" };
+    const controllerB2 = { id: "b2" };
+
+    registry.bind(winA, bodyA, controllerA);
+    registry.bind(winB, bodyB, controllerB);
+    registry.bind(winB, bodyB2, controllerB2);
+
+    assert.deepEqual(
+      registry
+        .all()
+        .map((c) => c.id)
+        .sort(),
+      ["a", "b", "b2"],
+    );
+    // Replacing a body drops the old controller from the enumeration.
+    registry.bind(winB, bodyB2, { id: "b3" });
+    assert.deepEqual(
+      registry
+        .all()
+        .map((c) => c.id)
+        .sort(),
+      ["a", "b", "b3"],
+    );
+    // Window release removes all of its controllers.
+    assert.deepEqual(
+      registry
+        .releaseWindow(winB)
+        .map((c) => c.id)
+        .sort(),
+      ["b", "b3"],
+    );
+    assert.deepEqual(
+      registry.all().map((c) => c.id),
+      ["a"],
+    );
+  });
+
+  it("supports closing a sidebar session before its attachment is trashed", () => {
+    const source = readFileSync(
+      new URL("../src/modules/markdown/sidebar.ts", import.meta.url),
+      "utf8",
+    );
+    assert.match(source, /export async function closeSidebarSessions/);
+    assert.match(source, /closeItemSession\(itemID: number\)/);
+  });
+
+  it("allows the same attachment to stay open in a tab and the sidebar", () => {
+    const source = readFileSync(
+      new URL("../src/modules/markdown/sidebar.ts", import.meta.url),
+      "utf8",
+    );
+    assert.doesNotMatch(
+      source,
+      /sessionRegistry\.find\(this\.win,\s*item\.id\)/,
+    );
+    assert.doesNotMatch(
+      source,
+      /this\.destroyEditor\(\);\s*this\.showHint\(item\);/,
+    );
+  });
+
+  it("publishes sidebar edits and saves to the document sync registry", () => {
+    const source = readFileSync(
+      new URL("../src/modules/markdown/sidebar.ts", import.meta.url),
+      "utf8",
+    );
+    assert.match(source, /documentSyncRegistry\.register/);
+    assert.match(source, /documentSyncRegistry\.markEdited/);
+    assert.match(source, /documentSyncRegistry\.markSaved/);
+    assert.match(source, /documentSyncRegistry\s*\.\s*refreshOnFocus/);
+  });
+
+  it("forwards image cleanup requests through sidebar saves", () => {
+    const source = readFileSync(
+      new URL("../src/modules/markdown/sidebar.ts", import.meta.url),
+      "utf8",
+    );
+    assert.match(source, /write:\s*async \(value, request\)/);
+    assert.match(source, /cleanupImages:\s*request\.cleanupImages/);
+  });
+
+  it("lets the focused item-pane editor fill the available height", () => {
+    const css = sidebarEditorGeometryCSS();
+    assert.match(css, /height: auto/);
+    assert.match(css, /\.zmd-sidebar-focus-mode/);
+    assert.match(css, /overflow:\s*hidden/);
+    assert.match(css, /block-size:\s*100%/);
+    assert.match(css, /flex:\s*1 1 auto/);
+    assert.doesNotMatch(css, /clamp\(320px, 50vh, 600px\)/);
+  });
+
+  it("removes the native section chrome in focused Markdown mode", () => {
+    const css = sidebarEditorGeometryCSS();
+    assert.match(
+      css,
+      /\.zmd-sidebar-focus-section(?:\s*>\s*|\s+)collapsible-section\s*>\s*\.head[^{]*\{[^}]*display:\s*none/s,
+    );
+    assert.match(
+      css,
+      /\.zmd-sidebar-focus-section\s+\.zmd-sidebar\s*\{[^}]*padding:\s*0/s,
+    );
+    assert.match(
+      css,
+      /\.zmd-sidebar-focus-section\s+\.zmd-sidebar-editor-host\s*\{[^}]*border:\s*0[^}]*border-radius:\s*0/s,
+    );
+    assert.match(
+      css,
+      /\.zmd-sidebar-focus-shell\s*>\s*#zotero-item-pane-header\s*\{[^}]*display:\s*none/s,
+    );
+    assert.match(
+      css,
+      /\.zmd-sidebar-focus-section\s*>\s*collapsible-section\s*\{[^}]*padding:\s*0\s*!important/s,
+    );
+  });
+
+  it("adds a compact focus toolbar with common Markdown actions", () => {
+    const source = readFileSync(
+      new URL("../src/modules/markdown/sidebar.ts", import.meta.url),
+      "utf8",
+    );
+    assert.match(source, /zmd-sidebar-toolbar/);
+    for (const action of [
+      "open-tab",
+      "bold",
+      "italic",
+      "h1",
+      "list",
+      "link",
+      "more",
+    ]) {
+      assert.match(
+        source,
+        new RegExp(`data-action["']?,?\\s*${action}|${action}`),
+      );
+    }
+    assert.match(source, /wrapSelection\("\*\*"\)/);
+    assert.match(source, /wrapSelection\("\*"\)/);
+    assert.match(source, /prefixLine\("# "\)/);
+    assert.match(source, /prefixLine\("- "\)/);
+    assert.match(source, /wrapSelection\("\[",\s*"\]\(url\)"\)/);
+    assert.doesNotMatch(source, /this\.btnMode/);
+    assert.match(source, /surface:\s*"sidebar"/);
+  });
+
+  it("keeps standalone and tab opening in the sidebar more menu", () => {
+    const source = readFileSync(
+      new URL("../src/modules/markdown/sidebar.ts", import.meta.url),
+      "utf8",
+    );
+    assert.match(source, /dataset\.sidebarMenuAction/);
+    assert.match(source, /open-window/);
+    assert.match(source, /openMarkdownWindow/);
+    assert.match(source, /open-tab/);
+    assert.doesNotMatch(source, /const openTabButton = toolbarButton\(/);
+    assert.match(source, /setAttribute\("role", "menu"\)/);
+    assert.match(source, /setAttribute\("role", "menuitem"\)/);
+    assert.match(source, /event\.key === "Escape"/);
+    assert.match(source, /addEventListener\("pointerdown"/);
+    assert.match(source, /showSidebarOpenError/);
+  });
+
+  it("keeps the sidebar toolbar in one compact row", () => {
+    const css = sidebarEditorGeometryCSS();
+    assert.match(
+      css,
+      /\.zmd-sidebar-toolbar\s*\{[^}]*display:\s*flex[^}]*block-size:\s*41px[^}]*min-block-size:\s*41px[^}]*padding:\s*2px 8px[^}]*border-bottom:\s*var\(--material-panedivider\)[^}]*background:\s*var\(--material-toolbar\)/s,
+    );
+    assert.match(css, /\.zmd-sidebar-toolbar-spacer\s*\{[^}]*flex:\s*1/s);
+    assert.match(
+      css,
+      /\.zmd-sidebar-toolbar-button\s*\{[^}]*flex:\s*0 0 35px[^}]*width:\s*35px[^}]*height:\s*35px[^}]*min-height:\s*35px[^}]*max-height:\s*35px[^}]*margin:\s*0/s,
+    );
+  });
+
+  it("fits the native sidebar icons inside Zotero's fixed slots", () => {
+    const css = sidebarEditorGeometryCSS();
+
+    assert.match(
+      css,
+      /item-pane-sidenav\s+\.btn\[data-pane="zmd-markdown"\][^{]*\{[^}]*background-size:\s*20px\s+20px\s*!important[^}]*background-position:\s*center[^}]*background-repeat:\s*no-repeat/s,
+    );
+    assert.match(
+      css,
+      /item-pane-custom-section\[data-pane="zmd-markdown"\][^}]*\.title::before[^}]*\{[^}]*background-size:\s*16px\s+16px\s*!important[^}]*background-position:\s*center[^}]*background-repeat:\s*no-repeat/s,
+    );
+  });
+
+  it("accepts Zotero XUL custom sections as focus-mode hosts", () => {
+    const source = readFileSync(
+      new URL("../src/modules/markdown/sidebar.ts", import.meta.url),
+      "utf8",
+    );
+    assert.doesNotMatch(source, /sectionCandidate instanceof HTMLElement/);
+    assert.match(source, /sectionCandidate instanceof this\.win\.Element/);
+  });
+
+  it("handles sidenav switching before Zotero scrolls to the target pane", () => {
+    const source = readFileSync(
+      new URL("../src/modules/markdown/sidebar.ts", import.meta.url),
+      "utf8",
+    );
+    assert.match(
+      source,
+      /addEventListener\("click",\s*this\.handleSidenavClick,\s*true\)/,
+    );
+    assert.match(
+      source,
+      /this\.focusSidenav\?\.removeEventListener\(\s*"click",\s*this\.handleSidenavClick,\s*true,?\s*\)/,
+    );
+  });
+});

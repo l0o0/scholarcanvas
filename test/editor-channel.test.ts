@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   EDITOR_MESSAGE_SOURCE,
+  applyDocChanges,
   isEditorProtocolMessageForChannel,
 } from "../src/modules/markdown/editor-protocol.ts";
 
@@ -11,8 +12,8 @@ test("accepts editor messages only from the matching session channel", () => {
     channel: "tab-3:item-303",
     type: "change",
     payload: {
-      value: "third document",
-      stats: { chars: 14, lines: 1, words: 2 },
+      rev: 3,
+      changes: [{ from: 0, to: 0, insert: "third document" }],
     },
   };
 
@@ -32,6 +33,33 @@ test("rejects unscoped editor messages when a channel is required", () => {
       { source: EDITOR_MESSAGE_SOURCE, type: "ready" },
       "tab-1:item-101",
     ),
+    false,
+  );
+});
+
+test("applies original-document changes from last to first", () => {
+  assert.equal(
+    applyDocChanges("hello world", [
+      { from: 0, to: 5, insert: "hey" },
+      { from: 6, to: 11, insert: "there" },
+    ]),
+    "hey there",
+  );
+});
+
+test("does not accept another tab's outline update", () => {
+  const message = {
+    source: EDITOR_MESSAGE_SOURCE,
+    channel: "tab-3:item-303",
+    type: "outline",
+    payload: {
+      items: [{ id: "h1:0", level: 1, text: "Third", from: 0 }],
+      activeID: "h1:0",
+    },
+  };
+
+  assert.equal(
+    isEditorProtocolMessageForChannel(message, "tab-1:item-101"),
     false,
   );
 });

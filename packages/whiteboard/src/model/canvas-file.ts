@@ -217,8 +217,6 @@ function canvasEdgeToRuntime(edge: unknown): Record<string, unknown> | null {
       "id",
       "fromNode",
       "toNode",
-      "fromSide",
-      "toSide",
       "label",
       "color",
       "bamboo",

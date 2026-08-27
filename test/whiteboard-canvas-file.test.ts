@@ -114,3 +114,17 @@ test("serializes canonical and legacy formats explicitly", () => {
   assert.equal(legacy.engine, "xyflow");
   assert.deepEqual(legacy.nodes[0].position, { x: 30, y: 40 });
 });
+
+test("preserves JSON Canvas edge-side hints across a round trip", () => {
+  const file = boardDocumentToCanvasFile(board, {
+    now: "2026-08-28T00:00:00.000Z",
+  });
+  file.edges[0].fromSide = "right";
+  file.edges[0].toSide = "left";
+
+  const encoded = boardDocumentToCanvasFile(canvasFileToBoardDocument(file), {
+    now: "2026-08-28T00:00:01.000Z",
+  });
+  assert.equal(encoded.edges[0].fromSide, "right");
+  assert.equal(encoded.edges[0].toSide, "left");
+});

@@ -60,6 +60,15 @@ test("toolbar keeps conditional command sets together and wraps when constrained
   );
   assert.match(compact, /\.zmd-board-top-island\s*\{[^}]*flex-wrap:\s*wrap/s);
   assert.match(compact, /\.zmd-board-top-group\s*\{[^}]*flex:\s*0 0 auto/s);
+  assert.match(compact, /\.zmd-board-properties\s*\{[^}]*top:\s*138px/s);
+  assert.match(
+    compact,
+    /\.zmd-board-properties\s*\{[^}]*left:\s*8px[^}]*right:\s*8px/s,
+  );
+  assert.match(
+    compact,
+    /\.zmd-board-properties\s*\{[^}]*width:\s*auto[^}]*max-height:\s*calc\(100% - 146px\)[^}]*overflow-y:\s*auto/s,
+  );
 
   const nodeGroup = commandGroup(renderToolbar(3, 0), "alignLeft");
   assert.ok(nodeGroup, "selected-node controls need one toolbar group");

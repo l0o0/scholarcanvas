@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { BoardNodeData } from "../model/snapshot";
+import type { WhiteboardLabels } from "../model/protocol";
 import { ColorPicker } from "./ColorPicker";
 import {
   IconAlignTextCenter,
@@ -15,19 +16,16 @@ import {
 } from "../whiteboard/icons";
 
 const FONTS = [
-  { value: "system-ui, sans-serif", label: "系统字体" },
-  { value: "Georgia, serif", label: "Georgia" },
-  { value: '"Times New Roman", Times, serif', label: "Times" },
-  { value: "Inter, system-ui, sans-serif", label: "Inter" },
-  { value: "Menlo, monospace", label: "Menlo" },
-  { value: '"Noto Serif SC", serif', label: "宋体" },
-];
+  { value: "system-ui, sans-serif", label: "fontSystem" },
+  { value: "Georgia, serif", label: "fontGeorgia" },
+  { value: '"Times New Roman", Times, serif', label: "fontTimes" },
+  { value: "Inter, system-ui, sans-serif", label: "fontInter" },
+  { value: "Menlo, monospace", label: "fontMenlo" },
+  { value: '"Noto Serif SC", serif', label: "fontSerifSc" },
+] as const;
 
 const SIZES = [12, 14, 16, 18, 24, 32, 48];
-const WEIGHTS = [
-  { value: "normal", label: "Regular" },
-  { value: "bold", label: "Bold" },
-] as const;
+const WEIGHTS = ["normal", "bold"] as const;
 
 type TextMenu = "format" | "color" | "align" | null;
 
@@ -50,8 +48,23 @@ export function labelTextStyle(data: BoardNodeData): CSSProperties {
     textAlign: data.textAlign || "center",
     color: data.textColor || "#111827",
     opacity: data.textOpacity ?? 1,
+    lineHeight: 1.25,
     width: "100%",
     display: "block",
+  };
+}
+
+export function verticalAlignmentStyle(
+  data: Partial<BoardNodeData>,
+): CSSProperties {
+  const alignment = data.verticalAlign || "middle";
+  return {
+    alignItems:
+      alignment === "top"
+        ? "flex-start"
+        : alignment === "bottom"
+          ? "flex-end"
+          : "center",
   };
 }
 
@@ -59,6 +72,7 @@ export function TextStyleBar(props: {
   data: BoardNodeData;
   left: number;
   top: number;
+  labels: WhiteboardLabels;
   onChange: (patch: Partial<BoardNodeData>) => void;
   onHoldFocus?: () => void;
 }) {
@@ -102,7 +116,7 @@ export function TextStyleBar(props: {
       <span className="zmd-board-flyout">
         <button
           type="button"
-          title="粗体"
+          title={props.labels.format}
           className={bold || menu === "format" ? "is-active" : ""}
           onClick={() => toggle("format")}
         >
@@ -158,19 +172,20 @@ export function TextStyleBar(props: {
       <span className="zmd-board-flyout">
         <button
           type="button"
-          title="颜色"
+          title={props.labels.color}
           className={menu === "color" ? "is-active" : ""}
           onClick={() => toggle("color")}
         >
           <span className="zmd-board-color-letter" style={{ color }}>
             A
           </span>
-          颜色
+          {props.labels.color}
         </button>
         {menu === "color" ? (
           <div className="zmd-board-popover is-color">
             <ColorPicker
-              title="颜色"
+              title={props.labels.color}
+              labels={props.labels}
               color={color}
               opacity={data.textOpacity ?? 1}
               onChange={(next) => props.onChange({ textColor: next })}
@@ -189,7 +204,7 @@ export function TextStyleBar(props: {
         >
           {FONTS.map((font) => (
             <option key={font.value} value={font.value}>
-              {font.label}
+              {props.labels[font.label]}
             </option>
           ))}
         </select>
@@ -204,14 +219,16 @@ export function TextStyleBar(props: {
           }
         >
           {WEIGHTS.map((weight) => (
-            <option key={weight.value} value={weight.value}>
-              {weight.label}
+            <option key={weight} value={weight}>
+              {weight === "bold"
+                ? props.labels.weightBold
+                : props.labels.weightRegular}
             </option>
           ))}
         </select>
       </label>
       <label className="zmd-board-style-group">
-        <span>大小</span>
+        <span>{props.labels.size}</span>
         <select
           value={fontSize}
           onChange={(event) =>
@@ -228,15 +245,15 @@ export function TextStyleBar(props: {
       <span className="zmd-board-flyout">
         <button
           type="button"
-          title="对齐"
+          title={props.labels.alignment}
           className={menu === "align" ? "is-active" : ""}
           onClick={() => toggle("align")}
         >
-          对齐
+          {props.labels.alignment}
         </button>
         {menu === "align" ? (
           <div className="zmd-board-popover is-align">
-            <p>文本对齐</p>
+            <p>{props.labels.textAlignment}</p>
             <div className="zmd-board-align-row">
               <button
                 type="button"
@@ -260,7 +277,7 @@ export function TextStyleBar(props: {
                 <IconAlignTextRight />
               </button>
             </div>
-            <p>垂直对齐</p>
+            <p>{props.labels.verticalAlignment}</p>
             <div className="zmd-board-align-row">
               <button
                 type="button"

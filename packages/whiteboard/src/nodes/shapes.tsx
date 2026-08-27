@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { labelTextStyle } from "../chrome/TextStyleBar";
+import { labelTextStyle, verticalAlignmentStyle } from "../chrome/TextStyleBar";
 import { CardShell } from "./CardShell";
 import type { AcademicNode } from "./types";
 
@@ -25,6 +25,7 @@ function shapeStyle(data: AcademicNode["data"], ellipse?: boolean) {
     borderStyle: data.dashed ? "dashed" : "solid",
     borderRadius: ellipse ? 999 : (data.radius ?? 8),
     color: data.stroke || "#1f2937",
+    ...verticalAlignmentStyle(data),
   } as const;
 }
 

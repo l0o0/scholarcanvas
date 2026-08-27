@@ -27,6 +27,9 @@ export interface WhiteboardProtocolMessage {
 }
 
 export interface WhiteboardLabels {
+  board: string;
+  select: string;
+  hand: string;
   addItem: string;
   addNote: string;
   addPdf: string;
@@ -63,6 +66,44 @@ export interface WhiteboardLabels {
   exportPng: string;
   exportSvg: string;
   exportMarkdown: string;
+  more: string;
+  shortcutsTitle: string;
+  close: string;
+  stroke: string;
+  background: string;
+  style: string;
+  solid: string;
+  dashed: string;
+  corners: string;
+  format: string;
+  color: string;
+  size: string;
+  alignment: string;
+  textAlignment: string;
+  verticalAlignment: string;
+  fontSystem: string;
+  fontGeorgia: string;
+  fontTimes: string;
+  fontInter: string;
+  fontMenlo: string;
+  fontSerifSc: string;
+  weightRegular: string;
+  weightBold: string;
+  commonColors: string;
+  recentColors: string;
+  shortcutSelect: string;
+  shortcutHand: string;
+  shortcutRect: string;
+  shortcutEllipse: string;
+  shortcutArrow: string;
+  shortcutLine: string;
+  shortcutText: string;
+  shortcutEraser: string;
+  shortcutConstrain: string;
+  shortcutCancel: string;
+  shortcutDelete: string;
+  shortcutUndo: string;
+  shortcutRedo: string;
 }
 
 export interface WhiteboardInitPayload {

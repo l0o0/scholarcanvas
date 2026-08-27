@@ -1,5 +1,6 @@
 import type { AcademicNode } from "../nodes";
 import type { BoardNodeData } from "../model/snapshot";
+import type { WhiteboardLabels } from "../model/protocol";
 
 const STROKES = ["#1f2937", "#2563eb", "#dc2626", "#059669", "#d97706"];
 const FILLS = ["transparent", "#ffffff", "#f3f4f6", "#dbeafe"];
@@ -10,6 +11,7 @@ export function StyleBar(props: {
   node: AcademicNode;
   left: number;
   top: number;
+  labels: WhiteboardLabels;
   onChange: (
     patch: Partial<BoardNodeData> & { width?: number; height?: number },
   ) => void;
@@ -33,7 +35,7 @@ export function StyleBar(props: {
       onPointerDown={(event) => event.stopPropagation()}
     >
       <label className="zmd-board-style-group">
-        <span>描边</span>
+        <span>{props.labels.stroke}</span>
         <span className="zmd-board-swatches">
           {STROKES.map((color) => (
             <button
@@ -64,7 +66,7 @@ export function StyleBar(props: {
       </label>
       {showFill ? (
         <label className="zmd-board-style-group">
-          <span>背景</span>
+          <span>{props.labels.background}</span>
           <span className="zmd-board-swatches">
             {FILLS.map((color) => (
               <button
@@ -88,18 +90,18 @@ export function StyleBar(props: {
         </label>
       ) : null}
       <label className="zmd-board-style-group">
-        <span>样式</span>
+        <span>{props.labels.style}</span>
         <button
           type="button"
           className={data.dashed ? "is-active" : ""}
           onClick={() => props.onChange({ dashed: !data.dashed })}
         >
-          {data.dashed ? "虚线" : "实线"}
+          {data.dashed ? props.labels.dashed : props.labels.solid}
         </button>
       </label>
       {showRadius ? (
         <label className="zmd-board-style-group">
-          <span>边角</span>
+          <span>{props.labels.corners}</span>
           <select
             value={radius}
             onChange={(event) =>

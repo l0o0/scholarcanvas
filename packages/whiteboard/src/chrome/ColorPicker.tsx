@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PRESET_COLORS, hexToHsv, hsvToHex, normalizeHex } from "./color";
+import type { WhiteboardLabels } from "../model/protocol";
 
 export function ColorPicker(props: {
   title: string;
+  labels: Pick<WhiteboardLabels, "close" | "commonColors" | "recentColors">;
   color: string;
   opacity?: number;
   onChange: (color: string) => void;
@@ -33,7 +35,11 @@ export function ColorPicker(props: {
     <div className="zmd-board-color-picker">
       <header>
         <strong>{props.title}</strong>
-        <button type="button" aria-label="关闭" onClick={props.onClose}>
+        <button
+          type="button"
+          aria-label={props.labels.close}
+          onClick={props.onClose}
+        >
           ×
         </button>
       </header>
@@ -85,7 +91,7 @@ export function ColorPicker(props: {
           }
         />
       ) : null}
-      <p className="zmd-board-color-label">常用自定义颜色</p>
+      <p className="zmd-board-color-label">{props.labels.commonColors}</p>
       <div className="zmd-board-swatches is-lg">
         {PRESET_COLORS.map((item) => (
           <button
@@ -97,7 +103,7 @@ export function ColorPicker(props: {
           />
         ))}
       </div>
-      <p className="zmd-board-color-label">最近使用颜色</p>
+      <p className="zmd-board-color-label">{props.labels.recentColors}</p>
       <label className="zmd-board-color-hex">
         <span>#</span>
         <input

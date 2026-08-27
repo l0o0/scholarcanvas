@@ -1,20 +1,24 @@
+import type { WhiteboardLabels } from "../model/protocol";
+
 export interface ShortcutHelp {
   keys: string;
   label: string;
 }
 
-export const KEYBOARD_SHORTCUTS: ShortcutHelp[] = [
-  { keys: "V", label: "选择" },
-  { keys: "H", label: "抓手" },
-  { keys: "R", label: "矩形" },
-  { keys: "O", label: "椭圆" },
-  { keys: "A", label: "箭头" },
-  { keys: "L", label: "直线" },
-  { keys: "T", label: "文字" },
-  { keys: "E", label: "橡皮" },
-  { keys: "Shift", label: "绘制时锁定比例 / 45°" },
-  { keys: "Esc", label: "取消绘制或关闭菜单" },
-  { keys: "Delete", label: "删除选中" },
-  { keys: "Ctrl/⌘ + Z", label: "撤销" },
-  { keys: "Ctrl/⌘ + Shift + Z", label: "重做" },
-];
+export function keyboardShortcuts(labels: WhiteboardLabels): ShortcutHelp[] {
+  return [
+    { keys: "V", label: labels.shortcutSelect },
+    { keys: "H", label: labels.shortcutHand },
+    { keys: "R", label: labels.shortcutRect },
+    { keys: "O", label: labels.shortcutEllipse },
+    { keys: "A", label: labels.shortcutArrow },
+    { keys: "L", label: labels.shortcutLine },
+    { keys: "T", label: labels.shortcutText },
+    { keys: "E", label: labels.shortcutEraser },
+    { keys: "Shift", label: labels.shortcutConstrain },
+    { keys: "Esc", label: labels.shortcutCancel },
+    { keys: "Delete", label: labels.shortcutDelete },
+    { keys: "Ctrl/Meta + Z", label: labels.shortcutUndo },
+    { keys: "Ctrl/Meta + Shift + Z", label: labels.shortcutRedo },
+  ];
+}

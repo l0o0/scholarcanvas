@@ -587,6 +587,7 @@
 }
 
 .zmd-board-editor.is-in-shape {
+  display: flex;
   padding: 0;
   overflow: hidden;
   background: transparent;
@@ -598,7 +599,8 @@
   box-sizing: border-box;
   display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
+  max-height: 100%;
   margin: 0;
   padding: 0 12px;
   border: none !important;
@@ -609,7 +611,7 @@
   caret-color: #111827;
   text-align: center;
   resize: none;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .react-flow__node.is-editing-label .zmd-board-card-title,
@@ -689,5 +691,14 @@ html[data-theme="dark"] .zmd-board-pdf-page,
 
   .zmd-board-save-state {
     padding: 0 4px;
+  }
+
+  .zmd-board-properties {
+    top: 138px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: calc(100% - 146px);
+    overflow-y: auto;
   }
 }

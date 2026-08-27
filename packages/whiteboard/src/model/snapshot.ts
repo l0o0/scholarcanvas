@@ -72,6 +72,8 @@ export interface BoardEdge {
   label?: string;
   dashed?: boolean;
   color?: string;
+  /** Legacy edges omit this field and render with an arrow. */
+  arrow?: boolean;
 }
 
 export interface BoardViewport {
@@ -226,6 +228,7 @@ function parseEdge(value: unknown): BoardEdge | null {
     label: typeof edge.label === "string" ? edge.label : undefined,
     dashed: typeof edge.dashed === "boolean" ? edge.dashed : undefined,
     color: typeof edge.color === "string" ? edge.color : undefined,
+    arrow: typeof edge.arrow === "boolean" ? edge.arrow : undefined,
   };
 }
 

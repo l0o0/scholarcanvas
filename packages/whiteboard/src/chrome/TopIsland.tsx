@@ -73,8 +73,8 @@ export function TopIsland(props: {
   }, [menuOpen]);
   const groups: ToolButton[][] = [
     [
-      { tool: "select", title: "Select (V)", icon: <IconSelect /> },
-      { tool: "hand", title: "Hand (H)", icon: <IconHand /> },
+      { tool: "select", title: labels.select, icon: <IconSelect /> },
+      { tool: "hand", title: labels.hand, icon: <IconHand /> },
     ],
     [
       { tool: "item", title: labels.addItem, icon: <IconItem /> },
@@ -97,7 +97,11 @@ export function TopIsland(props: {
   ];
 
   return (
-    <div className="zmd-board-top-island" role="toolbar" aria-label="Board">
+    <div
+      className="zmd-board-top-island"
+      role="toolbar"
+      aria-label={labels.board}
+    >
       {groups.map((group, index) => (
         <div key={index} className="zmd-board-top-group">
           {group.map((item) => (
@@ -237,7 +241,7 @@ export function TopIsland(props: {
       <div className="zmd-board-more" ref={menuRef}>
         <button
           type="button"
-          title="更多"
+          title={labels.more}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           className={menuOpen ? "is-active" : ""}
@@ -255,7 +259,7 @@ export function TopIsland(props: {
                 props.onOpenShortcuts();
               }}
             >
-              快捷键导航
+              {labels.shortcutsTitle}
             </button>
           </div>
         ) : null}

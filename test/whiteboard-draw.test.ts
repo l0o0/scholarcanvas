@@ -8,7 +8,8 @@ import {
   isStampTool,
   toolAfterDraw,
 } from "../packages/whiteboard/src/chrome/draw.ts";
-import { KEYBOARD_SHORTCUTS } from "../packages/whiteboard/src/chrome/shortcuts.ts";
+import { keyboardShortcuts } from "../packages/whiteboard/src/chrome/shortcuts.ts";
+import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
 import { isEditableControl } from "../packages/whiteboard/src/chrome/TextStyleBar.tsx";
 
 test("rect drag down-right uses origin as top-left", () => {
@@ -130,7 +131,10 @@ test("lines and arrows are always border hits", () => {
 });
 
 test("shortcut help lists core drawing keys", () => {
-  const keys = KEYBOARD_SHORTCUTS.map((item) => item.keys);
+  const labels = new Proxy({} as WhiteboardLabels, {
+    get: (_target, property) => String(property),
+  });
+  const keys = keyboardShortcuts(labels).map((item) => item.keys);
   assert.ok(keys.includes("V"));
   assert.ok(keys.includes("R"));
   assert.ok(keys.includes("Esc"));

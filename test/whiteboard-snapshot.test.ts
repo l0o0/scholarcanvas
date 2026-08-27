@@ -85,6 +85,18 @@ test("keeps stroke and fill style on a rect", () => {
   assert.equal(doc.nodes[0].data.dashed, true);
 });
 
+test("preserves an explicit edge arrow opt-out while legacy edges stay implicit", () => {
+  const doc = parseBoardDocument({
+    edges: [
+      { id: "legacy", source: "a", target: "b" },
+      { id: "plain", source: "a", target: "b", arrow: false },
+    ],
+  });
+  assert.equal(doc.v, 1);
+  assert.equal(doc.edges[0].arrow, undefined);
+  assert.equal(doc.edges[1].arrow, false);
+});
+
 test("keeps text style on a shape label", () => {
   const doc = parseBoardDocument({
     nodes: [

@@ -41,7 +41,11 @@ import { boardNodeTypes, type AcademicNode } from "../nodes";
 import { PropertiesPanel } from "../chrome/PropertiesPanel";
 import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
-import { TextStyleBar, labelTextStyle } from "../chrome/TextStyleBar";
+import {
+  TextStyleBar,
+  labelTextStyle,
+  verticalAlignmentStyle,
+} from "../chrome/TextStyleBar";
 import { TopIsland } from "../chrome/TopIsland";
 import {
   frameFromDrag,
@@ -63,9 +67,19 @@ import {
   type AlignMode,
 } from "./layout";
 import { buildBoardMarkdown, buildBoardSvg, svgToPngDataUrl } from "./export";
+import {
+  BoardDocumentHistory,
+  boardDocumentToFlow,
+  flowToBoardDocument,
+  mergeEditingStyle,
+  withEdgeColor,
+} from "./document";
 import { IconCopy, IconEdit, IconExport, IconOpen, IconTrash } from "./icons";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
+  board: "Board",
+  select: "Select (V)",
+  hand: "Hand (H)",
   addItem: "Item",
   addNote: "Note",
   addPdf: "PDF",
@@ -102,6 +116,44 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   exportPng: "Export PNG",
   exportSvg: "Export SVG",
   exportMarkdown: "Export Markdown",
+  more: "More",
+  shortcutsTitle: "Keyboard shortcuts",
+  close: "Close",
+  stroke: "Stroke",
+  background: "Background",
+  style: "Style",
+  solid: "Solid",
+  dashed: "Dashed",
+  corners: "Corners",
+  format: "Format",
+  color: "Color",
+  size: "Size",
+  alignment: "Alignment",
+  textAlignment: "Text alignment",
+  verticalAlignment: "Vertical alignment",
+  fontSystem: "System font",
+  fontGeorgia: "Georgia",
+  fontTimes: "Times",
+  fontInter: "Inter",
+  fontMenlo: "Menlo",
+  fontSerifSc: "Noto Serif SC",
+  weightRegular: "Regular",
+  weightBold: "Bold",
+  commonColors: "Common custom colors",
+  recentColors: "Recently used colors",
+  shortcutSelect: "Select",
+  shortcutHand: "Pan canvas",
+  shortcutRect: "Draw rectangle",
+  shortcutEllipse: "Draw ellipse",
+  shortcutArrow: "Draw arrow",
+  shortcutLine: "Draw line",
+  shortcutText: "Add text",
+  shortcutEraser: "Erase",
+  shortcutConstrain: "Constrain ratio or angle while drawing",
+  shortcutCancel: "Cancel drawing or close menu",
+  shortcutDelete: "Delete selection",
+  shortcutUndo: "Undo",
+  shortcutRedo: "Redo",
 };
 
 export interface WhiteboardAppProps {
@@ -151,80 +203,6 @@ export interface WhiteboardRuntime {
 
 function newId(kind: string) {
   return `${kind}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 6)}`;
-}
-
-function toFlow(doc: BoardDocument): { nodes: AcademicNode[]; edges: Edge[] } {
-  return {
-    nodes: doc.nodes.map((node) => ({
-      id: node.id,
-      type: node.type,
-      position: node.position,
-      data: node.data,
-      width: node.width,
-      height: node.height,
-      style:
-        node.width || node.height
-          ? { width: node.width, height: node.height }
-          : undefined,
-    })),
-    edges: doc.edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      sourceHandle: edge.sourceHandle ?? undefined,
-      targetHandle: edge.targetHandle ?? undefined,
-      label: edge.label,
-      style: {
-        stroke: edge.color ?? "#9ca3af",
-        strokeDasharray: edge.dashed ? "6 4" : undefined,
-      },
-      markerEnd: edge.color
-        ? {
-            type: MarkerType.ArrowClosed,
-            width: 16,
-            height: 16,
-            color: edge.color,
-          }
-        : { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-    })),
-  };
-}
-
-function fromFlow(
-  nodes: AcademicNode[],
-  edges: Edge[],
-  viewport: Viewport,
-): BoardDocument {
-  return {
-    v: 1,
-    engine: "xyflow",
-    viewport,
-    nodes: nodes.map((node) => ({
-      id: node.id,
-      type: (node.type as BoardNodeKind) || "item",
-      position: node.position,
-      width:
-        node.width ??
-        (typeof node.style?.width === "number" ? node.style.width : undefined),
-      height:
-        node.height ??
-        (typeof node.style?.height === "number"
-          ? node.style.height
-          : undefined),
-      data: node.data,
-    })),
-    edges: edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      sourceHandle: edge.sourceHandle ?? null,
-      targetHandle: edge.targetHandle ?? null,
-      label: typeof edge.label === "string" ? edge.label : undefined,
-      dashed: edge.style?.strokeDasharray ? true : undefined,
-      color:
-        typeof edge.style?.stroke === "string" ? edge.style.stroke : undefined,
-    })),
-  };
 }
 
 interface ContextMenuState {
@@ -281,7 +259,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     () => parseBoardDocument(props.initialSnapshot ?? demoBoard()),
     [props.initialSnapshot],
   );
-  const seed = useMemo(() => toFlow(initial), [initial]);
+  const seed = useMemo(() => boardDocumentToFlow(initial), [initial]);
   const [nodes, setNodes] = useState<AcademicNode[]>(seed.nodes);
   const [edges, setEdges] = useState<Edge[]>(seed.edges);
   const [theme, setTheme] = useState<WhiteboardTheme>(props.theme);
@@ -305,12 +283,16 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const viewportRef = useRef<Viewport>(
     initial.viewport ?? { x: 0, y: 0, zoom: 1 },
   );
-  const revRef = useRef(0);
-  const historyRef = useRef<BoardDocument[]>([]);
-  const futureRef = useRef<BoardDocument[]>([]);
   const flowRef = useRef<ReactFlowInstance<AcademicNode> | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
+  const documentHistoryRef = useRef<BoardDocumentHistory | null>(null);
+  if (!documentHistoryRef.current) {
+    documentHistoryRef.current = new BoardDocumentHistory((revision) =>
+      propsRef.current.onChange(revision),
+    );
+  }
+  const documentHistory = documentHistoryRef.current;
   const pendingPicksRef = useRef(new Map<string, string>());
   const runtimeRef = useRef<WhiteboardRuntime | null>(null);
   const drawRef = useRef<DrawSession | null>(null);
@@ -319,9 +301,8 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   activeToolRef.current = activeTool;
 
   const bump = useCallback(() => {
-    revRef.current += 1;
-    propsRef.current.onChange(revRef.current);
-  }, []);
+    documentHistory.changed();
+  }, [documentHistory]);
 
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
@@ -329,18 +310,21 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   edgesRef.current = edges;
 
   const snapshotNow = useCallback(
-    () => fromFlow(nodesRef.current, edgesRef.current, viewportRef.current),
+    () =>
+      flowToBoardDocument(
+        nodesRef.current,
+        edgesRef.current,
+        viewportRef.current,
+      ),
     [],
   );
 
   const pushHistory = useCallback(() => {
-    historyRef.current.push(snapshotNow());
-    if (historyRef.current.length > 80) historyRef.current.shift();
-    futureRef.current = [];
-  }, [snapshotNow]);
+    documentHistory.push(snapshotNow());
+  }, [documentHistory, snapshotNow]);
 
   const applyDocument = useCallback((doc: BoardDocument) => {
-    const next = toFlow(parseBoardDocument(doc));
+    const next = boardDocumentToFlow(parseBoardDocument(doc));
     setNodes(next.nodes);
     setEdges(next.edges);
     viewportRef.current = doc.viewport ?? { x: 0, y: 0, zoom: 1 };
@@ -389,7 +373,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         }) ?? { x: 120, y: 120 };
       const nodeId = newId(kind);
       const spec = getNodeSpec(kind);
-      const created = toFlow({
+      const created = boardDocumentToFlow({
         v: 1,
         engine: "xyflow",
         nodes: [
@@ -465,9 +449,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const previous = preDrawRef.current;
     preDrawRef.current = null;
     if (previous) {
-      historyRef.current.push(previous);
-      if (historyRef.current.length > 80) historyRef.current.shift();
-      futureRef.current = [];
+      documentHistory.push(previous);
     }
     setNodes((current) =>
       current.map((node) => ({
@@ -477,7 +459,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     );
     setActiveTool(toolAfterDraw(session.kind));
     bump();
-  }, [bump]);
+  }, [bump, documentHistory]);
 
   const beginDraw = useCallback(
     (
@@ -497,7 +479,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       });
       preDrawRef.current = snapshotNow();
       const created = applyDrawFrame(
-        toFlow({
+        boardDocumentToFlow({
           v: 1,
           engine: "xyflow",
           nodes: [createBoardNode(kind, origin, nodeId)],
@@ -702,21 +684,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       pushHistory();
       setEdges((currentEdges) =>
         currentEdges.map((item) =>
-          item.id === edgeId
-            ? {
-                ...item,
-                style: {
-                  ...(item.style ?? {}),
-                  stroke: next,
-                },
-                markerEnd: {
-                  type: MarkerType.ArrowClosed,
-                  width: 16,
-                  height: 16,
-                  color: next,
-                },
-              }
-            : item,
+          item.id === edgeId ? withEdgeColor(item, next) : item,
         ),
       );
       bump();
@@ -824,7 +792,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       pushHistory();
       setNodes((current) => [
         ...current,
-        toFlow({
+        boardDocumentToFlow({
           v: 1,
           engine: "xyflow",
           nodes: [createBoardNode("item", position, nodeId)],
@@ -950,22 +918,18 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       setLabels,
       loadSnapshot(snapshot) {
         applyDocument(parseBoardDocument(snapshot));
-        bump();
+        documentHistory.replace();
       },
       getSnapshot: snapshotNow,
       undo() {
-        const previous = historyRef.current.pop();
+        const previous = documentHistory.undo(snapshotNow());
         if (!previous) return;
-        futureRef.current.push(snapshotNow());
         applyDocument(previous);
-        bump();
       },
       redo() {
-        const next = futureRef.current.pop();
+        const next = documentHistory.redo(snapshotNow());
         if (!next) return;
-        historyRef.current.push(snapshotNow());
         applyDocument(next);
-        bump();
       },
       resolvePick(requestId, nodeId, data) {
         if (pendingPicksRef.current.get(requestId) !== nodeId) return;
@@ -988,7 +952,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     };
     runtimeRef.current = runtime;
     propsRef.current.onReady(runtime);
-  }, [applyDocument, bump, pushHistory, snapshotNow]);
+  }, [applyDocument, bump, documentHistory, pushHistory, snapshotNow]);
 
   useEffect(() => {
     setTheme(props.theme);
@@ -1189,6 +1153,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 ? 999
                 : (editingNode.data.radius ?? 8) *
                   (viewportRef.current.zoom || 1),
+            ...verticalAlignmentStyle(editingNode.data),
           }}
         >
           <textarea
@@ -1197,7 +1162,6 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             value={editing.value}
             style={{
               ...labelTextStyle(editingNode.data),
-              lineHeight: `${nodeSize(editingNode).height * (viewportRef.current.zoom || 1)}px`,
               fontSize:
                 (editingNode.data.fontSize || 16) *
                 (viewportRef.current.zoom || 1),
@@ -1221,14 +1185,12 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 event.key.toLowerCase() === "b"
               ) {
                 event.preventDefault();
-                updateNode(editing.nodeId, (current) => ({
-                  ...current,
-                  data: {
-                    ...current.data,
+                updateNode(editing.nodeId, (current) =>
+                  mergeEditingStyle(current, editing.value, {
                     fontWeight:
                       current.data.fontWeight === "bold" ? "normal" : "bold",
-                  },
-                }));
+                  }),
+                );
                 return;
               }
               if (event.key === "Enter" && !event.shiftKey) {
@@ -1309,6 +1271,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       {editing && editingNode && editingScreen ? (
         <TextStyleBar
           data={editingNode.data}
+          labels={labels}
           left={
             editingScreen.x +
             (nodeSize(editingNode).width * (viewportRef.current.zoom || 1)) /
@@ -1321,16 +1284,16 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           }}
           onChange={(patch) => {
             holdEditFocusRef.current = true;
-            updateNode(editing.nodeId, (current) => ({
-              ...current,
-              data: { ...current.data, ...patch },
-            }));
+            updateNode(editing.nodeId, (current) =>
+              mergeEditingStyle(current, editing.value, patch),
+            );
           }}
         />
       ) : null}
       {styleNode && styleScreen ? (
         <StyleBar
           node={styleNode}
+          labels={labels}
           left={styleScreen.x + (nodeSize(styleNode).width * zoom) / 2 - 280}
           top={Math.max(8, styleScreen.y - 56)}
           onChange={(patch) => {
@@ -1349,7 +1312,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         />
       ) : null}
       {helpOpen ? (
-        <ShortcutsOverlay onClose={() => setHelpOpen(false)} />
+        <ShortcutsOverlay labels={labels} onClose={() => setHelpOpen(false)} />
       ) : null}
     </div>
   );

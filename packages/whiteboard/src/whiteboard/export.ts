@@ -25,24 +25,120 @@ function escapeXml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function paintId(prefix: string, color: string): string {
+  const token = color.replace(/[^a-z0-9_-]/gi, "") || "default";
+  return `${prefix}-${token}`;
+}
+
+function strokeDash(
+  data: BoardDocument["nodes"][number]["data"],
+): string | undefined {
+  if (data.strokeStyle === "dotted") return "2 6";
+  if (data.strokeStyle === "dashed" || data.dashed) return "12 9";
+  return undefined;
+}
+
+function attribute(name: string, value: string | number | undefined): string {
+  return value === undefined ? "" : ` ${name}="${escapeXml(String(value))}"`;
+}
+
+function textElement(
+  node: BoardDocument["nodes"][number],
+  width: number,
+  height: number,
+): string {
+  if (!node.data.title) return "";
+  const padding = 12;
+  const align = node.data.textAlign || "center";
+  const vertical = node.data.verticalAlign || "middle";
+  const x =
+    node.position.x +
+    (align === "left"
+      ? padding
+      : align === "right"
+        ? width - padding
+        : width / 2);
+  const y =
+    node.position.y +
+    (vertical === "top"
+      ? padding + (node.data.fontSize || 16) * 0.8
+      : vertical === "bottom"
+        ? height - padding
+        : height / 2 + (node.data.fontSize || 16) * 0.35);
+  const anchor =
+    align === "left" ? "start" : align === "right" ? "end" : "middle";
+  return `<text${attribute("x", x)}${attribute("y", y)}${attribute("font-family", node.data.fontFamily || "system-ui, sans-serif")}${attribute("font-size", node.data.fontSize || 16)}${attribute("font-weight", node.data.fontWeight || "normal")}${attribute("font-style", node.data.fontStyle || "normal")}${attribute("text-decoration", node.data.textDecoration || "none")}${attribute("text-anchor", anchor)}${attribute("fill", node.data.textColor || "#111827")}${attribute("opacity", node.data.textOpacity ?? 1)}>${escapeXml(node.data.title)}</text>`;
+}
+
+export function containGeometry(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number,
+  targetHeight: number,
+): { x: number; y: number; width: number; height: number } {
+  const scale = Math.min(
+    targetWidth / sourceWidth,
+    targetHeight / sourceHeight,
+  );
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
+  return {
+    x: (targetWidth - width) / 2,
+    y: (targetHeight - height) / 2,
+    width,
+    height,
+  };
+}
+
 export function buildBoardSvg(doc: BoardDocument): string {
   const bounds = boundsOf(doc.nodes as unknown as AcademicNode[]);
+  const definitions = new Map<string, string>();
+  const arrowMarker = (color: string) => {
+    const id = paintId("arrow", color);
+    definitions.set(
+      id,
+      `<marker id="${escapeXml(id)}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${escapeXml(color)}"/></marker>`,
+    );
+    return id;
+  };
+  const fillValue = (
+    fill: string,
+    fillStyle: (typeof doc.nodes)[number]["data"]["fillStyle"],
+  ) => {
+    if (fillStyle === "none" || fill === "transparent") return "none";
+    if (fillStyle !== "hatch") return fill;
+    const id = paintId("hatch", fill);
+    definitions.set(
+      id,
+      `<pattern id="${escapeXml(id)}" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="${escapeXml(fill)}"/><path d="M-2 2L2-2M0 8L8 0M6 10L10 6" stroke="currentColor" stroke-width="1" opacity="0.25"/></pattern>`,
+    );
+    return `url(#${id})`;
+  };
   const shapes = doc.nodes
     .map((node) => {
       const x = node.position.x;
       const y = node.position.y;
       const width = node.width ?? 200;
       const height = node.height ?? 120;
-      const title = escapeXml(node.data.title || node.type);
+      const stroke = node.data.stroke || "#94a3b8";
+      const fill = fillValue(node.data.fill || "#ffffff", node.data.fillStyle);
+      const strokeWidth = node.data.strokeWidth ?? 2;
+      const dash = strokeDash(node.data);
+      const common = `${attribute("fill", fill)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", node.data.strokeOpacity)}${attribute("stroke-dasharray", dash)}`;
       if (node.type === "ellipse") {
-        return `<ellipse cx="${x + width / 2}" cy="${y + height / 2}" rx="${width / 2}" ry="${height / 2}" fill="#f8fafc" stroke="#94a3b8"/>`;
+        return `<g><ellipse${attribute("cx", x + width / 2)}${attribute("cy", y + height / 2)}${attribute("rx", width / 2)}${attribute("ry", height / 2)}${common}/>${textElement(node, width, height)}</g>`;
       }
       if (node.type === "line" || node.type === "arrow") {
-        const arrow = node.type === "arrow" ? ` marker-end="url(#arrow)"` : "";
-        return `<line x1="${x}" y1="${y + height / 2}" x2="${x + width}" y2="${y + height / 2}" stroke="#94a3b8" stroke-width="2"${arrow}/>`;
+        const from = node.data.from ?? { x: 0, y: height / 2 };
+        const to = node.data.to ?? { x: width, y: height / 2 };
+        const marker =
+          node.type === "arrow"
+            ? attribute("marker-end", `url(#${arrowMarker(stroke)})`)
+            : "";
+        return `<line${attribute("x1", x + from.x)}${attribute("y1", y + from.y)}${attribute("x2", x + to.x)}${attribute("y2", y + to.y)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", node.data.strokeOpacity)}${attribute("stroke-dasharray", dash)}${marker}/>`;
       }
-      const rx = node.type === "rect" ? 4 : 8;
-      return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${rx}" fill="#ffffff" stroke="#94a3b8"/><text x="${x + 12}" y="${y + 24}" font-size="12" fill="#111827">${title}</text></g>`;
+      const rx = node.type === "rect" ? (node.data.radius ?? 8) : 8;
+      return `<g><rect${attribute("x", x)}${attribute("y", y)}${attribute("width", width)}${attribute("height", height)}${attribute("rx", rx)}${common}/>${textElement(node, width, height)}</g>`;
     })
     .join("\n");
   const edges = doc.edges
@@ -54,12 +150,17 @@ export function buildBoardSvg(doc: BoardDocument): string {
       const sy = source.position.y + (source.height ?? 120) / 2;
       const tx = target.position.x + (target.width ?? 200) / 2;
       const ty = target.position.y + (target.height ?? 120) / 2;
-      return `<line x1="${sx}" y1="${sy}" x2="${tx}" y2="${ty}" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>`;
+      const color = edge.color || "#94a3b8";
+      const marker =
+        edge.arrow === false
+          ? ""
+          : attribute("marker-end", `url(#${arrowMarker(color)})`);
+      return `<line${attribute("x1", sx)}${attribute("y1", sy)}${attribute("x2", tx)}${attribute("y2", ty)}${attribute("stroke", color)} stroke-width="1.5"${attribute("stroke-dasharray", edge.dashed ? "6 4" : undefined)}${marker}/>`;
     })
     .filter(Boolean)
     .join("\n");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}">
-<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/></marker></defs>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${bounds.width}" height="${bounds.height}" viewBox="${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}">
+<defs>${[...definitions.values()].join("")}</defs>
 <rect x="${bounds.x}" y="${bounds.y}" width="${bounds.width}" height="${bounds.height}" fill="#fbfbfc"/>
 ${edges}
 ${shapes}
@@ -108,7 +209,13 @@ export function svgToPngDataUrl(
       }
       ctx.fillStyle = "#fbfbfc";
       ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(image, 0, 0, width, height);
+      const target = containGeometry(
+        image.naturalWidth,
+        image.naturalHeight,
+        width,
+        height,
+      );
+      ctx.drawImage(image, target.x, target.y, target.width, target.height);
       try {
         resolve(canvas.toDataURL("image/png"));
       } catch (error) {

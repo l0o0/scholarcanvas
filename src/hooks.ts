@@ -18,6 +18,7 @@ import {
 import {
   closeAllWhiteboards,
   closeWhiteboardsForWindow,
+  flushAllWhiteboards,
   injectWhiteboardStyles,
   registerWhiteboardFileOpenInterceptor,
   registerWhiteboardMenus,
@@ -117,6 +118,7 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
 async function onShutdown(): Promise<void> {
   await closeAllMarkdownWindows();
   await flushAllSessions();
+  await flushAllWhiteboards();
   await closeAllWhiteboards();
   await unregisterSidebarSection();
   disposeMarkdownRenderer();

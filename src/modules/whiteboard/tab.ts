@@ -5,6 +5,7 @@ import { createWhiteboardEditor } from "./editor";
 import { readBoardFile, writeBoardFile } from "./file-io";
 import { parseBoardDocument } from "./snapshot";
 import { whiteboardChannel } from "./protocol";
+import { WhiteboardSaveCoordinator } from "./save-coordinator";
 import { whiteboardRegistry, type WhiteboardSession } from "./session-registry";
 import { WHITEBOARD_TAB_TYPE } from "./tabHooks";
 import { isWhiteboardAttachment } from "./detect";
@@ -20,7 +21,7 @@ function newBoardId() {
 }
 
 function isDirty(session: WhiteboardSession) {
-  return session.currentRev !== session.savedRev;
+  return session.saveCoordinator?.dirty ?? false;
 }
 
 function applyShellTheme(root: HTMLElement | undefined, dark: boolean) {
@@ -582,34 +583,16 @@ async function saveSession(
   session: WhiteboardSession,
   opts: { silent?: boolean } = {},
 ): Promise<boolean> {
-  if (!session.editor) return false;
+  const saveCoordinator = session.saveCoordinator;
+  if (!saveCoordinator) return false;
   if (!isDirty(session) && opts.silent) return true;
-  session.editor.setSaveState("saving");
   try {
-    await session.editor.ready;
-    const item = Zotero.Items.get(session.itemID);
-    if (!item || !isWhiteboardAttachment(item)) {
-      throw new Error("Board attachment is gone");
-    }
-    const path = (await item.getFilePathAsync()) || session.path;
-    if (!path) throw new Error("Board file not found");
-    const shot = await session.editor.requestSnapshot();
-    const doc = parseBoardDocument(shot.snapshot);
-    session.path = await writeBoardFile(path, doc);
-    await cleanupUnusedAssets(session, doc);
-    // Keep currentRev as-is: changes may have arrived while we were
-    // awaiting the snapshot, and currentRev only moves forward via
-    // onChange. savedRev tracks what is actually on disk.
-    session.savedRev = shot.rev;
-    session.title = attachmentTitle(item);
-    refreshTabTitle(session);
-    session.editor.setSaveState("saved");
+    await saveCoordinator.request({ force: !opts.silent });
     if (!opts.silent) toast(getString("whiteboard-saved"), "success");
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     ztoolkit.log("Failed to save whiteboard", error);
-    session.editor.setSaveState("error");
     if (!opts.silent) {
       toast(`${getString("whiteboard-save-failed")}: ${message}`);
     }
@@ -677,6 +660,32 @@ function mountWhiteboardUI(
   container.appendChild(root);
 
   session.view = { root, host };
+  session.saveCoordinator = new WhiteboardSaveCoordinator({
+    getSnapshot: async () => {
+      if (!session.editor) throw new Error("Canvas editor is unavailable");
+      await session.editor.ready;
+      const shot = await session.editor.requestSnapshot();
+      return {
+        rev: shot.rev,
+        document: parseBoardDocument(shot.snapshot),
+      };
+    },
+    write: async ({ document }) => {
+      const item = Zotero.Items.get(session.itemID);
+      if (!item || !isWhiteboardAttachment(item)) {
+        throw new Error("Canvas attachment is gone");
+      }
+      const path = (await item.getFilePathAsync()) || session.path;
+      if (!path) throw new Error("Canvas file not found");
+      session.path = await writeBoardFile(path, document);
+      await cleanupUnusedAssets(session, document);
+      session.title = attachmentTitle(item);
+    },
+    onStateChange: (state) => {
+      session.editor?.setSaveState(state);
+      refreshTabTitle(session);
+    },
+  });
   session.editor = createWhiteboardEditor(host, {
     win,
     channel: whiteboardChannel(session.tabID, session.boardId),
@@ -761,7 +770,7 @@ function mountWhiteboardUI(
       shortcutRedo: getString("whiteboard-shortcut-redo"),
     },
     onChange(rev) {
-      session.currentRev = rev;
+      session.saveCoordinator?.markChanged(rev);
       refreshTabTitle(session);
       scheduleAutosave(session);
     },
@@ -867,8 +876,6 @@ export async function openWhiteboardTab(
     win,
     path,
     title,
-    currentRev: 0,
-    savedRev: 0,
   };
   whiteboardRegistry.register(session);
 
@@ -897,21 +904,36 @@ export async function openWhiteboardTab(
   return tabID;
 }
 
-export async function closeWhiteboardSession(tabID: string) {
+export async function closeWhiteboardSession(tabID: string): Promise<boolean> {
   const session = whiteboardRegistry.get(tabID);
-  if (!session || session.closing) return;
+  if (!session || session.closing) return true;
   if (session.autosaveTimer) {
     session.win.clearTimeout(session.autosaveTimer);
     session.autosaveTimer = undefined;
   }
   if (isDirty(session)) {
     const choice = promptUnsaved(session.win);
-    if (choice === "save") await saveSession(session);
+    if (choice === "save") {
+      const saved = await saveSession(session);
+      if (!saved) return false;
+      try {
+        await session.saveCoordinator?.flush();
+      } catch {
+        return false;
+      }
+    }
+  } else {
+    try {
+      await session.saveCoordinator?.flush();
+    } catch {
+      return false;
+    }
   }
   session.closing = true;
   session.unbindTheme?.();
   session.editor?.destroy();
   whiteboardRegistry.unregister(tabID);
+  return true;
 }
 
 export async function closeWhiteboardsForWindow(win: Window) {
@@ -927,5 +949,13 @@ export async function closeAllWhiteboards() {
     whiteboardRegistry
       .all()
       .map((session) => closeWhiteboardSession(session.tabID)),
+  );
+}
+
+export async function flushAllWhiteboards(): Promise<void> {
+  await Promise.all(
+    whiteboardRegistry
+      .all()
+      .map((session) => session.saveCoordinator?.flush() ?? Promise.resolve()),
   );
 }

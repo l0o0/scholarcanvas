@@ -15,11 +15,9 @@ function session(
     tabID,
     boardId,
     itemID,
-    path: `/tmp/${boardId}.board`,
+    path: `/tmp/${boardId}.canvas`,
     win: win as WhiteboardSession["win"],
     title: "Whiteboard",
-    currentRev: 0,
-    savedRev: 0,
   };
 }
 

@@ -2,6 +2,7 @@ export {
   openWhiteboardTab,
   closeAllWhiteboards,
   closeWhiteboardsForWindow,
+  flushAllWhiteboards,
 } from "./tab";
 export { registerWhiteboardTabHooks, WHITEBOARD_TAB_TYPE } from "./tabHooks";
 export { registerWhiteboardMenus, unregisterWhiteboardMenus } from "./menu";

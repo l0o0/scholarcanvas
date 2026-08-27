@@ -1,4 +1,5 @@
 import type { WhiteboardHandle } from "./editor";
+import type { WhiteboardSaveCoordinator } from "./save-coordinator";
 
 export interface WhiteboardView {
   root: HTMLElement;
@@ -12,8 +13,7 @@ export interface WhiteboardSession {
   win: _ZoteroTypes.MainWindow;
   path: string;
   title: string;
-  currentRev: number;
-  savedRev: number;
+  saveCoordinator?: WhiteboardSaveCoordinator;
   editor?: WhiteboardHandle;
   view?: WhiteboardView;
   closing?: boolean;

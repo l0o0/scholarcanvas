@@ -21,7 +21,7 @@ export function registerWhiteboardTabHooks(win: _ZoteroTypes.MainWindow) {
   }) => {
     const session = tab.id ? whiteboardRegistry.get(tab.id) : undefined;
     if (!session) return "Whiteboard";
-    const dirty = session.currentRev !== session.savedRev ? " *" : "";
+    const dirty = session.saveCoordinator?.dirty ? " *" : "";
     return `${session.title}${dirty}`;
   };
 

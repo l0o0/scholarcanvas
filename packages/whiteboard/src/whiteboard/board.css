@@ -242,6 +242,18 @@
   line-height: 1.35;
 }
 
+.zmd-board-card.is-text {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.zmd-board-card-label-layout {
+  display: flex;
+  flex: 1;
+  width: 100%;
+}
+
 .zmd-board-card-meta,
 .zmd-board-card-preview {
   margin: 6px 0 0;
@@ -498,10 +510,20 @@
 }
 
 .zmd-board-stroke {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   overflow: visible;
+}
+
+.zmd-board-stroke-label {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: 0 12px;
+  pointer-events: none;
 }
 
 .zmd-board-shape.is-line,

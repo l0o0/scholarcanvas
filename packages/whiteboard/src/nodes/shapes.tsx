@@ -10,9 +10,14 @@ function point(value: { x: number; y: number } | undefined, fallback: number) {
 export function TextNode({ data, selected }: NodeProps<AcademicNode>) {
   return (
     <CardShell kind="text" selected={selected}>
-      <p className="zmd-board-card-title" style={labelTextStyle(data)}>
-        {data.title || "Text"}
-      </p>
+      <div
+        className="zmd-board-card-label-layout"
+        style={verticalAlignmentStyle(data)}
+      >
+        <p className="zmd-board-card-title" style={labelTextStyle(data)}>
+          {data.title || "Text"}
+        </p>
+      </div>
     </CardShell>
   );
 }
@@ -112,7 +117,18 @@ function StrokeShape({
           markerEnd={arrow ? `url(#${markerId})` : undefined}
         />
       </svg>
-      {data.title ? <span>{data.title}</span> : null}
+      {data.title ? (
+        <span
+          className="zmd-board-stroke-label"
+          style={{
+            ...labelTextStyle(data),
+            ...verticalAlignmentStyle(data),
+            display: "flex",
+          }}
+        >
+          {data.title}
+        </span>
+      ) : null}
     </div>
   );
 }

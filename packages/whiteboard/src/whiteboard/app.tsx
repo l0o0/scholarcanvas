@@ -72,6 +72,7 @@ import {
   verticalAlignmentStyle,
   withEdgeColor,
 } from "./document";
+import { armEditFocusHold, handleEditBlur } from "./editFocus";
 import { IconCopy, IconEdit, IconExport, IconOpen, IconTrash } from "./icons";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
@@ -1171,11 +1172,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               })
             }
             onBlur={() => {
-              if (holdEditFocusRef.current) {
-                holdEditFocusRef.current = false;
-                return;
-              }
-              commitEdit();
+              handleEditBlur(holdEditFocusRef, commitEdit);
             }}
             onKeyDown={(event) => {
               if (
@@ -1278,10 +1275,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           }
           top={Math.max(8, editingScreen.y - 56)}
           onHoldFocus={() => {
-            holdEditFocusRef.current = true;
+            armEditFocusHold(holdEditFocusRef);
           }}
           onChange={(patch) => {
-            holdEditFocusRef.current = true;
             updateNode(editing.nodeId, (current) =>
               mergeEditingStyle(current, editing.value, patch),
             );

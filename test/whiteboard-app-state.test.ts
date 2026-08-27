@@ -9,6 +9,11 @@ import {
   verticalAlignmentStyle,
   withEdgeColor,
 } from "../packages/whiteboard/src/whiteboard/document.ts";
+import {
+  armEditFocusHold,
+  consumeEditFocusHold,
+  handleEditBlur,
+} from "../packages/whiteboard/src/whiteboard/editFocus.ts";
 import { parseBoardDocument } from "../packages/whiteboard/src/model/snapshot.ts";
 
 const EMPTY = {
@@ -74,6 +79,48 @@ test("style transition commits the current edit value in one node update", () =>
   assert.equal(next.data.title, "Typed title");
   assert.equal(next.data.fontSize, 24);
   assert.equal(node.data.title, "Old");
+});
+
+test("a prevented style-bar blur cannot suppress the next real edit commit", () => {
+  const focusHold = { current: false };
+  let release = () => {};
+  let editingValue = "First edit";
+  let savedValue = "";
+
+  armEditFocusHold(focusHold, (callback) => {
+    release = callback;
+  });
+  assert.equal(focusHold.current, true);
+
+  editingValue = "Second edit";
+  release();
+  handleEditBlur(focusHold, () => {
+    savedValue = editingValue;
+  });
+
+  assert.equal(savedValue, "Second edit");
+});
+
+test("an immediate style-control blur consumes the focus hold once", () => {
+  const focusHold = { current: false };
+  armEditFocusHold(focusHold, () => {});
+
+  assert.equal(consumeEditFocusHold(focusHold), true);
+  assert.equal(consumeEditFocusHold(focusHold), false);
+});
+
+test("an older release cannot clear a newer focus hold", () => {
+  const focusHold = { current: false };
+  const releases: Array<() => void> = [];
+  const schedule = (callback: () => void) => {
+    releases.push(callback);
+  };
+
+  armEditFocusHold(focusHold, schedule);
+  armEditFocusHold(focusHold, schedule);
+  releases[0]();
+
+  assert.equal(consumeEditFocusHold(focusHold), true);
 });
 
 test("edge color changes recolor existing arrows without recreating disabled ones", () => {

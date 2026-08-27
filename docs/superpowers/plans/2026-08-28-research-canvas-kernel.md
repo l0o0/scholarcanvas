@@ -39,7 +39,7 @@
 - Produces: `CanvasFile`, `StoredCanvasFormat`, `boardDocumentToCanvasFile()`, `canvasFileToBoardDocument()`, `parseStoredCanvas()`, and `serializeStoredCanvas()` from `packages/whiteboard/src/model/canvas-file.ts`.
 - Preserves: optional `extra` records on `BoardDocument`, `BoardNode`, and `BoardEdge`.
 
-- [ ] **Step 1: Write failing codec and passthrough tests**
+- [x] **Step 1: Write failing codec and passthrough tests**
 
 Create `test/whiteboard-canvas-file.test.ts`:
 
@@ -162,7 +162,7 @@ test("serializes canonical and legacy formats explicitly", () => {
 });
 ```
 
-- [ ] **Step 2: Run the codec test and verify red**
+- [x] **Step 2: Run the codec test and verify red**
 
 Run:
 
@@ -172,7 +172,7 @@ pnpm exec tsx --test test/whiteboard-canvas-file.test.ts
 
 Expected: FAIL with `Cannot find module .../canvas-file.ts`.
 
-- [ ] **Step 3: Preserve unknown runtime fields**
+- [x] **Step 3: Preserve unknown runtime fields**
 
 In `packages/whiteboard/src/model/snapshot.ts`, extend the runtime types:
 
@@ -230,7 +230,7 @@ function withoutKeys(
 
 Build parsed node data as `{ ...data, kind, title, ...normalizedKnownFields }`, and store non-runtime node, edge, and root fields in `extra`. Do not put `extra` itself back inside `extra`.
 
-- [ ] **Step 4: Implement the canonical codec**
+- [x] **Step 4: Implement the canonical codec**
 
 Create `packages/whiteboard/src/model/canvas-file.ts` with these public definitions:
 
@@ -316,7 +316,7 @@ export * from "./protocol";
 export * from "./canvas-file";
 ```
 
-- [ ] **Step 5: Run focused and existing model tests**
+- [x] **Step 5: Run focused and existing model tests**
 
 Run:
 
@@ -326,7 +326,7 @@ pnpm exec tsx --test test/whiteboard-canvas-file.test.ts test/whiteboard-snapsho
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit the codec**
+- [x] **Step 6: Commit the codec**
 
 ```bash
 git add packages/whiteboard/src/model/canvas-file.ts packages/whiteboard/src/model/snapshot.ts packages/whiteboard/src/model/index.ts test/whiteboard-canvas-file.test.ts
@@ -354,7 +354,7 @@ git commit -m "feat(canvas): add JSON Canvas file codec"
 - Produces: `canvasFormatForPath()`, `ensureCanvasExtension()`, atomic `writeBoardFile()`, and backward-compatible `ensureBoardExtension()`.
 - Keeps: `readBoardFile()` returning a runtime `BoardDocument`.
 
-- [ ] **Step 1: Write failing extension and atomic-write tests**
+- [x] **Step 1: Write failing extension and atomic-write tests**
 
 Extend `test/whiteboard-detect.test.ts`:
 
@@ -410,7 +410,7 @@ test("writes through a same-directory atomic temporary file", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and verify red**
+- [x] **Step 2: Run the focused tests and verify red**
 
 Run:
 
@@ -420,7 +420,7 @@ pnpm exec tsx --test test/whiteboard-detect.test.ts test/whiteboard-file-io.test
 
 Expected: FAIL because `.canvas`, `canvasFormatForPath()`, `ensureCanvasExtension()`, and injected atomic writing are not implemented.
 
-- [ ] **Step 3: Update detection and new filenames**
+- [x] **Step 3: Update detection and new filenames**
 
 In `src/modules/whiteboard/detect.ts`:
 
@@ -430,7 +430,7 @@ const BOARD_EXTENSIONS = new Set(["canvas", "board", "zmdboard"]);
 
 Strip all three extensions before generating a name and return `.canvas` from `defaultBoardFilename()`.
 
-- [ ] **Step 4: Route file I/O through the correct codec**
+- [x] **Step 4: Route file I/O through the correct codec**
 
 Update `src/modules/whiteboard/file-io.ts` to expose:
 
@@ -488,13 +488,13 @@ Keep `serializeBoardDocument()` as a compatibility export that serializes canoni
 
 Update `tab.ts` to load initial files through `readBoardFile()` (or equivalently `parseStoredCanvas()`), so canonical `.canvas` files are converted to the runtime representation before mounting the iframe.
 
-- [ ] **Step 5: Create canonical content for new attachments**
+- [x] **Step 5: Create canonical content for new attachments**
 
 In `src/modules/whiteboard/create.ts`, serialize newly created documents as `canvas` and keep MIME type `application/json`. Use the generated `.canvas` filename for the attachment title.
 
 Export `ensureCanvasExtension` and `canvasFormatForPath` from `src/modules/whiteboard/index.ts`.
 
-- [ ] **Step 6: Run focused tests and update old assertions**
+- [x] **Step 6: Run focused tests and update old assertions**
 
 Update old tests that assert `.board` is the new suffix so they assert `.canvas`. Keep explicit assertions that `.board` and `.zmdboard` remain unchanged.
 
@@ -506,7 +506,7 @@ pnpm exec tsx --test test/whiteboard-detect.test.ts test/whiteboard-file-io.test
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit `.canvas` storage**
+- [x] **Step 7: Commit `.canvas` storage**
 
 ```bash
 git add src/modules/whiteboard/detect.ts src/modules/whiteboard/file-io.ts src/modules/whiteboard/create.ts src/modules/whiteboard/index.ts test/whiteboard-detect.test.ts test/whiteboard-file-io.test.ts test/whiteboard-snapshot.test.ts
@@ -528,7 +528,7 @@ git commit -m "feat(canvas): store new boards as canvas files"
 - Produces: `WhiteboardSaveCoordinator`, `WhiteboardSaveSnapshot`, and `WhiteboardSaveState`.
 - Guarantees: one writer, revision-aware follow-up writes, dirty state after failures, and an awaitable `flush()`.
 
-- [ ] **Step 1: Write failing concurrency tests**
+- [x] **Step 1: Write failing concurrency tests**
 
 Create `test/whiteboard-save-coordinator.test.ts`:
 
@@ -602,7 +602,7 @@ test("flush waits for the latest known revision", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the coordinator test and verify red**
+- [x] **Step 2: Run the coordinator test and verify red**
 
 Run:
 
@@ -612,7 +612,7 @@ pnpm exec tsx --test test/whiteboard-save-coordinator.test.ts
 
 Expected: FAIL with `Cannot find module .../save-coordinator.ts`.
 
-- [ ] **Step 3: Implement the coordinator**
+- [x] **Step 3: Implement the coordinator**
 
 Create `src/modules/whiteboard/save-coordinator.ts` with:
 
@@ -635,7 +635,7 @@ export interface WhiteboardSaveCoordinatorOptions {
 
 Implement `WhiteboardSaveCoordinator` with public `currentRev`, `savedRev`, `writing`, `lastError`, `dirty`, `markChanged(rev)`, `request({ force? })`, and `flush()`. Use one promise tail and one merged pending request. After a successful write, assign `savedRev = snapshot.rev`; if `currentRev` advanced during I/O, the drain loop takes a new snapshot and writes again. On failure, retain dirty state and rethrow.
 
-- [ ] **Step 4: Run the coordinator tests**
+- [x] **Step 4: Run the coordinator tests**
 
 Run:
 
@@ -645,7 +645,7 @@ pnpm exec tsx --test test/whiteboard-save-coordinator.test.ts
 
 Expected: 3 tests pass.
 
-- [ ] **Step 5: Commit the coordinator**
+- [x] **Step 5: Commit the coordinator**
 
 ```bash
 git add src/modules/whiteboard/save-coordinator.ts test/whiteboard-save-coordinator.test.ts
@@ -671,7 +671,7 @@ git commit -m "feat(canvas): serialize whiteboard saves"
 - Produces: one coordinator per `WhiteboardSession` and exported `flushAllWhiteboards()`.
 - Preserves: existing UI save-state messages and asset cleanup after successful saves.
 
-- [ ] **Step 1: Write a failing host integration contract**
+- [x] **Step 1: Write a failing host integration contract**
 
 Create `test/whiteboard-save-integration.test.ts`:
 
@@ -702,7 +702,7 @@ test("all save entry points call the coordinator", () => {
 });
 ```
 
-- [ ] **Step 2: Run the host integration contract and verify red**
+- [x] **Step 2: Run the host integration contract and verify red**
 
 Run:
 
@@ -712,7 +712,7 @@ pnpm exec tsx --test test/whiteboard-save-integration.test.ts
 
 Expected: FAIL because sessions still store raw revision fields and `tab.ts` writes directly.
 
-- [ ] **Step 3: Put the coordinator on each session**
+- [x] **Step 3: Put the coordinator on each session**
 
 In `src/modules/whiteboard/session-registry.ts`, replace `currentRev` and `savedRev` with:
 
@@ -752,7 +752,7 @@ session.saveCoordinator = new WhiteboardSaveCoordinator({
 });
 ```
 
-- [ ] **Step 4: Route every lifecycle action through the queue**
+- [x] **Step 4: Route every lifecycle action through the queue**
 
 Change iframe `onChange(rev)` to call `session.saveCoordinator?.markChanged(rev)` before scheduling autosave.
 
@@ -774,7 +774,7 @@ export async function flushAllWhiteboards(): Promise<void> {
 
 Export it from `src/modules/whiteboard/index.ts` and invoke it in plugin shutdown before `closeAllWhiteboards()`.
 
-- [ ] **Step 5: Add new tests to the unit suite**
+- [x] **Step 5: Add new tests to the unit suite**
 
 Append these files to `test:unit` in `package.json`:
 
@@ -783,7 +783,7 @@ Append these files to `test:unit` in `package.json`:
 - `test/whiteboard-save-coordinator.test.ts`
 - `test/whiteboard-save-integration.test.ts`
 
-- [ ] **Step 6: Run focused and full tests**
+- [x] **Step 6: Run focused and full tests**
 
 Run:
 
@@ -794,7 +794,7 @@ pnpm test:unit
 
 Expected: focused tests pass and the full suite reports 0 failures.
 
-- [ ] **Step 7: Commit the host integration**
+- [x] **Step 7: Commit the host integration**
 
 ```bash
 git add src/hooks.ts src/modules/whiteboard/session-registry.ts src/modules/whiteboard/tab.ts src/modules/whiteboard/index.ts test/whiteboard-save-integration.test.ts package.json
@@ -815,7 +815,7 @@ git commit -m "refactor(canvas): route saves through one writer"
 - Consumes: the canonical codec, extension routing, atomic writer, and save coordinator.
 - Produces: an updated `whiteboard` branch ready for the Zotero Research Bridge milestone.
 
-- [ ] **Step 1: Run formatting and lint checks**
+- [x] **Step 1: Run formatting and lint checks**
 
 Run:
 
@@ -826,7 +826,7 @@ pnpm exec eslint packages/whiteboard/src/model src/modules/whiteboard test/white
 
 Expected: both commands exit with status 0.
 
-- [ ] **Step 2: Run all unit tests**
+- [x] **Step 2: Run all unit tests**
 
 Run:
 
@@ -836,7 +836,7 @@ pnpm test:unit
 
 Expected: every test passes with 0 failures.
 
-- [ ] **Step 3: Build both whiteboard targets**
+- [x] **Step 3: Build both whiteboard targets**
 
 Run:
 
@@ -847,7 +847,7 @@ pnpm run build
 
 Expected: standalone Vite build, Zotero Plugin Scaffold build, and TypeScript checks all exit with status 0.
 
-- [ ] **Step 4: Inspect the packaged canvas assets**
+- [x] **Step 4: Inspect the packaged canvas assets**
 
 Run:
 
@@ -858,7 +858,7 @@ test -f .scaffold/build/addon/content/whiteboard/index.html
 
 Expected: both commands exit with status 0.
 
-- [ ] **Step 5: Check scope and repository state**
+- [x] **Step 5: Check scope and repository state**
 
 Run:
 
@@ -870,7 +870,7 @@ git log --oneline --decorate -8
 
 Expected: no uncommitted production or test changes remain after updating this plan's checkboxes; commits are limited to the main-branch merge, the plan, the codec, `.canvas` storage, and save lifecycle work.
 
-- [ ] **Step 6: Commit the completed plan checklist**
+- [x] **Step 6: Commit the completed plan checklist**
 
 ```bash
 git add docs/superpowers/plans/2026-08-28-research-canvas-kernel.md

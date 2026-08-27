@@ -1,5 +1,5 @@
-/** .board is the current extension; .zmdboard is accepted for legacy files. */
-const BOARD_EXTENSIONS = new Set(["board", "zmdboard"]);
+/** .canvas is canonical; .board and .zmdboard remain legacy-compatible. */
+const BOARD_EXTENSIONS = new Set(["canvas", "board", "zmdboard"]);
 
 export function isWhiteboardAttachment(
   item: Zotero.Item | false | undefined,
@@ -26,7 +26,7 @@ export function defaultBoardFilename(
 ): string {
   const raw = (title || "Whiteboard").trim() || "Whiteboard";
   const safe = Zotero.File.getValidFileName(raw).replace(
-    /\.(board|zmdboard)$/i,
+    /\.(canvas|board|zmdboard)$/i,
     "",
   );
   const timestamp = [
@@ -40,7 +40,7 @@ export function defaultBoardFilename(
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
-  return `${base || "Whiteboard"}-${timestamp}.board`;
+  return `${base || "Whiteboard"}-${timestamp}.canvas`;
 }
 
 function pad2(value: number) {

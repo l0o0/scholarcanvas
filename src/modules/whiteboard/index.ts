@@ -15,6 +15,8 @@ export {
 export { injectWhiteboardStyles } from "./styles";
 export {
   serializeBoardDocument,
+  canvasFormatForPath,
+  ensureCanvasExtension,
   ensureBoardExtension,
   basename,
 } from "./file-io";

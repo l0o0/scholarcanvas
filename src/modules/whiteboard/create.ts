@@ -40,7 +40,7 @@ export async function createWhiteboardAttachment(
     ? parent.getField("title") || parent.getDisplayTitle()
     : "Whiteboard";
   const filename = defaultBoardFilename(String(titleBase));
-  const content = serializeBoardDocument(options.doc ?? emptyBoard());
+  const content = serializeBoardDocument(options.doc ?? emptyBoard(), "canvas");
 
   const tmpDir = Zotero.getTempDirectory().path;
   const tmpPath = PathUtils.join(

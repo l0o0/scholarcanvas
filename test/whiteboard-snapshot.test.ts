@@ -123,7 +123,7 @@ test("keeps text style on a shape label", () => {
   assert.equal(doc.nodes[0].data.textColor, "#2563eb");
 });
 
-test("serializes a board as pretty JSON with a board suffix", () => {
+test("serializes a board as JSON Canvas with a canvas suffix", () => {
   const json = serializeBoardDocument(
     parseBoardDocument({
       nodes: [
@@ -136,10 +136,11 @@ test("serializes a board as pretty JSON with a board suffix", () => {
       ],
     }),
   );
-  assert.match(json, /"engine": "xyflow"/);
+  assert.match(json, /"schemaVersion": 1/);
   assert.match(json, /"title": "Hello"/);
-  assert.equal(ensureBoardExtension("/tmp/board"), "/tmp/board.board");
-  assert.equal(ensureBoardExtension("/tmp/board.json"), "/tmp/board.json");
+  assert.equal(ensureBoardExtension("/tmp/board"), "/tmp/board.canvas");
+  assert.equal(ensureBoardExtension("/tmp/board.canvas"), "/tmp/board.canvas");
+  assert.equal(ensureBoardExtension("/tmp/board.board"), "/tmp/board.board");
   assert.equal(
     ensureBoardExtension("/tmp/board.zmdboard"),
     "/tmp/board.zmdboard",

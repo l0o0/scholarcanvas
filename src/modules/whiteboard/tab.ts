@@ -2,7 +2,7 @@ import { resolveEditorTheme } from "../markdown/editor";
 import { getString } from "../../utils/locale";
 import { ensureDOMGlobals } from "../../utils/dom";
 import { createWhiteboardEditor } from "./editor";
-import { writeBoardFile } from "./file-io";
+import { readBoardFile, writeBoardFile } from "./file-io";
 import { parseBoardDocument } from "./snapshot";
 import { whiteboardChannel } from "./protocol";
 import { whiteboardRegistry, type WhiteboardSession } from "./session-registry";
@@ -831,12 +831,9 @@ export async function openWhiteboardTab(
     return null;
   }
 
-  let initial: unknown = {};
+  let initial: unknown;
   try {
-    const text = (await Zotero.File.getContentsAsync(path)) as string;
-    if (text.trim()) {
-      initial = JSON.parse(text);
-    }
+    initial = await readBoardFile(path);
   } catch (error) {
     ztoolkit.log("Failed to read whiteboard file", error);
     toast(getString("whiteboard-open-failed"));

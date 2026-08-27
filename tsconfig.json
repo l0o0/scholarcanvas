@@ -3,6 +3,6 @@
   "compilerOptions": {
     "jsx": "react-jsx"
   },
-  "include": ["src", "typings"],
+  "include": ["src", "typings", "packages/whiteboard/src"],
   "exclude": ["build", "addon"]
 }

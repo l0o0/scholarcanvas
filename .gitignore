@@ -16,3 +16,6 @@ build
 logs
 .worktrees/
 .superpowers/
+
+# Isolated whiteboard Vite output
+packages/whiteboard/dist

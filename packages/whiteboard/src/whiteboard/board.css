@@ -419,7 +419,9 @@
 }
 
 .zmd-board-swatches button.is-active {
-  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--zmd-board-accent, #2563eb);
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 4px var(--zmd-board-accent, #2563eb);
 }
 
 .zmd-board-help-backdrop {

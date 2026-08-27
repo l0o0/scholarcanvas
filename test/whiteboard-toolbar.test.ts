@@ -8,9 +8,14 @@ const css = readFileSync(
 );
 
 test("narrow whiteboard tabs wrap the complete top toolbar inside the viewport", () => {
-  const compact = css.match(/@media \(max-width: 640px\) \{([\s\S]+)\}\s*$/)?.[1];
+  const compact = css.match(
+    /@media \(max-width: 640px\) \{([\s\S]+)\}\s*$/,
+  )?.[1];
   assert.ok(compact, "missing narrow-toolbar media query");
-  assert.match(compact, /\.zmd-board-top-island\s*\{[^}]*width:\s*calc\(100% - 16px\)/s);
+  assert.match(
+    compact,
+    /\.zmd-board-top-island\s*\{[^}]*width:\s*calc\(100% - 16px\)/s,
+  );
   assert.match(compact, /\.zmd-board-top-island\s*\{[^}]*flex-wrap:\s*wrap/s);
   assert.match(compact, /\.zmd-board-top-group\s*\{[^}]*flex:\s*0 0 auto/s);
 });

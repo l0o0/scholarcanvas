@@ -1,0 +1,29 @@
+{
+  "name": "@zotero-markdown/whiteboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Isolated React + Vite research whiteboard (xyflow canvas, custom nodes).",
+  "exports": {
+    ".": "./src/index.ts",
+    "./model": "./src/model/index.ts",
+    "./nodes": "./src/nodes/index.ts"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.11.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.8"
+  }
+}

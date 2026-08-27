@@ -1,6 +1,7 @@
 # Single-package project; keep workspace root explicit for pnpm.
 packages:
   - "."
+  - "packages/whiteboard"
 
 # Settings (pnpm 10+)
 blockExoticSubdeps: false

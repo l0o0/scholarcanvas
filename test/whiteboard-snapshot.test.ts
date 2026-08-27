@@ -36,6 +36,81 @@ test("keeps academic node kinds and drops unknown records", () => {
   assert.equal(doc.edges[0].target, "missing");
 });
 
+test("keeps line endpoints drawn on the canvas", () => {
+  const doc = parseBoardDocument({
+    nodes: [
+      {
+        id: "line-1",
+        type: "line",
+        position: { x: 8, y: 16 },
+        width: 80,
+        height: 40,
+        data: {
+          kind: "line",
+          title: "",
+          from: { x: 0, y: 0 },
+          to: { x: 80, y: 40 },
+        },
+      },
+    ],
+  });
+  assert.equal(doc.nodes.length, 1);
+  assert.deepEqual(doc.nodes[0].data.from, { x: 0, y: 0 });
+  assert.deepEqual(doc.nodes[0].data.to, { x: 80, y: 40 });
+});
+
+test("keeps stroke and fill style on a rect", () => {
+  const doc = parseBoardDocument({
+    nodes: [
+      {
+        id: "r1",
+        type: "rect",
+        position: { x: 0, y: 0 },
+        data: {
+          kind: "rect",
+          title: "",
+          stroke: "#111827",
+          fill: "#ffffff",
+          strokeWidth: 2,
+          radius: 12,
+          dashed: true,
+        },
+      },
+    ],
+  });
+  assert.equal(doc.nodes[0].data.stroke, "#111827");
+  assert.equal(doc.nodes[0].data.fill, "#ffffff");
+  assert.equal(doc.nodes[0].data.strokeWidth, 2);
+  assert.equal(doc.nodes[0].data.radius, 12);
+  assert.equal(doc.nodes[0].data.dashed, true);
+});
+
+test("keeps text style on a shape label", () => {
+  const doc = parseBoardDocument({
+    nodes: [
+      {
+        id: "t1",
+        type: "rect",
+        position: { x: 0, y: 0 },
+        data: {
+          kind: "rect",
+          title: "Hello",
+          fontFamily: "Georgia",
+          fontSize: 24,
+          fontWeight: "bold",
+          textAlign: "center",
+          textColor: "#2563eb",
+        },
+      },
+    ],
+  });
+  assert.equal(doc.nodes[0].data.fontFamily, "Georgia");
+  assert.equal(doc.nodes[0].data.fontSize, 24);
+  assert.equal(doc.nodes[0].data.fontWeight, "bold");
+  assert.equal(doc.nodes[0].data.textAlign, "center");
+  assert.equal(doc.nodes[0].data.textColor, "#2563eb");
+});
+
 test("serializes a board as pretty JSON with a board suffix", () => {
   const json = serializeBoardDocument(
     parseBoardDocument({

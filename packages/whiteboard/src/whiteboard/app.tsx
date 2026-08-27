@@ -41,11 +41,7 @@ import { boardNodeTypes, type AcademicNode } from "../nodes";
 import { PropertiesPanel } from "../chrome/PropertiesPanel";
 import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
-import {
-  TextStyleBar,
-  labelTextStyle,
-  verticalAlignmentStyle,
-} from "../chrome/TextStyleBar";
+import { TextStyleBar } from "../chrome/TextStyleBar";
 import { TopIsland } from "../chrome/TopIsland";
 import {
   frameFromDrag,
@@ -71,7 +67,9 @@ import {
   BoardDocumentHistory,
   boardDocumentToFlow,
   flowToBoardDocument,
+  labelTextStyle,
   mergeEditingStyle,
+  verticalAlignmentStyle,
   withEdgeColor,
 } from "./document";
 import { IconCopy, IconEdit, IconExport, IconOpen, IconTrash } from "./icons";

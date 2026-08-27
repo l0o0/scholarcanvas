@@ -1,10 +1,41 @@
 import { MarkerType, type Edge, type Viewport } from "@xyflow/react";
+import type { CSSProperties } from "react";
 import type {
   BoardDocument,
   BoardNodeData,
   BoardNodeKind,
 } from "../model/snapshot";
 import type { AcademicNode } from "../nodes";
+
+export function labelTextStyle(data: BoardNodeData): CSSProperties {
+  return {
+    fontFamily: data.fontFamily || "system-ui, sans-serif",
+    fontSize: data.fontSize || 16,
+    fontWeight: data.fontWeight || "normal",
+    fontStyle: data.fontStyle || "normal",
+    textDecoration: data.textDecoration || "none",
+    textAlign: data.textAlign || "center",
+    color: data.textColor || "#111827",
+    opacity: data.textOpacity ?? 1,
+    lineHeight: 1.25,
+    width: "100%",
+    display: "block",
+  };
+}
+
+export function verticalAlignmentStyle(
+  data: Partial<BoardNodeData>,
+): CSSProperties {
+  const alignment = data.verticalAlign || "middle";
+  return {
+    alignItems:
+      alignment === "top"
+        ? "flex-start"
+        : alignment === "bottom"
+          ? "flex-end"
+          : "center",
+  };
+}
 
 export function boardDocumentToFlow(doc: BoardDocument): {
   nodes: AcademicNode[];

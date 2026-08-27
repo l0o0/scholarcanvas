@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { labelTextStyle, verticalAlignmentStyle } from "../chrome/TextStyleBar";
+import { labelTextStyle, verticalAlignmentStyle } from "../whiteboard/document";
 import { CardShell } from "./CardShell";
 import type { AcademicNode } from "./types";
 

@@ -4,14 +4,12 @@ import {
   BoardDocumentHistory,
   boardDocumentToFlow,
   flowToBoardDocument,
+  labelTextStyle,
   mergeEditingStyle,
+  verticalAlignmentStyle,
   withEdgeColor,
 } from "../packages/whiteboard/src/whiteboard/document.ts";
 import { parseBoardDocument } from "../packages/whiteboard/src/model/snapshot.ts";
-import {
-  labelTextStyle,
-  verticalAlignmentStyle,
-} from "../packages/whiteboard/src/chrome/TextStyleBar.tsx";
 
 const EMPTY = {
   v: 1 as const,

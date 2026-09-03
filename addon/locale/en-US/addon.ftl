@@ -38,7 +38,12 @@ whiteboard-kind-note = Note
 whiteboard-kind-question = Question
 whiteboard-kind-claim = Claim
 whiteboard-kind-frame = Frame
-whiteboard-annotations = annotations
+whiteboard-annotation-color = Annotation color
+whiteboard-annotations =
+    { $count ->
+        [one] annotation
+       *[other] annotations
+    }
 whiteboard-eraser = Eraser
 whiteboard-edit-text = Edit text
 whiteboard-copy = Copy

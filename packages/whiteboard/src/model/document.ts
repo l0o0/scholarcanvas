@@ -81,7 +81,7 @@ export function demoCanvasDocument(): CanvasDocument {
         kind: "literature",
         position: { x: 0, y: 0 },
         width: 280,
-        height: 136,
+        height: 168,
         source: { library: { type: "user" }, itemKey: "ITEM1234" },
         snapshot: { title: "A paper" },
       },

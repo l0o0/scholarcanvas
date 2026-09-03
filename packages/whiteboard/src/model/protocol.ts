@@ -48,7 +48,8 @@ export interface WhiteboardLabels {
   kindQuestion: string;
   kindClaim: string;
   kindFrame: string;
-  annotations: string;
+  annotationColor: string;
+  annotations: { one: string; other: string };
   eraser: string;
   undo: string;
   redo: string;

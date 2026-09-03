@@ -18,6 +18,16 @@ export function LiteratureNode({ data, selected }: NodeProps<CanvasFlowNode>) {
       kind="literature"
       kindLabel={labels.kindLiterature}
       selected={selected}
+      footer={
+        snapshot.annotationCount !== undefined ? (
+          <p className="zmd-board-card-count">
+            {snapshot.annotationCount}{" "}
+            {snapshot.annotationCount === 1
+              ? labels.annotations.one
+              : labels.annotations.other}
+          </p>
+        ) : null
+      }
     >
       <h3 className="zmd-board-card-title">{snapshot.title}</h3>
       {citationLine([snapshot.creators, snapshot.year])}
@@ -31,11 +41,6 @@ export function LiteratureNode({ data, selected }: NodeProps<CanvasFlowNode>) {
           ))}
         </div>
       ) : null}
-      {snapshot.annotationCount !== undefined ? (
-        <p className="zmd-board-card-count">
-          {snapshot.annotationCount} {labels.annotations}
-        </p>
-      ) : null}
     </CardShell>
   );
 }
@@ -46,17 +51,24 @@ export function QuoteNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   if (model.kind !== "quote") return null;
   const { snapshot } = model;
   return (
-    <CardShell kind="quote" kindLabel={labels.kindQuote} selected={selected}>
-      <span
-        className="zmd-board-quote-color"
-        style={{ backgroundColor: snapshot.color }}
-        aria-hidden="true"
-      />
+    <CardShell
+      kind="quote"
+      kindLabel={labels.kindQuote}
+      selected={selected}
+      footer={citationLine([snapshot.citation, snapshot.pageLabel])}
+    >
+      {snapshot.color ? (
+        <span
+          className="zmd-board-quote-color"
+          style={{ backgroundColor: snapshot.color }}
+          aria-label={`${labels.annotationColor}: ${snapshot.color}`}
+          role="img"
+        />
+      ) : null}
       <p className="zmd-board-card-content">{snapshot.text}</p>
       {snapshot.comment ? (
         <p className="zmd-board-card-comment">{snapshot.comment}</p>
       ) : null}
-      {citationLine([snapshot.citation, snapshot.pageLabel])}
     </CardShell>
   );
 }

@@ -700,7 +700,11 @@ function mountWhiteboardUI(
       kindQuestion: getString("whiteboard-kind-question"),
       kindClaim: getString("whiteboard-kind-claim"),
       kindFrame: getString("whiteboard-kind-frame"),
-      annotations: getString("whiteboard-annotations"),
+      annotationColor: getString("whiteboard-annotation-color"),
+      annotations: {
+        one: getString("whiteboard-annotations", { args: { count: 1 } }),
+        other: getString("whiteboard-annotations", { args: { count: 2 } }),
+      },
       eraser: getString("whiteboard-eraser"),
       undo: getString("whiteboard-undo"),
       redo: getString("whiteboard-redo"),

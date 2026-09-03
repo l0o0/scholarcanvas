@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { MarkerType } from "@xyflow/react";
 import { createElement } from "react";
@@ -8,6 +9,7 @@ import {
   type CanvasDocument,
 } from "../packages/whiteboard/src/model/document.ts";
 import {
+  beginNodeEditing,
   CanvasDocumentHistory,
   canvasDocumentToFlow,
   flowNodeText,
@@ -36,6 +38,15 @@ const EMPTY: CanvasDocument = {
   connections: [],
   viewport: { x: 0, y: 0, zoom: 1 },
 };
+
+const appSource = readFileSync(
+  new URL("../packages/whiteboard/src/whiteboard/app.tsx", import.meta.url),
+  "utf8",
+);
+const boardCss = readFileSync(
+  new URL("../packages/whiteboard/src/whiteboard/board.css", import.meta.url),
+  "utf8",
+);
 
 function academicDocument(): CanvasDocument {
   return {
@@ -107,6 +118,53 @@ test("canonical documents adapt to React Flow and back", () => {
     "supports",
   );
   assert.equal(restored.viewport?.zoom, 1.25);
+});
+
+test("academic creation and later edits share the visible editing state", () => {
+  const nodes = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "question-1",
+        kind: "question",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 128,
+        content: "Why?",
+      },
+    ],
+  }).nodes;
+  const result = beginNodeEditing(nodes, "question-1");
+  assert.deepEqual(result?.editing, {
+    nodeId: "question-1",
+    value: "Why?",
+  });
+  assert.equal(result?.nodes[0].className, "is-editing-label");
+  assert.ok(
+    (appSource.match(/beginNodeEditing\(/g) ?? []).length >= 2,
+    "creation and explicit edit paths must use the same transition",
+  );
+});
+
+test("in-shape editing exposes localized focus and hides underlying copy", () => {
+  assert.match(appSource, /aria-label=\{labels\.editText\}/);
+  assert.match(
+    boardCss,
+    /\.zmd-board-editor\.is-in-shape:focus-within\s*\{[^}]*box-shadow:/s,
+  );
+  const editorRule = boardCss.match(
+    /\.zmd-board-editor\.is-in-shape \.zmd-board-in-shape-edit,[\s\S]*?\.zmd-board-in-shape-edit\s*\{([^}]*)\}/,
+  )?.[1];
+  assert.ok(editorRule, "missing in-shape textarea rule");
+  assert.match(editorRule, /caret-color:\s*var\(--zmd-board-text,\s*#111827\)/);
+  assert.match(
+    boardCss,
+    /\.react-flow__node\.is-editing-label \.zmd-board-card-body/,
+  );
+  assert.match(
+    boardCss,
+    /\.react-flow__node\.is-editing-label \.zmd-board-frame h3/,
+  );
 });
 
 test("document shell survives editing, history, and host replacement", () => {

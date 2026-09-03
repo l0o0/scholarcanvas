@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -10,6 +11,7 @@ import {
 import {
   createAcademicNode,
   createBasicNode,
+  demoCanvasDocument,
   type CanvasNode,
 } from "../packages/whiteboard/src/model/index.ts";
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
@@ -27,12 +29,21 @@ const labels = new Proxy(
     kindQuestion: "Localized question",
     kindClaim: "Localized claim",
     kindFrame: "Localized frame",
-    annotations: "annotations-localized",
+    annotationColor: "Localized annotation color",
+    annotations: {
+      one: "annotation-one-localized",
+      other: "annotations-other-localized",
+    },
   } as WhiteboardLabels,
   {
     get: (target, property) =>
       Reflect.get(target, property) ?? `localized-${String(property)}`,
   },
+);
+
+const boardCss = readFileSync(
+  new URL("../packages/whiteboard/src/whiteboard/board.css", import.meta.url),
+  "utf8",
 );
 
 function renderNode(model: CanvasNode) {
@@ -85,6 +96,12 @@ test("registers all academic and retained basic node kinds", () => {
   }
 });
 
+test("card shells keep React Flow handles visible beyond their border", () => {
+  const cardRule = boardCss.match(/\.zmd-board-card\s*\{([^}]*)\}/)?.[1];
+  assert.ok(cardRule, "missing card shell rule");
+  assert.match(cardRule, /overflow:\s*visible/);
+});
+
 test("renders concise literature and quote snapshots with localized kinds", () => {
   const literature = renderNode(
     createAcademicNode("literature", { x: 0, y: 0 }, "literature-1", {
@@ -108,7 +125,11 @@ test("renders concise literature and quote snapshots with localized kinds", () =
   assert.match(literature, /fieldwork/);
   assert.match(literature, /review/);
   assert.doesNotMatch(literature, /hidden-fourth/);
-  assert.match(literature, /7 annotations-localized/);
+  assert.match(literature, /7 annotations-other-localized/);
+  assert.match(
+    literature,
+    /class="zmd-board-card-footer"[^>]*>[\s\S]*7 annotations-other-localized/,
+  );
 
   const quote = renderNode(
     createAcademicNode("quote", { x: 0, y: 0 }, "quote-1", {
@@ -133,6 +154,83 @@ test("renders concise literature and quote snapshots with localized kinds", () =
   assert.match(quote, /Chen 2026/);
   assert.match(quote, /42/);
   assert.match(quote, /background-color:#ffd400/);
+  assert.match(quote, /aria-label="Localized annotation color: #ffd400"/);
+  assert.doesNotMatch(quote, /zmd-board-quote-color[^>]*aria-hidden/);
+  assert.match(
+    quote,
+    /class="zmd-board-card-footer"[^>]*>[\s\S]*Chen 2026 · 42/,
+  );
+});
+
+test("literature annotation count selects the localized singular form", () => {
+  const literature = renderNode(
+    createAcademicNode("literature", { x: 0, y: 0 }, "literature-one", {
+      source: { library: { type: "user" }, itemKey: "ITEM1234" },
+      snapshot: { title: "One note", annotationCount: 1 },
+    }),
+  );
+  assert.match(literature, /1 annotation-one-localized/);
+  assert.doesNotMatch(literature, /1 annotations-other-localized/);
+});
+
+test("quote omits the color indicator when its snapshot has no color", () => {
+  const quote = renderNode(
+    createAcademicNode("quote", { x: 0, y: 0 }, "quote-no-color", {
+      source: {
+        library: { type: "user" },
+        itemKey: "ITEM1234",
+        attachmentKey: "PDF12345",
+        annotationKey: "ANNO124",
+      },
+      snapshot: { text: "No source color." },
+    }),
+  );
+  assert.doesNotMatch(quote, /zmd-board-quote-color/);
+});
+
+test("academic card bodies clip long copy without clipping provenance", () => {
+  const cardRule = boardCss.match(/\.zmd-board-card\s*\{([^}]*)\}/)?.[1];
+  const bodyRule = boardCss.match(/\.zmd-board-card-body\s*\{([^}]*)\}/)?.[1];
+  const footerRule = boardCss.match(
+    /\.zmd-board-card-footer\s*\{([^}]*)\}/,
+  )?.[1];
+  assert.ok(cardRule && bodyRule && footerRule);
+  assert.match(cardRule, /display:\s*flex/);
+  assert.match(cardRule, /flex-direction:\s*column/);
+  assert.match(bodyRule, /display:\s*flex/);
+  assert.match(bodyRule, /flex-direction:\s*column/);
+  assert.match(bodyRule, /min-height:\s*0/);
+  assert.match(bodyRule, /overflow:\s*hidden/);
+  assert.match(footerRule, /flex:\s*0 0 auto/);
+  for (const selector of [
+    ".zmd-board-card-title",
+    ".zmd-board-card-content",
+    ".zmd-board-card-tags span",
+  ]) {
+    const rule = boardCss.match(
+      new RegExp(`${selector.replaceAll(".", "\\.")}\\s*\\{([^}]*)\\}`),
+    )?.[1];
+    assert.ok(rule, `missing ${selector} overflow rule`);
+    assert.match(rule, /overflow(?:-wrap)?:\s*(?:hidden|anywhere)/);
+  }
+});
+
+test("new literature cards reserve enough height for metadata and tags", () => {
+  const model = createAcademicNode(
+    "literature",
+    { x: 0, y: 0 },
+    "literature-sized",
+    {
+      source: { library: { type: "user" }, itemKey: "ITEM1234" },
+      snapshot: { title: "Sized source" },
+    },
+  );
+  assert.equal(model.height, getNodeSpec("literature").defaultHeight);
+  assert.ok(model.height >= 168);
+  const demoLiterature = demoCanvasDocument().nodes.find(
+    (node) => node.kind === "literature",
+  );
+  assert.equal(demoLiterature?.height, getNodeSpec("literature").defaultHeight);
 });
 
 test("renders local academic text as plain pre-wrapped content", () => {

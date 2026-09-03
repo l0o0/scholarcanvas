@@ -323,6 +323,24 @@ export function updateFlowNodeModel(
   return { ...node, type: model.kind, data: { ...node.data, model } };
 }
 
+export function beginNodeEditing(
+  nodes: CanvasFlowNode[],
+  nodeId: string,
+): {
+  nodes: CanvasFlowNode[];
+  editing: { nodeId: string; value: string };
+} | null {
+  const node = nodes.find((item) => item.id === nodeId);
+  if (!node) return null;
+  return {
+    nodes: nodes.map((item) => ({
+      ...item,
+      className: item.id === nodeId ? "is-editing-label" : undefined,
+    })),
+    editing: { nodeId, value: flowNodeText(node) },
+  };
+}
+
 export function flowNodeText(node: CanvasFlowNode): string {
   const model = node.data.model;
   if (

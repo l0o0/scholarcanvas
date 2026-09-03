@@ -177,6 +177,7 @@ export type FluentMessageId =
   | 'whiteboard-align-top'
   | 'whiteboard-align-vertical'
   | 'whiteboard-alignment'
+  | 'whiteboard-annotation-color'
   | 'whiteboard-annotations'
   | 'whiteboard-auto-layout'
   | 'whiteboard-background'

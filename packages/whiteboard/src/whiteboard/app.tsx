@@ -66,6 +66,7 @@ import {
 } from "./layout";
 import { buildBoardMarkdown, buildBoardSvg, svgToPngDataUrl } from "./export";
 import {
+  beginNodeEditing,
   canvasDocumentToFlow,
   flowNodeText,
   labelTextStyle,
@@ -103,7 +104,8 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   kindQuestion: "Question",
   kindClaim: "Claim",
   kindFrame: "Frame",
-  annotations: "annotations",
+  annotationColor: "Annotation color",
+  annotations: { one: "annotation", other: "annotations" },
   eraser: "Eraser",
   undo: "Undo",
   redo: "Redo",
@@ -432,9 +434,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         nodes: [createCanvasNode(kind, center, nodeId)],
         connections: [],
       }).nodes[0];
-      setNodes((current) => [...current, created]);
+      const editOnCreate = isStampTool(kind) && shouldEditOnCreate(kind);
+      setNodes((current) => {
+        const next = [...current, created];
+        return editOnCreate
+          ? (beginNodeEditing(next, nodeId)?.nodes ?? next)
+          : next;
+      });
       bump();
-      if (isStampTool(kind) && shouldEditOnCreate(kind)) {
+      if (editOnCreate) {
         setEditing({ nodeId, value: flowNodeText(created) });
       }
       if (isLibraryKind(kind)) {
@@ -578,18 +586,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   );
 
   const startEdit = useCallback((nodeId: string) => {
-    const node = nodesRef.current.find((item) => item.id === nodeId);
-    if (!node) return;
+    const transition = beginNodeEditing(nodesRef.current, nodeId);
+    if (!transition) return;
     setMenu(null);
     setStyleTarget(null);
     setActiveTool("select");
-    setNodes((current) =>
-      current.map((item) => ({
-        ...item,
-        className: item.id === nodeId ? "is-editing-label" : undefined,
-      })),
-    );
-    setEditing({ nodeId, value: flowNodeText(node) });
+    setNodes(transition.nodes);
+    setEditing(transition.editing);
   }, []);
 
   const openNode = useCallback(
@@ -1201,6 +1204,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           >
             <textarea
               autoFocus
+              aria-label={labels.editText}
               className="zmd-board-in-shape-edit"
               value={editing.value}
               style={{

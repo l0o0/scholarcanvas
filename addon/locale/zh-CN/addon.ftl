@@ -38,7 +38,12 @@ whiteboard-kind-note = 笔记
 whiteboard-kind-question = 问题
 whiteboard-kind-claim = 主张
 whiteboard-kind-frame = 框架
-whiteboard-annotations = 条批注
+whiteboard-annotation-color = 批注颜色
+whiteboard-annotations =
+    { $count ->
+        [one] 条批注
+       *[other] 条批注
+    }
 whiteboard-eraser = 橡皮擦
 whiteboard-edit-text = 编辑文字
 whiteboard-copy = 复制

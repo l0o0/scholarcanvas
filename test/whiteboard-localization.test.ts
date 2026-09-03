@@ -53,6 +53,7 @@ const hostKeys = [
   "whiteboard-kind-question",
   "whiteboard-kind-claim",
   "whiteboard-kind-frame",
+  "whiteboard-annotation-color",
   "whiteboard-annotations",
   "whiteboard-shortcut-question",
   "whiteboard-shortcut-claim",
@@ -84,7 +85,7 @@ test("host wires every academic label into the whiteboard protocol", () => {
     ["kindQuestion", "whiteboard-kind-question"],
     ["kindClaim", "whiteboard-kind-claim"],
     ["kindFrame", "whiteboard-kind-frame"],
-    ["annotations", "whiteboard-annotations"],
+    ["annotationColor", "whiteboard-annotation-color"],
     ["shortcutQuestion", "whiteboard-shortcut-question"],
     ["shortcutClaim", "whiteboard-shortcut-claim"],
     ["shortcutFrame", "whiteboard-shortcut-frame"],
@@ -94,6 +95,23 @@ test("host wires every academic label into the whiteboard protocol", () => {
       new RegExp(`${field}: getString\\("${key}"\\)`),
       `${field}: ${key}`,
     );
+  }
+  assert.match(
+    source,
+    /annotations:\s*\{[\s\S]*one:\s*getString\("whiteboard-annotations",\s*\{[\s\S]*count:\s*1[\s\S]*other:\s*getString\("whiteboard-annotations",\s*\{[\s\S]*count:\s*2/s,
+  );
+});
+
+test("annotation labels use Fluent plural selection", () => {
+  for (const locale of ["en-US", "zh-CN"]) {
+    const source = readFileSync(`addon/locale/${locale}/addon.ftl`, "utf8");
+    const message = source.match(
+      /^whiteboard-annotations\s*=([^\n]*(?:\n[ \t]+[^\n]*)*)/m,
+    )?.[1];
+    assert.ok(message, `${locale}: missing annotation selector`);
+    assert.match(message, /\{\s*\$count\s*->/);
+    assert.match(message, /\[one\]/);
+    assert.match(message, /\*\[other\]/);
   }
 });
 

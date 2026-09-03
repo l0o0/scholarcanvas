@@ -51,7 +51,7 @@ const NODE_SPECS: WhiteboardNodeSpec[] = [
     kind: "literature",
     group: "academic",
     defaultWidth: 280,
-    defaultHeight: 136,
+    defaultHeight: 168,
     Component: LiteratureNode,
   },
   {

@@ -7,6 +7,7 @@ export function CardShell(props: {
   kindLabel: string;
   selected?: boolean;
   children: ReactNode;
+  footer?: ReactNode;
 }) {
   return (
     <article
@@ -17,7 +18,10 @@ export function CardShell(props: {
       <Handle type="target" position={Position.Top} />
       <Handle type="source" position={Position.Bottom} />
       <span className="zmd-board-card-kind">{props.kindLabel}</span>
-      {props.children}
+      <div className="zmd-board-card-body">{props.children}</div>
+      {props.footer ? (
+        <div className="zmd-board-card-footer">{props.footer}</div>
+      ) : null}
     </article>
   );
 }

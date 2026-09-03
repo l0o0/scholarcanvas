@@ -133,7 +133,7 @@ export function createAcademicNode(
         kind,
         position,
         width: 280,
-        height: 136,
+        height: 168,
         source: (options as LiteratureNodeOptions).source,
         snapshot: (options as LiteratureNodeOptions).snapshot,
       };

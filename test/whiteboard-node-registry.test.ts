@@ -15,6 +15,7 @@ import {
   type CanvasNode,
 } from "../packages/whiteboard/src/model/index.ts";
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
+import type { WhiteboardTheme } from "../packages/whiteboard/src/model/protocol.ts";
 import {
   StyleBar,
   supportsFillStyle,
@@ -74,7 +75,7 @@ function renderNode(model: CanvasNode) {
   );
 }
 
-function renderStyleBar(model: CanvasNode) {
+function renderStyleBar(model: CanvasNode, theme: WhiteboardTheme = "light") {
   return renderToStaticMarkup(
     createElement(StyleBar, {
       node: {
@@ -88,12 +89,16 @@ function renderStyleBar(model: CanvasNode) {
       left: 0,
       top: 0,
       labels,
+      theme,
       onChange: () => {},
     }),
   );
 }
 
-function renderTextStyleBar(model: CanvasNode) {
+function renderTextStyleBar(
+  model: CanvasNode,
+  theme: WhiteboardTheme = "light",
+) {
   return renderToStaticMarkup(
     createElement(TextStyleBar, {
       node: {
@@ -107,6 +112,7 @@ function renderTextStyleBar(model: CanvasNode) {
       left: 0,
       top: 0,
       labels,
+      theme,
       onChange: () => {},
     }),
   );
@@ -591,6 +597,40 @@ test("Frame surface controls reflect its rendered default boundary", () => {
   );
 });
 
+test("light surface controls retain canonical Frame and shape defaults", () => {
+  const cases = [
+    {
+      node: createAcademicNode("frame", { x: 0, y: 0 }, "frame-light"),
+      stroke: "#d1d5db",
+    },
+    {
+      node: {
+        ...createBasicNode("rect", { x: 0, y: 0 }, "rect-light"),
+        style: undefined,
+      },
+      stroke: "#1f2937",
+    },
+    {
+      node: {
+        ...createBasicNode("line", { x: 0, y: 0 }, "line-light"),
+        style: undefined,
+      },
+      stroke: "#1f2937",
+    },
+  ] as const;
+
+  for (const { node, stroke } of cases) {
+    const controls = renderStyleBar(node);
+    assert.match(
+      controls,
+      new RegExp(
+        `class="is-active" style="background:${stroke}" aria-label="${stroke}"`,
+      ),
+      node.kind,
+    );
+  }
+});
+
 test("Academic text controls reflect the reading-card defaults", () => {
   const noteControls = renderTextStyleBar(
     createAcademicNode("note", { x: 0, y: 0 }, "note-default-text"),
@@ -601,6 +641,39 @@ test("Academic text controls reflect the reading-card defaults", () => {
 
   assert.match(noteControls, /<option value="12" selected="">12<\/option>/);
   assert.match(frameControls, /<option value="13" selected="">13<\/option>/);
+});
+
+test("unstyled renderers and controls resolve dark UI defaults without persisting them", () => {
+  const text = createBasicNode("text", { x: 0, y: 0 }, "dark-text");
+  const note = createAcademicNode("note", { x: 0, y: 0 }, "dark-note");
+  const frame = createAcademicNode("frame", { x: 0, y: 0 }, "dark-frame");
+
+  const textMarkup = renderNode(text);
+  const noteMarkup = renderNode(note);
+  const frameMarkup = renderNode(frame);
+  assert.doesNotMatch(textMarkup, /color:#111827/);
+  assert.doesNotMatch(noteMarkup, /#111827|#fff(?:fff)?/);
+  assert.doesNotMatch(frameMarkup, /#111827|#fff(?:fff)?/);
+
+  const textControls = renderTextStyleBar(text, "dark");
+  const noteControls = renderStyleBar(note, "dark");
+  const frameControls = renderStyleBar(frame, "dark");
+  assert.match(
+    textControls,
+    /class="zmd-board-color-letter" style="color:#e8eaed"/,
+  );
+  assert.match(
+    noteControls,
+    /class="is-active" style="background:#3d4452" aria-label="#3d4452"/,
+  );
+  assert.match(
+    noteControls,
+    /class="is-active" style="background:#1a1d24" aria-label="#1a1d24"/,
+  );
+  assert.match(frameControls, /class="is-active"[^>]*aria-label="transparent"/);
+  assert.equal(text.style, undefined);
+  assert.equal(note.style, undefined);
+  assert.equal(frame.style, undefined);
 });
 
 test("renders frame as a localized non-interactive boundary without handles", () => {

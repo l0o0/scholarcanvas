@@ -661,6 +661,44 @@ test("preserves own __proto__ extension fields without prototype mutation", () =
   assert.equal(({} as Record<string, unknown>).payloadNested, undefined);
 });
 
+test("codec neutralizes sparse entries from Array.prototype", () => {
+  const pollutedNode = {
+    id: "array-prototype-node",
+    type: "text",
+    x: 0,
+    y: 0,
+    width: 240,
+    height: 72,
+    text: "Inherited",
+  };
+  let parsed: ReturnType<typeof canvasFileToDocument>;
+  const previous = Object.getOwnPropertyDescriptor(Array.prototype, "0");
+  try {
+    Object.defineProperty(Array.prototype, "0", {
+      configurable: true,
+      value: pollutedNode,
+      writable: true,
+    });
+    parsed = canvasFileToDocument({
+      nodes: new Array(1),
+      edges: [],
+      items: new Array(1),
+    });
+  } finally {
+    if (previous) Object.defineProperty(Array.prototype, "0", previous);
+    else delete (Array.prototype as unknown[])[0];
+  }
+
+  const items = parsed.document.extensions!.items as unknown[];
+  assert.deepEqual(parsed.document.nodes, []);
+  assert.deepEqual(
+    parsed.issues.map((issue) => issue.code),
+    ["malformed-node"],
+  );
+  assert.equal(Object.hasOwn(items, 0), true);
+  assert.equal(items[0], undefined);
+});
+
 test("ignores inherited Bamboo envelopes and rejects inherited envelope fields", () => {
   const geometry = { x: 0, y: 0, width: 240, height: 72 };
   const inheritedNode = Object.assign(

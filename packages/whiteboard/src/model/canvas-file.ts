@@ -93,9 +93,14 @@ function cloneOwnInput(
   const prior = seen.get(value);
   if (prior !== undefined) return prior;
   if (Array.isArray(value)) {
-    const clone: unknown[] = [];
+    const clone: unknown[] = new Array(value.length);
     seen.set(value, clone);
-    for (const item of value) clone.push(cloneOwnInput(item, seen));
+    for (let index = 0; index < value.length; index += 1) {
+      const item = Object.prototype.hasOwnProperty.call(value, index)
+        ? cloneOwnInput(value[index], seen)
+        : undefined;
+      defineOwn(clone, String(index), item);
+    }
     return clone;
   }
   const clone = Object.create(null) as Record<string, unknown>;
@@ -145,11 +150,7 @@ function mergeRecords(
   return Object.keys(result).length ? result : undefined;
 }
 
-function defineOwn(
-  target: Record<string, unknown>,
-  key: string,
-  value: unknown,
-): void {
+function defineOwn(target: object, key: string, value: unknown): void {
   Object.defineProperty(target, key, {
     configurable: true,
     enumerable: true,

@@ -10,6 +10,12 @@ Baseline: `634aa8c89fca3e111849dd98b106b08bc8d284ae`
 - Added deterministic SVG line wrapping based on each node's usable width, explicit-line handling, long-token splitting, positioned `<tspan>` rows, top/middle/bottom block placement, height-based line limiting, and numeric per-node clip paths. XML 1.0-forbidden controls are replaced safely, paint IDs are stable numeric IDs rather than input-derived identifiers, and existing shapes, arrows, styles, and PNG conversion remain covered.
 - Academic source, quote, local-text, and Frame renderers now consume canonical typography, text color/opacity/alignment, vertical alignment, and supported fill/stroke/width/dash/radius styles. Library/text CardShell users also consume the surface style already exposed by the selection UI. Basic shapes share the same canonical fill/stroke resolution, including `fillStyle`, `strokeOpacity`, and explicit `strokeStyle` precedence over the legacy `dashed` flag. Unsupported fill/radius controls are hidden by node kind. Edit commit -> canvas save/reopen -> SVG export retains the same non-default style.
 
+## Reverification follow-up
+
+- Hardened the exported `parseCanvasDocument(unknown)` boundary itself. Before any field lookup, arrays and own enumerable object properties are recursively cloned while inherited values are removed at every depth. The validation copy uses null-prototype records; accepted extension JSON is copied back to ordinary own-property-safe objects with `Object.defineProperty`. Direct calls now reject inherited root fields, node geometry/content, Academic source/library/key fields, and connection fields. Sparse array slots are materialized as own `undefined`, preventing either a custom array prototype or global `Array.prototype[index]` from supplying data; the JSON Canvas codec applies the same rule. Own root, node, nested, and array-contained `__proto__` values remain data and cannot mutate a prototype.
+- Kept `canvasNodeSurfaceDefaults` and `effectiveCanvasNodeTextStyle` as deterministic persistence/export defaults, and added separate theme-aware UI surface defaults plus a display-only text-style resolver. Omitted renderer/editor colors continue through CSS variables, while StyleBar and TextStyleBar resolve their active display values from the current light/dark palette. Merely rendering, editing, or opening controls does not persist `textColor`, `fill`, or `stroke`; explicit user selection still does.
+- Routed the Ctrl/Cmd+B editing transition through the effective text style. Item, PDF, Attachment, Literature, and Frame therefore toggle from their implicit bold default to explicit normal on the first press, then back to bold on the second.
+
 Official references:
 
 - https://github.com/obsidianmd/jsoncanvas/blob/main/spec/1.0.md
@@ -23,6 +29,10 @@ Official references:
 - Renderer RED: new Academic and Frame SSR tests found no canonical surface/text styles. Follow-up RED cases covered reading-card defaults, partial Frame styles, non-positive font sizes, and Basic-shape stroke/fill/opacity parity. Renderer GREEN covers non-default and partial card/Frame output, actual CSS variable consumers, Basic shapes, vertical layout, UI control gating, validation, and edit/reopen/export consistency.
 - Final focused set: 101/101 passed.
 - Independent read-only review after the hardening pass found no remaining Critical or Important issues.
+- Reverification parser RED: four direct-boundary cases accepted inherited root, geometry/content, Academic source/library/key, and connection fields. Follow-up adversarial RED cases showed sparse slots could still materialize values from custom and global array prototypes at both parser and codec entrances. GREEN: own-only normalization now covers records and every array index, including holes, while retaining the own `__proto__` deep round-trip invariant.
+- Reverification dark-theme RED: Basic Text emitted inline `#111827`, `labelTextStyle({})` materialized a light color, and dark StyleBar/TextStyleBar did not expose active theme values. GREEN: the combined parser, renderer/control SSR, editor-style, and shortcut set passed 75/75.
+- Reverification shortcut RED: the new transition behavior was unavailable and the app read raw persisted `fontWeight`. GREEN: the shared behavior is used by the actual key handler and all five implicit-bold kinds pass normal -> bold two-step assertions.
+- Independent follow-up review found and closed two integration gaps before completion: light-mode Frame/rect/line control defaults now remain identical to their canonical DOM/export defaults, while only dark mode receives palette overrides; sparse array holes can no longer fall through to global `Array.prototype`. Its final read-only assessment reported no remaining Critical or Important issue.
 
 ## Browser verification
 
@@ -31,8 +41,10 @@ Chrome 152 was exercised through the real Vite application at two exact CDP view
 - `390 x 844`: PASS, exact `innerWidth`/`innerHeight`, no console/page errors, and no horizontal document overflow. The Academic note computed as a 4px dotted `#7c3aed` border, `#fef3c7` fill, 16px radius, and bottom-aligned Georgia 20px bold italic underlined right-aligned `#102030` text at 0.65 opacity. The Basic rectangle rendered a hatch fill and honored explicit solid `strokeStyle` over `dashed: true`.
 - `1440 x 900`: PASS with the same computed styles and no overflow.
 - At both sizes the generated SVG contained nine positioned tspans and four corresponding per-node clip paths. Browser PNG conversion produced a decoded 900 x 600 `data:image/png;base64,` result (99,354 characters). Visual inspection confirmed the wrapped Academic and Basic text remains inside its node in the live board, SVG preview, and PNG preview.
+- Follow-up dark interaction, Chrome 152 at `1440 x 900`: PASS with no console/page errors or overflow. Unstyled Basic Text, Academic Note, and Frame computed to `rgb(232, 234, 237)` text, `rgb(26, 29, 36)` card fill, and `rgb(61, 68, 82)` card/Frame boundary; Frame remained transparent. On edit entry, textarea text/caret matched the dark text token, its fill stayed transparent over the card, and TextStyleBar showed the same color. Note StyleBar marked `#3d4452` stroke and `#1a1d24` fill active without writing either value to the snapshot. A real Ctrl+B sequence on the implicit-bold Frame produced `bold -> normal -> bold`, with only `fontWeight` persisted.
+- Follow-up dark interaction, Chrome 152 at `390 x 844`: PASS with exact viewport dimensions, no overflow or browser errors, and matching dark renderer, textarea, caret, and TextStyleBar computed colors. Opening edit left the Basic Text node's canonical `style` omitted.
 
-Evidence screenshots: `/tmp/bamboo-final-fixes-390.png` and `/tmp/bamboo-final-fixes-1440.png`.
+Evidence screenshots: `/tmp/bamboo-final-fixes-390.png`, `/tmp/bamboo-final-fixes-1440.png`, `/tmp/bamboo-dark-mobile.png`, and `/tmp/bamboo-dark-desktop.png`.
 
 ## Verification gates
 
@@ -45,3 +57,15 @@ Evidence screenshots: `/tmp/bamboo-final-fixes-390.png` and `/tmp/bamboo-final-f
 - `pnpm lint:check`: passed (Prettier and ESLint).
 - `git diff --check`: passed.
 - Generated `packages/whiteboard/dist` output was moved outside the worktree after verification; no distribution artifacts are included.
+
+Follow-up verification to the original review:
+
+- `pnpm exec tsx --test test/whiteboard-academic-document.test.ts test/whiteboard-node-registry.test.ts test/whiteboard-app-state.test.ts`: 78/78 passed.
+- `pnpm exec tsx --test test/whiteboard-academic-document.test.ts test/whiteboard-canvas-file.test.ts test/whiteboard-export.test.ts test/whiteboard-node-registry.test.ts test/whiteboard-app-state.test.ts`: 112/112 passed.
+- `pnpm test:unit`: 461/461 passed.
+- Whiteboard package and root `tsc --noEmit`: passed.
+- `pnpm whiteboard:build`: passed (224 modules transformed).
+- `pnpm build`: passed (plugin build plus root TypeScript).
+- `pnpm lint:check` and `git diff --check`: passed.
+- Chrome 152 dark-theme interaction smoke at `1440 x 900` and `390 x 844`: passed.
+- The final generated `packages/whiteboard/dist` was moved to `/tmp/bamboo-whiteboard-final-build.kPeofO/dist`; no distribution artifact remains in the worktree.

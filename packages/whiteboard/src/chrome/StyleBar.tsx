@@ -1,9 +1,11 @@
 import type { CanvasNodeStyle } from "../model/core";
 import {
-  canvasNodeSurfaceDefaults,
+  canvasNodeUiSurfaceDefaults,
+  canvasThemePalette,
   type CanvasNodeKind,
 } from "../model/academic";
 import type { WhiteboardLabels } from "../model/protocol";
+import type { WhiteboardTheme } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 
 const STROKES = ["#1f2937", "#2563eb", "#dc2626", "#059669", "#d97706"];
@@ -24,6 +26,7 @@ export function StyleBar(props: {
   left: number;
   top: number;
   labels: WhiteboardLabels;
+  theme: WhiteboardTheme;
   onChange: (
     patch: Partial<CanvasNodeStyle> & { width?: number; height?: number },
   ) => void;
@@ -32,7 +35,8 @@ export function StyleBar(props: {
   const model = node.data.model;
   const style = model.style ?? {};
   const kind = model.kind;
-  const defaults = canvasNodeSurfaceDefaults(kind);
+  const defaults = canvasNodeUiSurfaceDefaults(kind, props.theme);
+  const palette = canvasThemePalette(props.theme);
   const stroke = style.stroke || defaults.stroke;
   const fill = style.fill || defaults.fill;
   const strokeWidth = style.strokeWidth ?? defaults.strokeWidth;
@@ -45,6 +49,14 @@ export function StyleBar(props: {
   const height = Math.round(node.height ?? 80);
   const showFill = supportsFillStyle(kind);
   const showRadius = supportsRadiusStyle(kind);
+  const strokes = [
+    defaults.stroke,
+    ...STROKES.filter((color) => color !== defaults.stroke),
+  ];
+  const fills = [
+    defaults.fill,
+    ...FILLS.filter((color) => color !== defaults.fill),
+  ];
 
   return (
     <div
@@ -55,7 +67,7 @@ export function StyleBar(props: {
       <label className="zmd-board-style-group">
         <span>{props.labels.stroke}</span>
         <span className="zmd-board-swatches">
-          {STROKES.map((color) => (
+          {strokes.map((color) => (
             <button
               key={color}
               type="button"
@@ -86,16 +98,16 @@ export function StyleBar(props: {
         <label className="zmd-board-style-group">
           <span>{props.labels.background}</span>
           <span className="zmd-board-swatches">
-            {FILLS.map((color) => (
+            {fills.map((color) => (
               <button
                 key={color}
                 type="button"
                 className={fill === color ? "is-active" : ""}
                 style={{
-                  background: color === "transparent" ? "#fff" : color,
+                  background: color === "transparent" ? palette.surface : color,
                   backgroundImage:
                     color === "transparent"
-                      ? "linear-gradient(45deg,#e5e7eb 25%,transparent 25%),linear-gradient(-45deg,#e5e7eb 25%,transparent 25%)"
+                      ? `linear-gradient(45deg,${palette.border} 25%,transparent 25%),linear-gradient(-45deg,${palette.border} 25%,transparent 25%)`
                       : undefined,
                   backgroundSize:
                     color === "transparent" ? "8px 8px" : undefined,

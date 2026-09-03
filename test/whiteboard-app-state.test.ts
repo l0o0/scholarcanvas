@@ -22,6 +22,7 @@ import {
   mergeEditingStyle,
   mergePickerData,
   parsePickerNodeData,
+  toggleEditingBold,
   updateFlowNodeModel,
   verticalAlignmentStyle,
   withEdgeColor,
@@ -633,6 +634,56 @@ test("style transition commits Academic content and style in one node update", (
   assert.equal(flowNodeText(node), "Old");
 });
 
+test("bold editing shortcut toggles effective default-bold nodes normal then bold", () => {
+  const nodes: CanvasDocument["nodes"] = [
+    {
+      id: "item-1",
+      kind: "item",
+      position: { x: 0, y: 0 },
+      width: 240,
+      height: 96,
+      data: { title: "Item" },
+    },
+    {
+      id: "pdf-1",
+      kind: "pdf",
+      position: { x: 0, y: 0 },
+      width: 240,
+      height: 220,
+      data: { title: "PDF" },
+    },
+    {
+      id: "attachment-1",
+      kind: "attachment",
+      position: { x: 0, y: 0 },
+      width: 240,
+      height: 96,
+      data: { title: "Attachment" },
+    },
+    academicDocument().nodes[0],
+    {
+      id: "frame-1",
+      kind: "frame",
+      position: { x: 0, y: 0 },
+      width: 480,
+      height: 320,
+      title: "Frame",
+    },
+  ];
+  const flowNodes = canvasDocumentToFlow({
+    version: 2,
+    nodes,
+    connections: [],
+  }).nodes;
+
+  for (const node of flowNodes) {
+    const normal = toggleEditingBold(node, flowNodeText(node));
+    assert.equal(normal.data.model.style?.fontWeight, "normal", node.type);
+    const bold = toggleEditingBold(normal, flowNodeText(normal));
+    assert.equal(bold.data.model.style?.fontWeight, "bold", node.type);
+  }
+});
+
 test("Academic edits reopen with the same canonical style and export it", () => {
   const [node] = canvasDocumentToFlow({
     version: 2,
@@ -948,5 +999,8 @@ test("shape and editor layout map every vertical alignment with middle default",
   assert.deepEqual(verticalAlignmentStyle({}), {
     alignItems: "center",
   });
-  assert.equal(labelTextStyle({}).lineHeight, 1.25);
+  const defaultLabel = labelTextStyle({});
+  assert.equal(defaultLabel.lineHeight, 1.25);
+  assert.equal("color" in defaultLabel, false);
+  assert.equal(labelTextStyle({ textColor: "#abcdef" }).color, "#abcdef");
 });

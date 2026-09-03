@@ -29,7 +29,7 @@ import "@xyflow/react/dist/style.css";
 import "./board.css";
 import {
   createAcademicNode,
-  effectiveCanvasNodeTextStyle,
+  effectiveCanvasNodeUiTextStyle,
   type CanvasNode,
   type CanvasNodeKind,
 } from "../model/academic";
@@ -74,6 +74,7 @@ import {
   flowToCanvasDocument,
   labelTextStyle,
   mergeEditingStyle,
+  toggleEditingBold,
   mergePickerData,
   parsePickerNodeData,
   type CanvasFlowEdge,
@@ -1181,7 +1182,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     ? flowRef.current?.flowToScreenPosition(editingNode.position)
     : null;
   const editingTextStyle = editingNode
-    ? effectiveCanvasNodeTextStyle(
+    ? effectiveCanvasNodeUiTextStyle(
         editingNode.data.model.kind,
         editingNode.data.model.style,
       )
@@ -1405,12 +1406,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 ) {
                   event.preventDefault();
                   updateNode(editing.nodeId, (current) =>
-                    mergeEditingStyle(current, editing.value, {
-                      fontWeight:
-                        current.data.model.style?.fontWeight === "bold"
-                          ? "normal"
-                          : "bold",
-                    }),
+                    toggleEditingBold(current, editing.value),
                   );
                   return;
                 }
@@ -1491,6 +1487,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           <TextStyleBar
             node={editingNode}
             labels={labels}
+            theme={theme}
             left={
               editingScreen.x +
               (nodeSize(editingNode).width * (viewportRef.current.zoom || 1)) /
@@ -1512,6 +1509,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           <StyleBar
             node={styleNode}
             labels={labels}
+            theme={theme}
             left={styleScreen.x + (nodeSize(styleNode).width * zoom) / 2 - 280}
             top={Math.max(8, styleScreen.y - 56)}
             onChange={(patch) => {

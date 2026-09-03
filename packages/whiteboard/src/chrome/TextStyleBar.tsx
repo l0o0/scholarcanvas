@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
-import { effectiveCanvasNodeTextStyle } from "../model/academic";
+import {
+  canvasThemePalette,
+  effectiveCanvasNodeTextStyle,
+} from "../model/academic";
 import type { CanvasNodeStyle } from "../model/core";
 import type { WhiteboardLabels } from "../model/protocol";
+import type { WhiteboardTheme } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 import { ColorPicker } from "./ColorPicker";
 import {
@@ -45,6 +49,7 @@ export function TextStyleBar(props: {
   left: number;
   top: number;
   labels: WhiteboardLabels;
+  theme: WhiteboardTheme;
   onChange: (patch: Partial<CanvasNodeStyle>) => void;
   onHoldFocus?: () => void;
 }) {
@@ -62,7 +67,7 @@ export function TextStyleBar(props: {
   const valign = effective.verticalAlign;
   const fontSize = effective.fontSize;
   const fontFamily = effective.fontFamily;
-  const color = effective.textColor;
+  const color = style.textColor || canvasThemePalette(props.theme).text;
 
   useEffect(() => {
     if (!menu) return;

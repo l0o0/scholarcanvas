@@ -31,7 +31,13 @@ export function nodeSurfaceStroke(
   if (style.strokeOpacity === undefined) return style.stroke;
   const opacity = Math.max(0, Math.min(1, style.strokeOpacity));
   const defaultStroke = canvasNodeSurfaceDefaults(kind).stroke;
-  return `color-mix(in srgb, ${style.stroke || `var(--zmd-board-border, ${defaultStroke})`} ${opacity * 100}%, transparent)`;
+  const fallback =
+    kind === "line" || kind === "arrow"
+      ? `var(--zmd-board-edge, ${defaultStroke})`
+      : kind === "rect" || kind === "ellipse"
+        ? `var(--zmd-board-text, ${defaultStroke})`
+        : `var(--zmd-board-border, ${defaultStroke})`;
+  return `color-mix(in srgb, ${style.stroke || fallback} ${opacity * 100}%, transparent)`;
 }
 
 export function nodeSurfaceStyle(

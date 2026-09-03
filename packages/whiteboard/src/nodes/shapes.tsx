@@ -52,10 +52,14 @@ function shapeStyle(
 ) {
   const value = style ?? {};
   const defaults = canvasNodeSurfaceDefaults(kind);
-  const stroke = nodeSurfaceStroke(kind, value) ?? defaults.stroke;
+  const stroke =
+    nodeSurfaceStroke(kind, value) ??
+    `var(--zmd-board-text, ${defaults.stroke})`;
   return {
     borderColor: stroke,
-    background: nodeSurfaceFill(kind, value) ?? defaults.fill,
+    background:
+      nodeSurfaceFill(kind, value) ??
+      `var(--zmd-board-surface, ${defaults.fill})`,
     borderWidth: value.strokeWidth ?? defaults.strokeWidth,
     borderStyle: resolvedStrokeStyle(value),
     borderRadius: kind === "ellipse" ? 999 : (value.radius ?? defaults.radius),
@@ -120,7 +124,7 @@ function StrokeShape({
   const markerId = `zmd-board-arrow-${id}`;
   const stroke =
     nodeSurfaceStroke(model.kind, style) ??
-    canvasNodeSurfaceDefaults(model.kind).stroke;
+    `var(--zmd-board-edge, ${canvasNodeSurfaceDefaults(model.kind).stroke})`;
   return (
     <div
       className={`zmd-board-shape is-stroke${selected ? " is-selected" : ""}`}

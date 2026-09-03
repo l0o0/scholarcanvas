@@ -1,6 +1,9 @@
 import { MarkerType, type Edge, type Viewport } from "@xyflow/react";
 import type { CSSProperties } from "react";
-import type { CanvasNode } from "../model/academic";
+import {
+  effectiveCanvasNodeTextStyle,
+  type CanvasNode,
+} from "../model/academic";
 import type { CanvasConnection } from "../model/connection";
 import type { CanvasNodeStyle } from "../model/core";
 import type { CanvasDocument } from "../model/document";
@@ -167,7 +170,7 @@ export function labelTextStyle(style: Partial<CanvasNodeStyle>): CSSProperties {
     fontStyle: style.fontStyle || "normal",
     textDecoration: style.textDecoration || "none",
     textAlign: style.textAlign || "center",
-    color: style.textColor || "#111827",
+    ...(style.textColor ? { color: style.textColor } : {}),
     opacity: style.textOpacity ?? 1,
     lineHeight: 1.25,
     width: "100%",
@@ -337,6 +340,19 @@ export function mergeEditingStyle(
     ...updateCanvasNodeText(model, text),
     style: { ...(model.style ?? {}), ...patch },
   }));
+}
+
+export function toggleEditingBold(
+  node: CanvasFlowNode,
+  text: string,
+): CanvasFlowNode {
+  const effective = effectiveCanvasNodeTextStyle(
+    node.data.model.kind,
+    node.data.model.style,
+  );
+  return mergeEditingStyle(node, text, {
+    fontWeight: effective.fontWeight === "bold" ? "normal" : "bold",
+  });
 }
 
 export function withEdgeColor(

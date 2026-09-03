@@ -120,7 +120,8 @@ export function demoCanvasDocument(): CanvasDocument {
   };
 }
 
-export function parseCanvasDocument(value: unknown): CanvasParseResult {
+export function parseCanvasDocument(input: unknown): CanvasParseResult {
+  const value = cloneOwnInput(input);
   if (!isRecord(value)) {
     throw new CanvasDocumentError("Canvas document must be an object.");
   }
@@ -689,7 +690,7 @@ function parseMetadata(value: unknown): CanvasMetadata | undefined {
 function parseExtensions(value: unknown): Record<string, unknown> | undefined {
   if (!isRecord(value)) return undefined;
   if (has(value, "bamboo") && !isRecord(value.bamboo)) return undefined;
-  return { ...value };
+  return cloneOwnJsonValue(value) as Record<string, unknown>;
 }
 
 function parsePoint(value: unknown): CanvasPoint | undefined {
@@ -704,6 +705,67 @@ function parsePoint(value: unknown): CanvasPoint | undefined {
 }
 
 const INVALID = Symbol("invalid");
+
+function cloneOwnInput(
+  value: unknown,
+  seen = new WeakMap<object, unknown>(),
+): unknown {
+  if (value === null || typeof value !== "object") return value;
+  const prior = seen.get(value);
+  if (prior !== undefined) return prior;
+  if (Array.isArray(value)) {
+    const clone: unknown[] = new Array(value.length);
+    seen.set(value, clone);
+    for (let index = 0; index < value.length; index += 1) {
+      const item = Object.prototype.hasOwnProperty.call(value, index)
+        ? cloneOwnInput(value[index], seen)
+        : undefined;
+      defineOwn(clone, String(index), item);
+    }
+    return clone;
+  }
+  const clone = Object.create(null) as Record<string, unknown>;
+  seen.set(value, clone);
+  for (const [key, fieldValue] of Object.entries(value)) {
+    defineOwn(clone, key, cloneOwnInput(fieldValue, seen));
+  }
+  return clone;
+}
+
+function cloneOwnJsonValue(
+  value: unknown,
+  seen = new WeakMap<object, unknown>(),
+): unknown {
+  if (value === null || typeof value !== "object") return value;
+  const prior = seen.get(value);
+  if (prior !== undefined) return prior;
+  if (Array.isArray(value)) {
+    const clone: unknown[] = new Array(value.length);
+    seen.set(value, clone);
+    for (let index = 0; index < value.length; index += 1) {
+      const item = Object.prototype.hasOwnProperty.call(value, index)
+        ? cloneOwnJsonValue(value[index], seen)
+        : undefined;
+      defineOwn(clone, String(index), item);
+    }
+    return clone;
+  }
+  const clone: Record<string, unknown> = {};
+  seen.set(value, clone);
+  for (const [key, fieldValue] of Object.entries(value)) {
+    defineOwn(clone, key, cloneOwnJsonValue(fieldValue, seen));
+  }
+  return clone;
+}
+
+function defineOwn(target: object, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
+}
 
 function parseOptionalString(
   value: Record<string, unknown>,

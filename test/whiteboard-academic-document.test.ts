@@ -14,6 +14,262 @@ test("rejects a wholly invalid Bamboo document", () => {
   );
 });
 
+test("direct parser requires own root fields and ignores inherited optionals", () => {
+  const rootFields = {
+    version: 2,
+    nodes: [],
+    connections: [],
+  };
+
+  for (const field of Object.keys(rootFields)) {
+    const inherited = Object.create({
+      [field]: rootFields[field as keyof typeof rootFields],
+    }) as Record<string, unknown>;
+    for (const [key, value] of Object.entries(rootFields)) {
+      if (key !== field) inherited[key] = value;
+    }
+    assert.throws(() => parseCanvasDocument(inherited), CanvasDocumentError);
+  }
+
+  const inheritedOptionals = Object.assign(
+    Object.create({
+      viewport: { x: 10, y: 20, zoom: 2 },
+      metadata: { title: "Inherited" },
+      extensions: { inherited: true },
+    }),
+    rootFields,
+  );
+  const result = parseCanvasDocument(inheritedOptionals);
+  assert.equal(result.document.viewport, undefined);
+  assert.equal(result.document.metadata, undefined);
+  assert.equal(result.document.extensions, undefined);
+});
+
+test("direct parser rejects inherited node geometry and content fields", () => {
+  const inheritedNode = (
+    id: string,
+    own: Record<string, unknown>,
+    inherited: Record<string, unknown>,
+  ) => Object.assign(Object.create(inherited), { id, ...own });
+  const result = parseCanvasDocument({
+    version: 2,
+    nodes: [
+      inheritedNode(
+        "inherited-position",
+        { kind: "claim", width: 240, height: 120, content: "Claim" },
+        { position: { x: 0, y: 0 } },
+      ),
+      {
+        ...claim("inherited-x"),
+        position: Object.assign(Object.create({ x: 0 }), { y: 0 }),
+      },
+      inheritedNode(
+        "inherited-content",
+        {
+          kind: "claim",
+          position: { x: 0, y: 0 },
+          width: 240,
+          height: 120,
+        },
+        { content: "Claim" },
+      ),
+      {
+        id: "inherited-title",
+        kind: "text",
+        position: { x: 0, y: 0 },
+        width: 240,
+        height: 120,
+        data: Object.create({ title: "Inherited" }),
+      },
+      claim("valid-claim"),
+    ],
+    connections: [],
+  });
+
+  assert.deepEqual(
+    result.document.nodes.map((node) => node.id),
+    ["valid-claim"],
+  );
+  assert.deepEqual(
+    result.issues.map((issue) => issue.code),
+    ["malformed-node", "malformed-node", "malformed-node", "malformed-node"],
+  );
+});
+
+test("direct parser rejects inherited Academic source, library, and keys", () => {
+  const inheritedSource = Object.assign(
+    Object.create({
+      source: { library: { type: "user" }, itemKey: "ITEM1234" },
+    }),
+    literature("inherited-source", "ITEM1234"),
+  );
+  delete inheritedSource.source;
+
+  const inheritedLibrary = literature("inherited-library", "ITEM1234");
+  inheritedLibrary.source = Object.assign(
+    Object.create({ library: { type: "user" } }),
+    { itemKey: "ITEM1234" },
+  );
+
+  const inheritedKey = literature("inherited-key", "ITEM1234");
+  inheritedKey.source = Object.assign(Object.create({ itemKey: "ITEM1234" }), {
+    library: { type: "user" as const },
+  });
+
+  const inheritedLibraryType = literature("inherited-library-type", "ITEM1234");
+  inheritedLibraryType.source.library = Object.create({ type: "user" });
+
+  const inheritedGroupID = literature("inherited-group-id", "ITEM1234");
+  inheritedGroupID.source.library = Object.assign(
+    Object.create({ groupID: 7 }),
+    { type: "group" as const },
+  );
+
+  const result = parseCanvasDocument({
+    version: 2,
+    nodes: [
+      inheritedSource,
+      inheritedLibrary,
+      inheritedKey,
+      inheritedLibraryType,
+      inheritedGroupID,
+      literature("valid-literature", "ITEM1234"),
+    ],
+    connections: [],
+  });
+
+  assert.deepEqual(
+    result.document.nodes.map((node) => node.id),
+    ["valid-literature"],
+  );
+  assert.equal(result.issues.length, 5);
+  assert.ok(result.issues.every((issue) => issue.code === "malformed-node"));
+});
+
+test("direct parser rejects inherited connection fields", () => {
+  const required = {
+    id: "edge",
+    kind: "academic",
+    source: "claim-1",
+    target: "claim-2",
+    relation: "supports",
+  };
+  const inheritedConnections = Object.keys(required).map((field, index) => {
+    const edge = Object.create({
+      [field]: required[field as keyof typeof required],
+    }) as Record<string, unknown>;
+    for (const [key, value] of Object.entries(required)) {
+      if (key !== field) edge[key] = key === "id" ? `edge-${index}` : value;
+    }
+    return edge;
+  });
+  const result = parseCanvasDocument({
+    version: 2,
+    nodes: [claim("claim-1"), claim("claim-2")],
+    connections: inheritedConnections,
+  });
+
+  assert.deepEqual(result.document.connections, []);
+  assert.equal(result.issues.length, inheritedConnections.length);
+  assert.ok(
+    result.issues.every((issue) => issue.code === "malformed-connection"),
+  );
+});
+
+test("direct parser preserves own __proto__ extension data without mutation", () => {
+  const input = JSON.parse(`{
+    "version": 2,
+    "nodes": [{
+      "id": "claim-1",
+      "kind": "claim",
+      "position": { "x": 0, "y": 0 },
+      "width": 240,
+      "height": 120,
+      "content": "Claim",
+      "extensions": {
+        "__proto__": { "nodeMarker": true },
+        "nested": { "__proto__": { "nestedMarker": true } },
+        "items": [{ "__proto__": "array-marker" }]
+      }
+    }],
+    "connections": [],
+    "extensions": { "__proto__": { "rootMarker": true } }
+  }`) as Record<string, unknown>;
+
+  const result = parseCanvasDocument(input);
+  const nodeExtensions = result.document.nodes[0].extensions!;
+  const nested = nodeExtensions.nested as Record<string, unknown>;
+  const arrayItem = (nodeExtensions.items as Record<string, unknown>[])[0];
+  assert.equal(Object.hasOwn(result.document.extensions!, "__proto__"), true);
+  assert.equal(Object.hasOwn(nodeExtensions, "__proto__"), true);
+  assert.equal(Object.hasOwn(nested, "__proto__"), true);
+  assert.equal(Object.hasOwn(arrayItem, "__proto__"), true);
+  assert.deepEqual(result.document.extensions, input.extensions);
+  assert.deepEqual(
+    nodeExtensions,
+    (input.nodes as Record<string, unknown>[])[0].extensions,
+  );
+  assert.equal(({} as Record<string, unknown>).rootMarker, undefined);
+  assert.equal(({} as Record<string, unknown>).nodeMarker, undefined);
+  assert.equal(({} as Record<string, unknown>).nestedMarker, undefined);
+});
+
+test("direct parser does not materialize inherited sparse-array entries", () => {
+  const nodes: unknown[] = new Array(1);
+  Object.setPrototypeOf(
+    nodes,
+    Object.assign(Object.create(Array.prototype), { 0: claim("inherited") }),
+  );
+  const extensionItems: unknown[] = new Array(1);
+  Object.setPrototypeOf(
+    extensionItems,
+    Object.assign(Object.create(Array.prototype), { 0: "inherited" }),
+  );
+
+  const result = parseCanvasDocument({
+    version: 2,
+    nodes,
+    connections: [],
+    extensions: { extensionItems },
+  });
+  const parsedItems = result.document.extensions!.extensionItems as unknown[];
+  assert.deepEqual(result.document.nodes, []);
+  assert.equal(Object.hasOwn(parsedItems, 0), true);
+  assert.equal(parsedItems[0], undefined);
+  assert.equal(parsedItems.length, 1);
+});
+
+test("direct parser neutralizes sparse entries from Array.prototype", () => {
+  const pollutedNode = claim("array-prototype-node");
+  let result: ReturnType<typeof parseCanvasDocument>;
+  const previous = Object.getOwnPropertyDescriptor(Array.prototype, "0");
+  try {
+    Object.defineProperty(Array.prototype, "0", {
+      configurable: true,
+      value: pollutedNode,
+      writable: true,
+    });
+    result = parseCanvasDocument({
+      version: 2,
+      nodes: new Array(1),
+      connections: [],
+      extensions: { items: new Array(1) },
+    });
+  } finally {
+    if (previous) Object.defineProperty(Array.prototype, "0", previous);
+    else delete (Array.prototype as unknown[])[0];
+  }
+
+  const items = result.document.extensions!.items as unknown[];
+  assert.deepEqual(result.document.nodes, []);
+  assert.deepEqual(
+    result.issues.map((issue) => issue.code),
+    ["malformed-node"],
+  );
+  assert.equal(Object.hasOwn(items, 0), true);
+  assert.equal(items[0], undefined);
+});
+
 test("repairs dangling connections and invalid frame membership", () => {
   const result = parseCanvasDocument({
     version: 2,

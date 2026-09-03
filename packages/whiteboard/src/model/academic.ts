@@ -1,5 +1,6 @@
 import type { BasicNode, BasicNodeKind } from "./basic";
 import type { CanvasNodeBase, CanvasNodeStyle, CanvasPoint } from "./core";
+import type { WhiteboardTheme } from "./protocol";
 
 export type AcademicNodeKind =
   "literature" | "quote" | "note" | "question" | "claim" | "frame";
@@ -105,6 +106,34 @@ export type CanvasNodeTextDefaults = Required<
   >
 >;
 
+export interface CanvasThemePalette {
+  surface: string;
+  border: string;
+  text: string;
+  edge: string;
+}
+
+export type CanvasNodeUiTextStyle = Omit<
+  CanvasNodeTextDefaults,
+  "textColor"
+> & { textColor?: string };
+
+export function canvasThemePalette(theme: WhiteboardTheme): CanvasThemePalette {
+  return theme === "dark"
+    ? {
+        surface: "#1a1d24",
+        border: "#3d4452",
+        text: "#e8eaed",
+        edge: "#6b7280",
+      }
+    : {
+        surface: "#ffffff",
+        border: "#e5e7eb",
+        text: "#111827",
+        edge: "#9ca3af",
+      };
+}
+
 export function canvasNodeSurfaceDefaults(
   kind: CanvasNodeKind,
 ): CanvasNodeSurfaceDefaults {
@@ -138,6 +167,25 @@ export function canvasNodeSurfaceDefaults(
     radius: 8,
     strokeStyle: "solid",
   };
+}
+
+export function canvasNodeUiSurfaceDefaults(
+  kind: CanvasNodeKind,
+  theme: WhiteboardTheme,
+): CanvasNodeSurfaceDefaults {
+  const defaults = canvasNodeSurfaceDefaults(kind);
+  if (theme === "light") return defaults;
+  const palette = canvasThemePalette(theme);
+  if (kind === "frame") {
+    return { ...defaults, stroke: palette.border };
+  }
+  if (kind === "rect" || kind === "ellipse") {
+    return { ...defaults, stroke: palette.text, fill: palette.surface };
+  }
+  if (kind === "line" || kind === "arrow") {
+    return { ...defaults, stroke: palette.edge, fill: palette.surface };
+  }
+  return { ...defaults, stroke: palette.border, fill: palette.surface };
 }
 
 export function canvasNodeTextDefaults(
@@ -207,6 +255,18 @@ export function effectiveCanvasNodeTextStyle(
     verticalAlign: style.verticalAlign ?? defaults.verticalAlign,
     textColor: style.textColor || defaults.textColor,
     textOpacity: style.textOpacity ?? defaults.textOpacity,
+  };
+}
+
+export function effectiveCanvasNodeUiTextStyle(
+  kind: CanvasNodeKind,
+  style: Partial<CanvasNodeStyle> = {},
+): CanvasNodeUiTextStyle {
+  const { textColor: _deterministicColor, ...effective } =
+    effectiveCanvasNodeTextStyle(kind, style);
+  return {
+    ...effective,
+    ...(style.textColor ? { textColor: style.textColor } : {}),
   };
 }
 

@@ -4,8 +4,8 @@ import { createDeferredLabels } from "../packages/whiteboard/src/bootstrapState.
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
 
 test("labels received before runtime readiness are replayed on attachment", () => {
-  const initial = { board: "Localized board" } as WhiteboardLabels;
-  const replacement = { board: "Updated board" } as WhiteboardLabels;
+  const initial = { canvas: "Localized canvas" } as WhiteboardLabels;
+  const replacement = { canvas: "Updated canvas" } as WhiteboardLabels;
   const received: WhiteboardLabels[] = [];
   const deferred = createDeferredLabels();
 

@@ -16,7 +16,7 @@ import {
 } from "../packages/whiteboard/src/model/index.ts";
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
 import {
-  boardNodeTypes,
+  canvasNodeTypes,
   getNodeSpec,
   listNodeSpecs,
 } from "../packages/whiteboard/src/nodes/index.ts";
@@ -41,7 +41,7 @@ const labels = new Proxy(
   },
 );
 
-const boardCss = readFileSync(
+const canvasCss = readFileSync(
   new URL("../packages/whiteboard/src/whiteboard/board.css", import.meta.url),
   "utf8",
 );
@@ -81,7 +81,7 @@ test("registers all academic and retained basic node kinds", () => {
     "arrow",
   ] as const) {
     assert.ok(kinds.includes(kind));
-    assert.ok(boardNodeTypes[kind]);
+    assert.ok(canvasNodeTypes[kind]);
   }
   for (const kind of [
     "literature",
@@ -92,12 +92,12 @@ test("registers all academic and retained basic node kinds", () => {
     "frame",
   ] as const) {
     assert.equal(getNodeSpec(kind).group, "academic");
-    assert.ok(boardNodeTypes[kind]);
+    assert.ok(canvasNodeTypes[kind]);
   }
 });
 
 test("card shells keep React Flow handles visible beyond their border", () => {
-  const cardRule = boardCss.match(/\.zmd-board-card\s*\{([^}]*)\}/)?.[1];
+  const cardRule = canvasCss.match(/\.zmd-board-card\s*\{([^}]*)\}/)?.[1];
   assert.ok(cardRule, "missing card shell rule");
   assert.match(cardRule, /overflow:\s*visible/);
 });
@@ -189,9 +189,9 @@ test("quote omits the color indicator when its snapshot has no color", () => {
 });
 
 test("academic card bodies clip long copy without clipping provenance", () => {
-  const cardRule = boardCss.match(/\.zmd-board-card\s*\{([^}]*)\}/)?.[1];
-  const bodyRule = boardCss.match(/\.zmd-board-card-body\s*\{([^}]*)\}/)?.[1];
-  const footerRule = boardCss.match(
+  const cardRule = canvasCss.match(/\.zmd-board-card\s*\{([^}]*)\}/)?.[1];
+  const bodyRule = canvasCss.match(/\.zmd-board-card-body\s*\{([^}]*)\}/)?.[1];
+  const footerRule = canvasCss.match(
     /\.zmd-board-card-footer\s*\{([^}]*)\}/,
   )?.[1];
   assert.ok(cardRule && bodyRule && footerRule);
@@ -207,7 +207,7 @@ test("academic card bodies clip long copy without clipping provenance", () => {
     ".zmd-board-card-content",
     ".zmd-board-card-tags span",
   ]) {
-    const rule = boardCss.match(
+    const rule = canvasCss.match(
       new RegExp(`${selector.replaceAll(".", "\\.")}\\s*\\{([^}]*)\\}`),
     )?.[1];
     assert.ok(rule, `missing ${selector} overflow rule`);
@@ -297,23 +297,23 @@ test("academic card layout prevents fractional lines and wraps provenance", () =
     /class="zmd-board-card-footer"[^>]*>[\s\S]*class="zmd-board-card-meta"/,
   );
   assert.match(
-    boardCss,
+    canvasCss,
     /\.zmd-board-card\.is-literature \.zmd-board-card-body\s*>\s*\*,\s*\.zmd-board-card\.is-quote \.zmd-board-card-body\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/s,
   );
   assert.match(
-    boardCss,
+    canvasCss,
     /\.zmd-board-card-footer\s*\{[^}]*overflow-wrap:\s*anywhere/s,
   );
   assert.match(
-    boardCss,
+    canvasCss,
     /\.zmd-board-card\.is-literature \.zmd-board-card-body \.zmd-board-card-meta\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*-webkit-line-clamp:\s*1/s,
   );
   assert.match(
-    boardCss,
+    canvasCss,
     /\.zmd-board-card-comment\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*-webkit-line-clamp:\s*1/s,
   );
   assert.match(
-    boardCss,
+    canvasCss,
     /\.zmd-board-card-footer \.zmd-board-card-meta\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*-webkit-line-clamp:\s*2/s,
   );
 });

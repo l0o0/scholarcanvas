@@ -99,14 +99,14 @@ export function registerWhiteboardMenus(win: _ZoteroTypes.MainWindow) {
 
   if (itemPopup) {
     const openItem = doc.createXULElement("menuitem") as HTMLElement;
-    openItem.id = `${addon.data.config.addonRef}-item-open-board`;
+    openItem.id = `${addon.data.config.addonRef}-item-open-canvas`;
     openItem.setAttribute("label", getString("menuitem-open-whiteboard"));
     openItem.setAttribute("class", "menuitem-iconic");
     openItem.style.listStyleImage = `url(${icon()})`;
     const onOpen = () => {
       const selected = win.ZoteroPane?.getSelectedItems?.() || [];
-      const board = selected.find(isWhiteboardAttachment);
-      if (board) void openWhiteboardAttachment(board);
+      const canvas = selected.find(isWhiteboardAttachment);
+      if (canvas) void openWhiteboardAttachment(canvas);
     };
     const onShowing = () => {
       const selected = win.ZoteroPane?.getSelectedItems?.() || [];

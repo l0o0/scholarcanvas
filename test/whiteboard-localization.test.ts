@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const hostKeys = [
-  "whiteboard-board",
+  "whiteboard-canvas",
   "whiteboard-select",
   "whiteboard-hand",
   "whiteboard-more",
@@ -76,6 +76,7 @@ test("both host locales define every whiteboard chrome label", () => {
 test("host wires every academic label into the whiteboard protocol", () => {
   const source = readFileSync("src/modules/whiteboard/tab.ts", "utf8");
   for (const [field, key] of [
+    ["canvas", "whiteboard-canvas"],
     ["addQuestion", "whiteboard-add-question"],
     ["addClaim", "whiteboard-add-claim"],
     ["addFrame", "whiteboard-add-frame"],

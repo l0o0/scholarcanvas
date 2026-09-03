@@ -143,6 +143,6 @@ export function getNodeSpec(kind: CanvasNodeKind): WhiteboardNodeSpec {
   return spec;
 }
 
-export const boardNodeTypes = Object.fromEntries(
+export const canvasNodeTypes = Object.fromEntries(
   NODE_SPECS.map((spec) => [spec.kind, spec.Component]),
 ) as Record<CanvasNodeKind, WhiteboardNodeSpec["Component"]>;

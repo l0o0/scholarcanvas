@@ -19,7 +19,7 @@ export function getExtension(filename: string): string {
   return base.slice(idx + 1).toLowerCase();
 }
 
-export function defaultBoardFilename(
+export function defaultCanvasFilename(
   title?: string,
   now: Date = new Date(),
 ): string {

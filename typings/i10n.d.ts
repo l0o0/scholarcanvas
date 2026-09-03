@@ -181,7 +181,7 @@ export type FluentMessageId =
   | 'whiteboard-annotations'
   | 'whiteboard-auto-layout'
   | 'whiteboard-background'
-  | 'whiteboard-board'
+  | 'whiteboard-canvas'
   | 'whiteboard-close'
   | 'whiteboard-color'
   | 'whiteboard-colors-common'

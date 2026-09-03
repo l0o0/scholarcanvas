@@ -120,7 +120,7 @@ export function TopIsland(props: {
     <div
       className="zmd-board-top-island"
       role="toolbar"
-      aria-label={labels.board}
+      aria-label={labels.canvas}
     >
       {groups.map((group, index) => (
         <div key={index} className="zmd-board-top-group">

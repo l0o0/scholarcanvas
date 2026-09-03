@@ -5,7 +5,7 @@ import {
   type CanvasDocument,
 } from "./snapshot";
 import { serializeCanvasDocument } from "../../../packages/whiteboard/src/model/canvas-file";
-import { defaultBoardFilename } from "./detect";
+import { defaultCanvasFilename } from "./detect";
 
 function decodeHtmlEntities(value: string): string {
   const named: Record<string, string> = {
@@ -165,7 +165,7 @@ export async function createWhiteboardAttachment(
   const titleBase = parent
     ? parent.getField("title") || parent.getDisplayTitle()
     : "Whiteboard";
-  const filename = defaultBoardFilename(String(titleBase));
+  const filename = defaultCanvasFilename(String(titleBase));
   const content = serializeCanvasDocument(
     options.document ?? emptyCanvasDocument(),
   );

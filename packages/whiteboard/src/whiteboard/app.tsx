@@ -39,7 +39,7 @@ import {
   type CanvasDocument,
 } from "../model/document";
 import type { WhiteboardLabels, WhiteboardTheme } from "../model/protocol";
-import { boardNodeTypes, type CanvasFlowNode } from "../nodes";
+import { canvasNodeTypes, type CanvasFlowNode } from "../nodes";
 import { PropertiesPanel } from "../chrome/PropertiesPanel";
 import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
@@ -95,7 +95,7 @@ import { captureCanvasArrowKey } from "./keyboard";
 import { useCanvasDocumentRuntime } from "./runtime";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
-  board: "Board",
+  canvas: "Canvas",
   select: "Select (V)",
   hand: "Hand (H)",
   addItem: "Item",
@@ -1244,9 +1244,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         <ReactFlow<CanvasFlowNode, CanvasFlowEdge>
           nodes={nodes}
           edges={edges}
-          nodeTypes={boardNodeTypes}
+          nodeTypes={canvasNodeTypes}
           defaultViewport={initial.viewport}
           fitView={!props.initialSnapshot}
+          minZoom={0.1}
           connectionMode={ConnectionMode.Loose}
           defaultEdgeOptions={{
             type: "smoothstep",

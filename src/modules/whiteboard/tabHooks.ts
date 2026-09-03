@@ -17,7 +17,7 @@ export function registerWhiteboardTabHooks(win: _ZoteroTypes.MainWindow) {
 
   tabs.tabHooks.getTitle[WHITEBOARD_TAB_TYPE] = async (tab: {
     id?: string;
-    data?: { boardId?: string };
+    data?: { canvasId?: string };
   }) => {
     const session = tab.id ? whiteboardRegistry.get(tab.id) : undefined;
     if (!session) return "Whiteboard";
@@ -27,7 +27,7 @@ export function registerWhiteboardTabHooks(win: _ZoteroTypes.MainWindow) {
 
   tabs.tabHooks.refocus[WHITEBOARD_TAB_TYPE] = async (tab: {
     id: string;
-    data?: { boardId?: string };
+    data?: { canvasId?: string };
   }) => {
     const host = win.document
       .getElementById(tab.id)
@@ -41,7 +41,7 @@ export function registerWhiteboardTabHooks(win: _ZoteroTypes.MainWindow) {
       iframe.contentWindow?.postMessage(
         {
           source: WHITEBOARD_MESSAGE_SOURCE,
-          channel: `${tab.id}:${tab.data?.boardId ?? ""}`,
+          channel: `${tab.id}:${tab.data?.canvasId ?? ""}`,
           type: "focus",
         },
         "*",

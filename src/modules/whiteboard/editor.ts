@@ -1,5 +1,5 @@
 /**
- * Parent-side board: mounts a chrome:// iframe and bridges via postMessage.
+ * Parent-side canvas: mounts a chrome:// iframe and bridges via postMessage.
  */
 import { resolveEditorTheme } from "../markdown/editor";
 import { ensureDOMGlobals } from "../../utils/dom";

@@ -12,7 +12,7 @@ import { isWhiteboardAttachment } from "./detect";
 
 const AUTOSAVE_MS = 800;
 
-function newBoardId() {
+function newCanvasId() {
   try {
     return crypto.randomUUID();
   } catch {
@@ -184,7 +184,7 @@ async function renderPdfPageToDataUrl(
   return null;
 }
 
-function boardStorageDir(session: WhiteboardSession): string {
+function canvasStorageDir(session: WhiteboardSession): string {
   try {
     const item = Zotero.Items.get(session.itemID);
     if (item) {
@@ -197,12 +197,12 @@ function boardStorageDir(session: WhiteboardSession): string {
   return PathUtils.parent(session.path) ?? session.path;
 }
 
-async function saveBoardAsset(
+async function saveCanvasAsset(
   session: WhiteboardSession,
   bytes: Uint8Array,
   mimeType: string,
 ): Promise<{ relativePath: string }> {
-  const root = boardStorageDir(session);
+  const root = canvasStorageDir(session);
   const assetsDir = PathUtils.join(root, "assets");
   await IOUtils.makeDirectory(assetsDir, { ignoreExisting: true });
   const extension = mimeType === "image/jpeg" ? "jpg" : "png";
@@ -290,7 +290,7 @@ async function handlePickItem(
     }
     const parsed = dataUrlToBytes(dataUrl);
     if (!parsed) throw new Error("Invalid rendered image data");
-    const { relativePath } = await saveBoardAsset(
+    const { relativePath } = await saveCanvasAsset(
       session,
       parsed.bytes,
       parsed.mimeType,
@@ -413,7 +413,7 @@ async function handleDropItems(
         if (!dataUrl) throw new Error("PDF page rendering is not available");
         const parsed = dataUrlToBytes(dataUrl);
         if (!parsed) throw new Error("Invalid rendered image data");
-        const { relativePath } = await saveBoardAsset(
+        const { relativePath } = await saveCanvasAsset(
           session,
           parsed.bytes,
           parsed.mimeType,
@@ -505,7 +505,7 @@ async function cleanupUnusedAssets(
   document: CanvasDocument,
 ) {
   try {
-    const root = boardStorageDir(session);
+    const root = canvasStorageDir(session);
     const assetsDir = PathUtils.join(root, "assets");
     if (!(await IOUtils.exists(assetsDir))) return;
     const referenced = new Set<string>();
@@ -640,10 +640,10 @@ function mountWhiteboardUI(
   });
   session.editor = createWhiteboardEditor(host, {
     win,
-    channel: whiteboardChannel(session.tabID, session.boardId),
+    channel: whiteboardChannel(session.tabID, session.canvasId),
     snapshot: initialSnapshot,
     labels: {
-      board: getString("whiteboard-board"),
+      canvas: getString("whiteboard-canvas"),
       select: getString("whiteboard-select"),
       hand: getString("whiteboard-hand"),
       addItem: getString("whiteboard-add-item"),
@@ -825,12 +825,12 @@ export async function openWhiteboardTab(
     return null;
   }
 
-  const boardId = newBoardId();
+  const canvasId = newCanvasId();
   const title = attachmentTitle(item);
   const { id: tabID, container } = win.Zotero_Tabs.add({
     type: WHITEBOARD_TAB_TYPE,
     title,
-    data: { itemID: item.id, boardId },
+    data: { itemID: item.id, canvasId },
     select: false,
     onClose: () => {
       void closeWhiteboardSession(tabID);
@@ -847,7 +847,7 @@ export async function openWhiteboardTab(
 
   const session: WhiteboardSession = {
     tabID,
-    boardId,
+    canvasId,
     itemID: item.id,
     win,
     path,

@@ -55,7 +55,7 @@ const runtimeSource = readFileSync(
   new URL("../packages/whiteboard/src/whiteboard/runtime.ts", import.meta.url),
   "utf8",
 );
-const boardCss = readFileSync(
+const canvasCss = readFileSync(
   new URL("../packages/whiteboard/src/whiteboard/board.css", import.meta.url),
   "utf8",
 );
@@ -180,20 +180,20 @@ test("academic creation and later edits share the visible editing state", () => 
 test("in-shape editing exposes localized focus and hides underlying copy", () => {
   assert.match(appSource, /aria-label=\{labels\.editText\}/);
   assert.match(
-    boardCss,
+    canvasCss,
     /\.zmd-board-editor\.is-in-shape:focus-within\s*\{[^}]*box-shadow:/s,
   );
-  const editorRule = boardCss.match(
+  const editorRule = canvasCss.match(
     /\.zmd-board-editor\.is-in-shape \.zmd-board-in-shape-edit,[\s\S]*?\.zmd-board-in-shape-edit\s*\{([^}]*)\}/,
   )?.[1];
   assert.ok(editorRule, "missing in-shape textarea rule");
   assert.match(editorRule, /caret-color:\s*var\(--zmd-board-text,\s*#111827\)/);
   assert.match(
-    boardCss,
+    canvasCss,
     /\.react-flow__node\.is-editing-label \.zmd-board-card-body/,
   );
   assert.match(
-    boardCss,
+    canvasCss,
     /\.react-flow__node\.is-editing-label \.zmd-board-frame h3/,
   );
 });
@@ -512,21 +512,25 @@ test("all node deletion entrances share canonical Frame deletion rules", () => {
 
 test("frames stay behind nodes and expose only title and border hit regions", () => {
   assert.match(
-    boardCss,
+    canvasCss,
     /\.react-flow__node-frame\s*\{[^}]*z-index:\s*0\s*!important;[^}]*pointer-events:\s*none/s,
   );
   assert.match(
-    boardCss,
+    canvasCss,
     /\.react-flow__node:not\(\.react-flow__node-frame\)\s*\{[^}]*z-index:\s*1/s,
   );
   assert.match(
-    boardCss,
+    canvasCss,
     /\.zmd-board-frame-title,[\s\S]*\.zmd-board-frame-hit-edge\s*\{[^}]*pointer-events:\s*auto/s,
   );
   assert.match(
-    boardCss,
+    canvasCss,
     /\.zmd-board-frame-hit-edge\.is-(?:top|bottom)[\s\S]*\.zmd-board-frame-hit-edge\.is-(?:left|right)/,
   );
+});
+
+test("fit view can zoom out far enough for a narrow canvas", () => {
+  assert.match(appSource, /<ReactFlow[\s\S]*minZoom=\{0\.1\}/);
 });
 
 test("edge arrow state survives flow, snapshot, and history round trips", () => {

@@ -29,7 +29,7 @@ export interface WhiteboardProtocolMessage {
 }
 
 export interface WhiteboardLabels {
-  board: string;
+  canvas: string;
   select: string;
   hand: string;
   addItem: string;
@@ -232,6 +232,6 @@ export function isWhiteboardProtocolMessageForChannel(
   );
 }
 
-export function whiteboardChannel(tabID: string, boardId: string) {
-  return `${tabID}:${boardId}`;
+export function whiteboardChannel(tabID: string, canvasId: string) {
+  return `${tabID}:${canvasId}`;
 }

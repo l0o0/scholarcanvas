@@ -4,7 +4,7 @@ export {
   type WhiteboardRuntime,
 } from "./whiteboard/app";
 export {
-  boardNodeTypes,
+  canvasNodeTypes,
   getNodeSpec,
   listNodeSpecs,
   type WhiteboardNodeSpec,

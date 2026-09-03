@@ -75,6 +75,6 @@ test("protocol source uses CanvasDocument and typed Basic picker payloads", () =
   );
   assert.match(source, /import type \{ CanvasDocument \} from "\.\/document"/);
   assert.match(source, /type BasicPickerPayload/);
-  assert.doesNotMatch(source, /BoardDocument|BoardNodeData|WhiteboardSnapshot/);
+  assert.match(source, /snapshot\?: CanvasDocument \| null/);
   assert.doesNotMatch(source, /noteID/);
 });

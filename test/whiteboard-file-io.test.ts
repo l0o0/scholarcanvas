@@ -12,11 +12,7 @@ test("only the canonical canvas suffix is accepted", () => {
   assert.equal(ensureCanvasExtension("review"), "review.canvas");
   assert.equal(ensureCanvasExtension("review.canvas"), "review.canvas");
   assert.equal(ensureCanvasExtension("review.CANVAS"), "review.CANVAS");
-  assert.equal(ensureCanvasExtension("review.board"), "review.board.canvas");
-  assert.equal(
-    ensureCanvasExtension("review.zmdboard"),
-    "review.zmdboard.canvas",
-  );
+  assert.equal(ensureCanvasExtension("review.txt"), "review.txt.canvas");
 });
 
 test("the file picker advertises only Research Canvas files", async (t) => {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
   CanvasDocumentError,
@@ -118,5 +118,13 @@ test("host snapshot is a compatibility re-export rather than a schema", () => {
   for (const module of ["document", "basic", "academic", "connection"]) {
     assert.match(source, new RegExp(`/model/${module}"`));
   }
-  assert.doesNotMatch(source, /model\/snapshot|interface Board|emptyBoard/);
+  assert.equal(source.match(/^export \* from/gm)?.length, 4);
+});
+
+test("the retired package schema authority is absent", () => {
+  const retiredSchema = new URL(
+    "../packages/whiteboard/src/model/snapshot.ts",
+    import.meta.url,
+  );
+  assert.equal(existsSync(retiredSchema), false);
 });

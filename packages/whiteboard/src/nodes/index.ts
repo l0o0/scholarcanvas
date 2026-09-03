@@ -8,7 +8,7 @@ export {
   QuoteNode,
 } from "./academic";
 export {
-  boardNodeTypes,
+  canvasNodeTypes,
   getNodeSpec,
   listNodeSpecs,
   type WhiteboardNodeSpec,

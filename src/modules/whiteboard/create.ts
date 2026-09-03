@@ -23,19 +23,120 @@ function decodeHtmlEntities(value: string): string {
       key.slice(hexadecimal ? 2 : 1),
       hexadecimal ? 16 : 10,
     );
-    return Number.isFinite(codePoint)
-      ? String.fromCodePoint(codePoint)
-      : entity;
+    const isUnicodeScalar =
+      codePoint > 0 &&
+      codePoint <= 0x10ffff &&
+      !(codePoint >= 0xd800 && codePoint <= 0xdfff);
+    return isUnicodeScalar ? String.fromCodePoint(codePoint) : entity;
   });
+}
+
+const BLOCK_TAGS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "br",
+  "dd",
+  "div",
+  "dl",
+  "dt",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hr",
+  "li",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "table",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+  "ul",
+]);
+
+function htmlTagEnd(value: string, start: number): number {
+  let quote: '"' | "'" | undefined;
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === ">") return index;
+  }
+  return -1;
+}
+
+function stripHtmlMarkup(value: string): string {
+  let text = "";
+  let index = 0;
+  while (index < value.length) {
+    if (value.startsWith("<!--", index)) {
+      const commentEnd = value.indexOf("-->", index + 4);
+      index = commentEnd < 0 ? value.length : commentEnd + 3;
+      continue;
+    }
+    if (value[index] !== "<") {
+      text += value[index];
+      index += 1;
+      continue;
+    }
+
+    const end = htmlTagEnd(value, index + 1);
+    if (end < 0) {
+      text += value[index];
+      index += 1;
+      continue;
+    }
+    const token = value.slice(index + 1, end);
+    const tag = /^\s*\/?\s*([a-z][\w:-]*)\b/i.exec(token)?.[1];
+    const isDeclaration = /^\s*[!?]/.test(token);
+    if (!tag && !isDeclaration) {
+      text += value.slice(index, end + 1);
+      index = end + 1;
+      continue;
+    }
+    const isClosingTag = /^\s*\//.test(token);
+    if (
+      tag &&
+      BLOCK_TAGS.has(tag.toLowerCase()) &&
+      (isClosingTag || tag.toLowerCase() === "br" || tag.toLowerCase() === "hr")
+    ) {
+      text += "\n";
+    }
+    index = end + 1;
+  }
+  return text;
 }
 
 export function zoteroNotePlainText(item: { getNote?: () => unknown }): string {
   try {
     const html = item.getNote?.();
     if (typeof html === "string") {
-      return decodeHtmlEntities(html)
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
+      return decodeHtmlEntities(stripHtmlMarkup(html))
+        .replace(/[^\S\r\n]+/g, " ")
+        .replace(/ *\r?\n */g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
         .trim();
     }
   } catch {

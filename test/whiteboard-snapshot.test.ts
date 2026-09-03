@@ -51,7 +51,22 @@ test("collection note conversion copies plain text rather than Zotero identity",
   const content = zoteroNotePlainText({
     getNote: () => "<p>Evidence&nbsp;&amp; context</p><p>Second line</p>",
   });
-  assert.equal(content, "Evidence & context Second line");
+  assert.equal(content, "Evidence & context\nSecond line");
+});
+
+test("note conversion preserves escaped angle brackets as user text", () => {
+  const content = zoteroNotePlainText({
+    getNote: () =>
+      "<p>Math: 1 &lt; 2 &gt; 0</p><p>A&amp;B<br>next&nbsp;line</p>",
+  });
+  assert.equal(content, "Math: 1 < 2 > 0\nA&B\nnext line");
+});
+
+test("invalid numeric entities cannot clear the surrounding note", () => {
+  const content = zoteroNotePlainText({
+    getNote: () => "<p>Before &#x110000; middle &#xD800; after &#x1F600;</p>",
+  });
+  assert.equal(content, "Before &#x110000; middle &#xD800; after 😀");
 });
 
 test("collection canvas stores Zotero Notes as local Academic Note content", (t) => {

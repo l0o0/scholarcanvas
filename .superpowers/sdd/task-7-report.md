@@ -104,3 +104,35 @@ Fresh verification before the report:
   exited 0;
 - `pnpm lint:check`: exited 0 after a mechanical Prettier pass;
 - `git diff --check`: exited 0.
+
+## Review Fix — Preserve Zotero Note Text
+
+The Task 7 review identified two failures in `zoteroNotePlainText()`:
+
+1. HTML entities were decoded before markup was removed, so escaped user text
+   such as `1 &lt; 2 &gt; 0` became angle brackets and was mistaken for a tag.
+2. Numeric entities were passed to `String.fromCodePoint()` after only a
+   finite-number check. Out-of-range and surrogate values could throw, causing
+   the outer Note read guard to return an empty string for the entire Note.
+
+Two regression tests were added first. The focused RED run passed 6 tests and
+failed exactly those 2 cases: escaped mathematical comparison text became
+`Math: 1 0`, and an out-of-range entity cleared the whole result.
+
+GREEN now removes actual HTML markup before decoding entities. A small
+dependency-free tag scanner handles quoted tag attributes and comments, keeps
+paragraph/list/table boundaries and `br`/`hr` as line breaks, and leaves
+non-tag angle-bracket text alone. Numeric entities decode only when they are
+valid Unicode scalar values (`1..0x10FFFF`, excluding the surrogate range);
+invalid references remain readable verbatim instead of throwing. The focused
+suite then passed 8 tests with no failures, including valid supplementary
+Unicode decoding.
+
+Fresh review-fix verification:
+
+- required Task 7 host suites: 30 passed, 0 failed;
+- affected app/bootstrap/codec/document/session/module/localization/toolbar
+  suites: 60 passed, 0 failed;
+- root and standalone whiteboard TypeScript checks: exited 0;
+- full `pnpm lint:check`: exited 0;
+- `git diff --check`: exited 0.

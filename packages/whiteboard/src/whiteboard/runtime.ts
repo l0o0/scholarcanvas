@@ -29,8 +29,8 @@ export interface CanvasDocumentRuntime {
   history: CanvasDocumentHistory;
   changed: () => void;
   pushHistory: () => void;
-  applyDocument: (value: unknown) => void;
-  loadSnapshot: (value: unknown) => void;
+  applyDocument: (value: CanvasDocument) => void;
+  loadSnapshot: (value: CanvasDocument) => void;
   getSnapshot: () => CanvasDocument;
   undo: () => void;
   redo: () => void;
@@ -102,7 +102,7 @@ export function useCanvasDocumentRuntime(
     history.changed();
   }, [history]);
 
-  const applyDocument = useCallback((value: unknown) => {
+  const applyDocument = useCallback((value: CanvasDocument) => {
     const document = parseRuntimeDocument(value);
     const next = canvasDocumentToFlow(document);
     const viewport = document.viewport ?? { x: 0, y: 0, zoom: 1 };
@@ -118,7 +118,7 @@ export function useCanvasDocumentRuntime(
   }, []);
 
   const loadSnapshot = useCallback(
-    (value: unknown) => {
+    (value: CanvasDocument) => {
       applyDocument(value);
       history.replace();
     },
@@ -155,6 +155,6 @@ export function useCanvasDocumentRuntime(
   };
 }
 
-function parseRuntimeDocument(value: unknown): CanvasDocument {
+function parseRuntimeDocument(value: CanvasDocument): CanvasDocument {
   return parseCanvasDocument(value).document;
 }

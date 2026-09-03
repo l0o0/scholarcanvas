@@ -12,13 +12,13 @@ import {
   type ParentToWhiteboardMessage,
   type WhiteboardTheme,
 } from "./model/protocol";
-import { emptyCanvasDocument } from "./model/document";
+import { emptyCanvasDocument, type CanvasDocument } from "./model/document";
 import { createDeferredLabels } from "./bootstrapState";
 
 const channel = new URL(window.location.href).searchParams.get("channel") || "";
 
 let theme: WhiteboardTheme = "light";
-let pendingSnapshot: unknown = null;
+let pendingSnapshot: CanvasDocument | null = null;
 const deferredLabels = createDeferredLabels();
 let runtime: WhiteboardRuntime | null = null;
 let rev = 0;
@@ -160,7 +160,7 @@ function boot() {
     <WhiteboardApp
       theme={theme}
       labels={deferredLabels.current}
-      initialSnapshot={pendingSnapshot}
+      initialSnapshot={pendingSnapshot ?? undefined}
       onReady={(next) => {
         runtime = next;
         deferredLabels.attach(next);

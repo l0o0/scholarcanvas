@@ -7,11 +7,8 @@
  * so the two iframes cannot accept each other's messages.
  */
 
-import type {
-  BoardDocument,
-  BoardNodeData,
-  WhiteboardSnapshot,
-} from "./snapshot";
+import type { AttachmentNodeData, ItemNodeData, PdfNodeData } from "./basic";
+import type { CanvasDocument } from "./document";
 
 export const WHITEBOARD_MESSAGE_SOURCE = "zotero-markdown-whiteboard" as const;
 export const WHITEBOARD_PROTOCOL_VERSION = 1;
@@ -19,6 +16,11 @@ export const WHITEBOARD_PROTOCOL_VERSION = 1;
 export type WhiteboardTheme = "light" | "dark";
 
 export type WhiteboardCommand = "undo" | "redo";
+
+export type BasicPickerPayload =
+  | ({ kind: "item" } & ItemNodeData)
+  | ({ kind: "pdf" } & PdfNodeData)
+  | ({ kind: "attachment" } & AttachmentNodeData);
 
 export interface WhiteboardProtocolMessage {
   source: typeof WHITEBOARD_MESSAGE_SOURCE;
@@ -122,7 +124,7 @@ export interface WhiteboardLabels {
 
 export interface WhiteboardInitPayload {
   theme: WhiteboardTheme;
-  snapshot?: BoardDocument | Record<string, unknown> | null;
+  snapshot?: CanvasDocument | null;
   labels?: WhiteboardLabels;
 }
 
@@ -132,7 +134,7 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
     | { type: "setTheme"; payload: { theme: WhiteboardTheme } }
     | {
         type: "loadSnapshot";
-        payload: { snapshot: BoardDocument | Record<string, unknown> };
+        payload: { snapshot: CanvasDocument };
       }
     | { type: "requestSnapshot"; payload: { requestId: string } }
     | { type: "command"; payload: { command: WhiteboardCommand } }
@@ -140,7 +142,11 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
     | { type: "destroy" }
     | {
         type: "itemPicked";
-        payload: { requestId: string; nodeId: string; data: BoardNodeData };
+        payload: {
+          requestId: string;
+          nodeId: string;
+          data: BasicPickerPayload;
+        };
       }
     | {
         type: "pickFailed";
@@ -161,7 +167,7 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
         payload: {
           requestId: string;
           rev: number;
-          snapshot: WhiteboardSnapshot;
+          snapshot: CanvasDocument;
         };
       }
     | { type: "save" }
@@ -179,7 +185,6 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
         payload: {
           itemID?: number;
           attachmentID?: number;
-          noteID?: number;
           pdfPage?: number;
         };
       }

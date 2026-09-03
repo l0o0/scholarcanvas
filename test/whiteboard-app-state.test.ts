@@ -33,6 +33,13 @@ import {
   type CanvasDocumentRuntime,
 } from "../packages/whiteboard/src/whiteboard/runtime.ts";
 
+type Assert<T extends true> = T;
+type _RuntimeLoadsCanvasDocument = Assert<
+  Parameters<CanvasDocumentRuntime["loadSnapshot"]>[0] extends CanvasDocument
+    ? true
+    : false
+>;
+
 const EMPTY: CanvasDocument = {
   version: 2,
   nodes: [],
@@ -42,6 +49,10 @@ const EMPTY: CanvasDocument = {
 
 const appSource = readFileSync(
   new URL("../packages/whiteboard/src/whiteboard/app.tsx", import.meta.url),
+  "utf8",
+);
+const runtimeSource = readFileSync(
+  new URL("../packages/whiteboard/src/whiteboard/runtime.ts", import.meta.url),
   "utf8",
 );
 const boardCss = readFileSync(
@@ -90,6 +101,18 @@ function academicDocument(): CanvasDocument {
     ],
   };
 }
+
+test("runtime load and replace methods accept canonical documents", () => {
+  assert.match(
+    runtimeSource,
+    /applyDocument: \(value: CanvasDocument\) => void/,
+  );
+  assert.match(
+    runtimeSource,
+    /loadSnapshot: \(value: CanvasDocument\) => void/,
+  );
+  assert.doesNotMatch(runtimeSource, /\(value: unknown\)/);
+});
 
 test("canonical documents adapt to React Flow and back", () => {
   const document = academicDocument();
@@ -671,31 +694,12 @@ test("picker payloads select and populate each typed canonical node kind", () =>
         );
       },
     },
-    {
-      payload: {
-        kind: "note",
-        title: "Reading note",
-        preview: "Evidence summary",
-        noteID: 44,
-        unexpected: "drop me",
-      },
-      assertModel(model: ReturnType<typeof mergePickerData>) {
-        assert.equal(model.kind, "note");
-        assert.equal(
-          model.kind === "note" && model.content,
-          "Evidence summary",
-        );
-        assert.equal("data" in model, false);
-      },
-    },
   ] as const;
 
   for (const entry of cases) {
     const parsed = parsePickerNodeData(entry.payload);
     assert.ok(parsed);
     assert.equal("unexpected" in parsed, false);
-    if (parsed.kind === "note") assert.equal(parsed.noteID, 44);
-
     const placeholder = canvasDocumentToFlow({
       version: 2,
       nodes: [
@@ -743,7 +747,7 @@ test("picker parser rejects invalid values for known optional fields", () => {
     { kind: "pdf", title: "Paper.pdf", attachmentID: "42" },
     { kind: "pdf", title: "Paper.pdf", image: { url: "bad" } },
     { kind: "attachment", title: "File", preview: false },
-    { kind: "note", title: "Note", noteID: undefined },
+    { kind: "note", title: "Note", preview: "Local content" },
   ]) {
     assert.equal(parsePickerNodeData(payload), undefined);
   }

@@ -4,6 +4,7 @@ import type { CanvasNode } from "../model/academic";
 import type { CanvasConnection } from "../model/connection";
 import type { CanvasNodeStyle } from "../model/core";
 import type { CanvasDocument } from "../model/document";
+import type { BasicPickerPayload } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 
 export interface CanvasFlowEdgeData extends Record<string, unknown> {
@@ -23,36 +24,7 @@ export interface CanvasFlowDocument {
   shell: CanvasDocumentShell;
 }
 
-interface PickerDataBase<K extends string> {
-  kind: K;
-  title: string;
-  subtitle?: string;
-  preview?: string;
-}
-
-export interface PickerItemData extends PickerDataBase<"item"> {
-  itemID?: number;
-}
-
-export interface PickerPdfData extends PickerDataBase<"pdf"> {
-  itemID?: number;
-  attachmentID?: number;
-  pdfPage?: number;
-  image?: string;
-  asset?: string;
-}
-
-export interface PickerAttachmentData extends PickerDataBase<"attachment"> {
-  itemID?: number;
-  attachmentID?: number;
-}
-
-export interface PickerNoteData extends PickerDataBase<"note"> {
-  noteID?: number;
-}
-
-export type PickerNodeData =
-  PickerItemData | PickerPdfData | PickerAttachmentData | PickerNoteData;
+export type PickerNodeData = BasicPickerPayload;
 
 export function parsePickerNodeData(
   value: unknown,
@@ -108,16 +80,6 @@ export function parsePickerNodeData(
         ...common,
         ...optionalNumberProperty(value, "itemID"),
         ...optionalNumberProperty(value, "attachmentID"),
-      };
-    }
-    case "note": {
-      if (!hasValidOptionalPickerFields(value, [], ["noteID"])) {
-        return undefined;
-      }
-      return {
-        kind: "note",
-        ...common,
-        ...optionalNumberProperty(value, "noteID"),
       };
     }
     default:
@@ -178,12 +140,6 @@ export function mergePickerData(
           ...definedNumber("itemID", picker.itemID),
           ...definedNumber("attachmentID", picker.attachmentID),
         },
-      };
-    case "note":
-      return {
-        ...shared,
-        kind: "note",
-        content: picker.preview ?? picker.title,
       };
   }
 }

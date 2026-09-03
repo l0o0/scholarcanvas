@@ -191,7 +191,7 @@ const DEFAULT_LABELS: WhiteboardLabels = {
 export interface WhiteboardAppProps {
   theme: WhiteboardTheme;
   labels?: WhiteboardLabels;
-  initialSnapshot?: unknown;
+  initialSnapshot?: CanvasDocument;
   onReady: (api: WhiteboardRuntime) => void;
   onChange: (rev: number) => void;
   onError: (message: string) => void;
@@ -204,7 +204,6 @@ export interface WhiteboardAppProps {
   onOpenItem: (payload: {
     itemID?: number;
     attachmentID?: number;
-    noteID?: number;
     pdfPage?: number;
   }) => void;
   onDropItems: (
@@ -224,7 +223,7 @@ export interface WhiteboardAppProps {
 export interface WhiteboardRuntime {
   setTheme: (theme: WhiteboardTheme) => void;
   setLabels: (labels: WhiteboardLabels) => void;
-  loadSnapshot: (snapshot: unknown) => void;
+  loadSnapshot: (snapshot: CanvasDocument) => void;
   getSnapshot: () => CanvasDocument;
   undo: () => void;
   redo: () => void;

@@ -3,15 +3,28 @@ import test from "node:test";
 import {
   defaultBoardFilename,
   getExtension,
+  isWhiteboardAttachment,
 } from "../src/modules/whiteboard/detect.ts";
 
-test("recognizes canvas and legacy board extensions", () => {
+function attachment(filename: string) {
+  return {
+    isAttachment: () => true,
+    attachmentLinkMode: 0,
+    attachmentFilename: filename,
+  } as Zotero.Item;
+}
+
+test("recognizes only the canonical canvas extension", () => {
+  (globalThis as typeof globalThis & { Zotero: unknown }).Zotero = {
+    Attachments: { LINK_MODE_LINKED_URL: 3 },
+  };
   assert.equal(getExtension("review.canvas"), "canvas");
   assert.equal(getExtension("Board-2026.board"), "board");
-  assert.equal(getExtension("/tmp/notes/map.BOARD"), "board");
   assert.equal(getExtension("Board-2026.zmdboard"), "zmdboard");
-  assert.equal(getExtension("/tmp/notes/map.ZMDBOARD"), "zmdboard");
-  assert.equal(getExtension("plain.json"), "json");
+  assert.equal(isWhiteboardAttachment(attachment("review.canvas")), true);
+  assert.equal(isWhiteboardAttachment(attachment("review.CANVAS")), true);
+  assert.equal(isWhiteboardAttachment(attachment("review.board")), false);
+  assert.equal(isWhiteboardAttachment(attachment("review.zmdboard")), false);
 });
 
 test("new research canvases use the canvas suffix", () => {

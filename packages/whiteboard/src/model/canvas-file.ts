@@ -146,7 +146,8 @@ function hasValidBambooNodeEnvelope(node: Record<string, unknown>): boolean {
   }
   if (node.type === "text") return typeof node.text === "string";
   if (node.type === "group") return typeof node.label === "string";
-  return true;
+  if (node.type === "file") return typeof node.file === "string";
+  return typeof node.url === "string";
 }
 
 function standardExtensions(

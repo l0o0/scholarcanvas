@@ -412,6 +412,18 @@ test("reports malformed Bamboo-backed JSON Canvas node envelopes", () => {
         bamboo: framePayload,
       },
       {
+        id: "missing-file",
+        type: "file",
+        ...geometry,
+        bamboo: textPayload,
+      },
+      {
+        id: "missing-url",
+        type: "link",
+        ...geometry,
+        bamboo: textPayload,
+      },
+      {
         id: "invalid-coordinate",
         type: "text",
         ...geometry,
@@ -444,7 +456,7 @@ test("reports malformed Bamboo-backed JSON Canvas node envelopes", () => {
   );
   assert.deepEqual(
     parsed.issues.map((issue) => issue.code),
-    Array.from({ length: 8 }, () => "malformed-node"),
+    Array.from({ length: 10 }, () => "malformed-node"),
   );
 });
 

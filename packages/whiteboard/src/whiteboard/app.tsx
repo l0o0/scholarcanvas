@@ -44,12 +44,14 @@ import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
 import { TextStyleBar } from "../chrome/TextStyleBar";
 import { TopIsland } from "../chrome/TopIsland";
+import { WhiteboardLabelsProvider } from "../chrome/labels";
 import {
   frameFromDrag,
   isBorderHit,
   isDrawTool,
   isLibraryKind,
   isStampTool,
+  shouldEditOnCreate,
   toolAfterDraw,
   toolShortcut,
   type DrawFrame,
@@ -85,6 +87,9 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   hand: "Hand (H)",
   addItem: "Item",
   addNote: "Note",
+  addQuestion: "Question",
+  addClaim: "Claim",
+  addFrame: "Frame",
   addPdf: "PDF",
   addFile: "File",
   addText: "Text",
@@ -92,6 +97,13 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   addEllipse: "Oval",
   addLine: "Line",
   addArrow: "Arrow",
+  kindLiterature: "Literature",
+  kindQuote: "Quote",
+  kindNote: "Note",
+  kindQuestion: "Question",
+  kindClaim: "Claim",
+  kindFrame: "Frame",
+  annotations: "annotations",
   eraser: "Eraser",
   undo: "Undo",
   redo: "Redo",
@@ -151,6 +163,9 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   shortcutArrow: "Draw arrow",
   shortcutLine: "Draw line",
   shortcutText: "Add text",
+  shortcutQuestion: "Add question",
+  shortcutClaim: "Add claim",
+  shortcutFrame: "Add frame",
   shortcutEraser: "Erase",
   shortcutConstrain: "Constrain ratio or angle while drawing",
   shortcutCancel: "Cancel drawing or close menu",
@@ -170,7 +185,7 @@ export interface WhiteboardAppProps {
   onPickItem: (
     requestId: string,
     nodeId: string,
-    kind: "item" | "pdf" | "note" | "attachment",
+    kind: "item" | "pdf" | "attachment",
   ) => void;
   onOpenItem: (payload: {
     itemID?: number;
@@ -419,7 +434,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       }).nodes[0];
       setNodes((current) => [...current, created]);
       bump();
-      if (kind === "text") {
+      if (isStampTool(kind) && shouldEditOnCreate(kind)) {
         setEditing({ nodeId, value: flowNodeText(created) });
       }
       if (isLibraryKind(kind)) {
@@ -1006,341 +1021,346 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const zoom = viewportRef.current.zoom || 1;
 
   return (
-    <div
-      className={`zmd-board-host${eraser ? " is-eraser" : ""}${activeTool === "hand" ? " is-hand" : ""}${isDrawTool(activeTool) ? " is-draw" : ""}`}
-      data-theme={theme}
-      onDragOver={(event) => {
-        if (event.dataTransfer?.types?.length) event.preventDefault();
-      }}
-      onDrop={handleDrop}
-      onPointerDown={(event) => {
-        if (event.button !== 0 || editing) return;
-        if (!isDrawTool(activeToolRef.current)) return;
-        const target = event.target as HTMLElement | null;
-        if (!target?.closest(".react-flow__pane")) return;
-        event.preventDefault();
-        beginDraw(event, activeToolRef.current);
-      }}
-    >
-      <TopIsland
-        labels={labels}
-        activeTool={activeTool}
-        onSelectTool={setActiveTool}
-        saveState={saveState}
-        selectedNodeCount={selectedNodes.length}
-        selectedEdgeCount={selectedEdges.length}
-        onUndo={() => runtimeRef.current?.undo()}
-        onRedo={() => runtimeRef.current?.redo()}
-        onSave={() => propsRef.current.onSave()}
-        onFitView={fitView}
-        onAutoLayout={autoLayout}
-        onOpenShortcuts={() => setHelpOpen(true)}
-        onAlign={alignSelected}
-        onDistribute={distributeSelected}
-        onEdgeColor={() =>
-          selectedEdges[0] && cycleEdgeColor(selectedEdges[0].id)
-        }
-        onEdgeDash={() =>
-          selectedEdges[0] && toggleEdgeDashed(selectedEdges[0].id)
-        }
-        onEdgeArrow={() =>
-          selectedEdges[0] && toggleEdgeArrow(selectedEdges[0].id)
-        }
-      />
-      <PropertiesPanel
-        labels={labels}
-        node={
-          selectedNodes.length === 1 &&
-          isLibraryKind(selectedNodes[0].data.model.kind)
-            ? selectedNodes[0]
-            : null
-        }
-        onEdit={startEdit}
-        onOpen={openNode}
-        onCopy={copyNode}
-        onDelete={deleteNode}
-      />
-      <ReactFlow<CanvasFlowNode, CanvasFlowEdge>
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={boardNodeTypes}
-        defaultViewport={initial.viewport}
-        fitView={!props.initialSnapshot}
-        connectionMode={ConnectionMode.Loose}
-        defaultEdgeOptions={{
-          type: "smoothstep",
-          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+    <WhiteboardLabelsProvider value={labels}>
+      <div
+        className={`zmd-board-host${eraser ? " is-eraser" : ""}${activeTool === "hand" ? " is-hand" : ""}${isDrawTool(activeTool) ? " is-draw" : ""}`}
+        data-theme={theme}
+        onDragOver={(event) => {
+          if (event.dataTransfer?.types?.length) event.preventDefault();
         }}
-        snapToGrid={activeTool === "select"}
-        snapGrid={[16, 16]}
-        deleteKeyCode={editing ? null : ["Backspace", "Delete"]}
-        panOnDrag={activeTool === "hand" ? true : [1, 2]}
-        selectionOnDrag={activeTool === "select"}
-        elementsSelectable={activeTool === "select"}
-        nodesDraggable={!eraser && !editing && activeTool === "select"}
-        nodesConnectable={!eraser && activeTool === "select"}
-        onInit={(instance) => {
-          flowRef.current = instance;
-        }}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={(event, node) => {
-          if (!eraser) return;
+        onDrop={handleDrop}
+        onPointerDown={(event) => {
+          if (event.button !== 0 || editing) return;
+          if (!isDrawTool(activeToolRef.current)) return;
+          const target = event.target as HTMLElement | null;
+          if (!target?.closest(".react-flow__pane")) return;
           event.preventDefault();
-          eraseNode(node.id);
+          beginDraw(event, activeToolRef.current);
         }}
-        onNodeDoubleClick={(event, node) => {
-          event.preventDefault();
-          const origin = flowRef.current?.flowToScreenPosition(node.position);
-          const size = nodeSize(node);
-          const zoom = viewportRef.current.zoom || 1;
-          const kind = node.data.model.kind;
-          if (origin) {
-            const local = {
-              x: (event.clientX - origin.x) / zoom,
-              y: (event.clientY - origin.y) / zoom,
-            };
-            if (
-              isBorderHit(local, {
-                width: size.width,
-                height: size.height,
-                kind,
-              })
-            ) {
-              setEditing(null);
-              setStyleTarget(node.id);
-              return;
-            }
-          }
-          if (isLibraryKind(kind)) {
-            openNode(node);
-            return;
-          }
-          startEdit(node.id);
-        }}
-        onEdgeClick={(event, edge) => {
-          if (!eraser) return;
-          event.preventDefault();
-          eraseEdge(edge.id);
-        }}
-        onNodeContextMenu={(event, node) => {
-          event.preventDefault();
-          setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
-        }}
-        onPaneClick={(event) => {
-          setMenu(null);
-          setStyleTarget(null);
-          if (eraser) {
-            setActiveTool("select");
-            return;
-          }
-          if (isDrawTool(activeTool) || drawRef.current) return;
-          if (!isStampTool(activeTool)) return;
-          const position = flowRef.current?.screenToFlowPosition({
-            x: event.clientX,
-            y: event.clientY,
-          });
-          addNode(activeTool, position);
-        }}
-        onPaneContextMenu={(event) => {
-          event.preventDefault();
-          setMenu({ x: event.clientX, y: event.clientY, nodeId: "" });
-        }}
-        onNodeDragStart={pushHistory}
-        onMoveEnd={(_, viewport) => {
-          const previous = viewportRef.current;
-          if (
-            previous.x === viewport.x &&
-            previous.y === viewport.y &&
-            previous.zoom === viewport.zoom
-          ) {
-            return;
-          }
-          viewportRef.current = viewport;
-          bump();
-        }}
-        proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-        <Controls showInteractive={false} position="bottom-right" />
-      </ReactFlow>
-      {editing && editingNode && editingScreen ? (
-        <div
-          className="zmd-board-editor is-in-shape"
-          style={{
-            left: editingScreen.x,
-            top: editingScreen.y,
-            width:
-              nodeSize(editingNode).width * (viewportRef.current.zoom || 1),
-            height:
-              nodeSize(editingNode).height * (viewportRef.current.zoom || 1),
-            borderRadius:
-              editingNode.type === "ellipse"
-                ? 999
-                : (editingNode.data.model.style?.radius ?? 8) *
-                  (viewportRef.current.zoom || 1),
-            ...verticalAlignmentStyle(editingNode.data.model.style ?? {}),
+        <TopIsland
+          labels={labels}
+          activeTool={activeTool}
+          onSelectTool={setActiveTool}
+          saveState={saveState}
+          selectedNodeCount={selectedNodes.length}
+          selectedEdgeCount={selectedEdges.length}
+          onUndo={() => runtimeRef.current?.undo()}
+          onRedo={() => runtimeRef.current?.redo()}
+          onSave={() => propsRef.current.onSave()}
+          onFitView={fitView}
+          onAutoLayout={autoLayout}
+          onOpenShortcuts={() => setHelpOpen(true)}
+          onAlign={alignSelected}
+          onDistribute={distributeSelected}
+          onEdgeColor={() =>
+            selectedEdges[0] && cycleEdgeColor(selectedEdges[0].id)
+          }
+          onEdgeDash={() =>
+            selectedEdges[0] && toggleEdgeDashed(selectedEdges[0].id)
+          }
+          onEdgeArrow={() =>
+            selectedEdges[0] && toggleEdgeArrow(selectedEdges[0].id)
+          }
+        />
+        <PropertiesPanel
+          labels={labels}
+          node={
+            selectedNodes.length === 1 &&
+            isLibraryKind(selectedNodes[0].data.model.kind)
+              ? selectedNodes[0]
+              : null
+          }
+          onEdit={startEdit}
+          onOpen={openNode}
+          onCopy={copyNode}
+          onDelete={deleteNode}
+        />
+        <ReactFlow<CanvasFlowNode, CanvasFlowEdge>
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={boardNodeTypes}
+          defaultViewport={initial.viewport}
+          fitView={!props.initialSnapshot}
+          connectionMode={ConnectionMode.Loose}
+          defaultEdgeOptions={{
+            type: "smoothstep",
+            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
           }}
-        >
-          <textarea
-            autoFocus
-            className="zmd-board-in-shape-edit"
-            value={editing.value}
-            style={{
-              ...labelTextStyle(editingNode.data.model.style ?? {}),
-              fontSize:
-                (editingNode.data.model.style?.fontSize || 16) *
-                (viewportRef.current.zoom || 1),
-            }}
-            onChange={(event) =>
-              setEditing({
-                nodeId: editing.nodeId,
-                value: event.target.value,
-              })
-            }
-            onBlur={() => {
-              handleEditBlur(holdEditFocusRef, commitEdit);
-            }}
-            onKeyDown={(event) => {
+          snapToGrid={activeTool === "select"}
+          snapGrid={[16, 16]}
+          deleteKeyCode={editing ? null : ["Backspace", "Delete"]}
+          panOnDrag={activeTool === "hand" ? true : [1, 2]}
+          selectionOnDrag={activeTool === "select"}
+          elementsSelectable={activeTool === "select"}
+          nodesDraggable={!eraser && !editing && activeTool === "select"}
+          nodesConnectable={!eraser && activeTool === "select"}
+          onInit={(instance) => {
+            flowRef.current = instance;
+          }}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={(event, node) => {
+            if (!eraser) return;
+            event.preventDefault();
+            eraseNode(node.id);
+          }}
+          onNodeDoubleClick={(event, node) => {
+            event.preventDefault();
+            const origin = flowRef.current?.flowToScreenPosition(node.position);
+            const size = nodeSize(node);
+            const zoom = viewportRef.current.zoom || 1;
+            const kind = node.data.model.kind;
+            if (origin) {
+              const local = {
+                x: (event.clientX - origin.x) / zoom,
+                y: (event.clientY - origin.y) / zoom,
+              };
               if (
-                (event.metaKey || event.ctrlKey) &&
-                event.key.toLowerCase() === "b"
+                isBorderHit(local, {
+                  width: size.width,
+                  height: size.height,
+                  kind,
+                })
               ) {
-                event.preventDefault();
-                updateNode(editing.nodeId, (current) =>
-                  mergeEditingStyle(current, editing.value, {
-                    fontWeight:
-                      current.data.model.style?.fontWeight === "bold"
-                        ? "normal"
-                        : "bold",
-                  }),
-                );
+                setEditing(null);
+                setStyleTarget(node.id);
                 return;
               }
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                commitEdit();
-              } else if (event.key === "Escape") {
-                event.preventDefault();
-                cancelEdit();
-              }
-            }}
-          />
-        </div>
-      ) : null}
-      {menu ? (
-        <div
-          className="zmd-board-context-menu"
-          style={{ left: menu.x, top: menu.y }}
+            }
+            if (isLibraryKind(kind)) {
+              openNode(node);
+              return;
+            }
+            startEdit(node.id);
+          }}
+          onEdgeClick={(event, edge) => {
+            if (!eraser) return;
+            event.preventDefault();
+            eraseEdge(edge.id);
+          }}
+          onNodeContextMenu={(event, node) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
+          }}
+          onPaneClick={(event) => {
+            setMenu(null);
+            setStyleTarget(null);
+            if (eraser) {
+              setActiveTool("select");
+              return;
+            }
+            if (isDrawTool(activeTool) || drawRef.current) return;
+            if (!isStampTool(activeTool)) return;
+            const position = flowRef.current?.screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            addNode(activeTool, position);
+          }}
+          onPaneContextMenu={(event) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY, nodeId: "" });
+          }}
+          onNodeDragStart={pushHistory}
+          onMoveEnd={(_, viewport) => {
+            const previous = viewportRef.current;
+            if (
+              previous.x === viewport.x &&
+              previous.y === viewport.y &&
+              previous.zoom === viewport.zoom
+            ) {
+              return;
+            }
+            viewportRef.current = viewport;
+            bump();
+          }}
+          proOptions={{ hideAttribution: true }}
         >
-          {menuNode ? (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenu(null);
-                  startEdit(menuNode.id);
-                }}
-              >
-                <IconEdit />
-                <span>{labels.editText}</span>
-              </button>
-              {hasOpenTarget(menuNode) && (
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          <Controls showInteractive={false} position="bottom-right" />
+        </ReactFlow>
+        {editing && editingNode && editingScreen ? (
+          <div
+            className="zmd-board-editor is-in-shape"
+            style={{
+              left: editingScreen.x,
+              top: editingScreen.y,
+              width:
+                nodeSize(editingNode).width * (viewportRef.current.zoom || 1),
+              height:
+                nodeSize(editingNode).height * (viewportRef.current.zoom || 1),
+              borderRadius:
+                editingNode.type === "ellipse"
+                  ? 999
+                  : (editingNode.data.model.style?.radius ?? 8) *
+                    (viewportRef.current.zoom || 1),
+              ...verticalAlignmentStyle(editingNode.data.model.style ?? {}),
+            }}
+          >
+            <textarea
+              autoFocus
+              className="zmd-board-in-shape-edit"
+              value={editing.value}
+              style={{
+                ...labelTextStyle(editingNode.data.model.style ?? {}),
+                fontSize:
+                  (editingNode.data.model.style?.fontSize || 16) *
+                  (viewportRef.current.zoom || 1),
+              }}
+              onChange={(event) =>
+                setEditing({
+                  nodeId: editing.nodeId,
+                  value: event.target.value,
+                })
+              }
+              onBlur={() => {
+                handleEditBlur(holdEditFocusRef, commitEdit);
+              }}
+              onKeyDown={(event) => {
+                if (
+                  (event.metaKey || event.ctrlKey) &&
+                  event.key.toLowerCase() === "b"
+                ) {
+                  event.preventDefault();
+                  updateNode(editing.nodeId, (current) =>
+                    mergeEditingStyle(current, editing.value, {
+                      fontWeight:
+                        current.data.model.style?.fontWeight === "bold"
+                          ? "normal"
+                          : "bold",
+                    }),
+                  );
+                  return;
+                }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  commitEdit();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelEdit();
+                }
+              }}
+            />
+          </div>
+        ) : null}
+        {menu ? (
+          <div
+            className="zmd-board-context-menu"
+            style={{ left: menu.x, top: menu.y }}
+          >
+            {menuNode ? (
+              <>
                 <button
                   type="button"
                   onClick={() => {
                     setMenu(null);
-                    openNode(menuNode);
+                    startEdit(menuNode.id);
                   }}
                 >
-                  <IconOpen />
-                  <span>{labels.openItem}</span>
+                  <IconEdit />
+                  <span>{labels.editText}</span>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setMenu(null);
-                  copyNode(menuNode.id);
-                }}
-              >
-                <IconCopy />
-                <span>{labels.copy}</span>
-              </button>
-              <button type="button" onClick={() => deleteNode(menuNode.id)}>
-                <IconTrash />
-                <span>{labels.delete}</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <button type="button" onClick={() => exportAs("png")}>
-                <IconExport />
-                <span>{labels.exportPng}</span>
-              </button>
-              <button type="button" onClick={() => exportAs("svg")}>
-                <IconExport />
-                <span>{labels.exportSvg}</span>
-              </button>
-              <button type="button" onClick={() => exportAs("md")}>
-                <IconExport />
-                <span>{labels.exportMarkdown}</span>
-              </button>
-            </>
-          )}
-        </div>
-      ) : null}
-      {editing && editingNode && editingScreen ? (
-        <TextStyleBar
-          node={editingNode}
-          labels={labels}
-          left={
-            editingScreen.x +
-            (nodeSize(editingNode).width * (viewportRef.current.zoom || 1)) /
-              2 -
-            280
-          }
-          top={Math.max(8, editingScreen.y - 56)}
-          onHoldFocus={() => {
-            armEditFocusHold(holdEditFocusRef);
-          }}
-          onChange={(patch) => {
-            updateNode(editing.nodeId, (current) =>
-              mergeEditingStyle(current, editing.value, patch),
-            );
-          }}
-        />
-      ) : null}
-      {styleNode && styleScreen ? (
-        <StyleBar
-          node={styleNode}
-          labels={labels}
-          left={styleScreen.x + (nodeSize(styleNode).width * zoom) / 2 - 280}
-          top={Math.max(8, styleScreen.y - 56)}
-          onChange={(patch) => {
-            const { width, height, ...style } = patch;
-            updateNode(styleNode.id, (current) => {
-              const next = updateFlowNodeModel(current, (model) => ({
-                ...model,
-                style: { ...(model.style ?? {}), ...style },
-              }));
-              return {
-                ...next,
-                width: width ?? current.width,
-                height: height ?? current.height,
-                style: {
-                  width: width ?? nodeSize(current).width,
-                  height: height ?? nodeSize(current).height,
-                },
-              };
-            });
-          }}
-        />
-      ) : null}
-      {helpOpen ? (
-        <ShortcutsOverlay labels={labels} onClose={() => setHelpOpen(false)} />
-      ) : null}
-    </div>
+                {hasOpenTarget(menuNode) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenu(null);
+                      openNode(menuNode);
+                    }}
+                  >
+                    <IconOpen />
+                    <span>{labels.openItem}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenu(null);
+                    copyNode(menuNode.id);
+                  }}
+                >
+                  <IconCopy />
+                  <span>{labels.copy}</span>
+                </button>
+                <button type="button" onClick={() => deleteNode(menuNode.id)}>
+                  <IconTrash />
+                  <span>{labels.delete}</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" onClick={() => exportAs("png")}>
+                  <IconExport />
+                  <span>{labels.exportPng}</span>
+                </button>
+                <button type="button" onClick={() => exportAs("svg")}>
+                  <IconExport />
+                  <span>{labels.exportSvg}</span>
+                </button>
+                <button type="button" onClick={() => exportAs("md")}>
+                  <IconExport />
+                  <span>{labels.exportMarkdown}</span>
+                </button>
+              </>
+            )}
+          </div>
+        ) : null}
+        {editing && editingNode && editingScreen ? (
+          <TextStyleBar
+            node={editingNode}
+            labels={labels}
+            left={
+              editingScreen.x +
+              (nodeSize(editingNode).width * (viewportRef.current.zoom || 1)) /
+                2 -
+              280
+            }
+            top={Math.max(8, editingScreen.y - 56)}
+            onHoldFocus={() => {
+              armEditFocusHold(holdEditFocusRef);
+            }}
+            onChange={(patch) => {
+              updateNode(editing.nodeId, (current) =>
+                mergeEditingStyle(current, editing.value, patch),
+              );
+            }}
+          />
+        ) : null}
+        {styleNode && styleScreen ? (
+          <StyleBar
+            node={styleNode}
+            labels={labels}
+            left={styleScreen.x + (nodeSize(styleNode).width * zoom) / 2 - 280}
+            top={Math.max(8, styleScreen.y - 56)}
+            onChange={(patch) => {
+              const { width, height, ...style } = patch;
+              updateNode(styleNode.id, (current) => {
+                const next = updateFlowNodeModel(current, (model) => ({
+                  ...model,
+                  style: { ...(model.style ?? {}), ...style },
+                }));
+                return {
+                  ...next,
+                  width: width ?? current.width,
+                  height: height ?? current.height,
+                  style: {
+                    width: width ?? nodeSize(current).width,
+                    height: height ?? nodeSize(current).height,
+                  },
+                };
+              });
+            }}
+          />
+        ) : null}
+        {helpOpen ? (
+          <ShortcutsOverlay
+            labels={labels}
+            onClose={() => setHelpOpen(false)}
+          />
+        ) : null}
+      </div>
+    </WhiteboardLabelsProvider>
   );
 }

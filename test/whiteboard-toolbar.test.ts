@@ -90,3 +90,13 @@ test("toolbar keeps conditional command sets together and wraps when constrained
     assert.match(edgeGroup, new RegExp(`title="${title}"`));
   }
 });
+
+test("toolbar exposes one local academic creation group only", () => {
+  const markup = renderToolbar(0, 0);
+  const academicGroup = commandGroup(markup, "addNote");
+  assert.ok(academicGroup, "local academic tools need one toolbar group");
+  for (const title of ["addQuestion (Q)", "addClaim (C)", "addFrame (F)"]) {
+    assert.ok(academicGroup.includes(`title="${title}"`));
+  }
+  assert.doesNotMatch(markup, /kindLiterature|kindQuote/);
+});

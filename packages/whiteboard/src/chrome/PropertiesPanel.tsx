@@ -1,6 +1,6 @@
 import type { WhiteboardLabels } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
-import { getNodeSpec } from "../nodes";
+import { nodeKindLabel } from "./labels";
 import { flowNodeText } from "../whiteboard/document";
 import { IconCopy, IconEdit, IconOpen, IconTrash } from "../whiteboard/icons";
 
@@ -15,7 +15,7 @@ export function PropertiesPanel(props: {
   const { node, labels } = props;
   if (!node) return null;
   const model = node.data.model;
-  const spec = getNodeSpec(model.kind);
+  const kindLabel = nodeKindLabel(labels, model.kind);
   const data = "data" in model ? model.data : undefined;
   const canOpen = !!(
     data &&
@@ -30,8 +30,8 @@ export function PropertiesPanel(props: {
   return (
     <aside className="zmd-board-properties" aria-label="Selection">
       <header className="zmd-board-properties-head">
-        <span className="zmd-board-card-kind">{spec.label}</span>
-        <h2>{flowNodeText(node) || spec.label}</h2>
+        <span className="zmd-board-card-kind">{kindLabel}</span>
+        <h2>{flowNodeText(node) || kindLabel}</h2>
         {subtitle ? <p>{subtitle}</p> : null}
       </header>
       <div className="zmd-board-properties-actions">

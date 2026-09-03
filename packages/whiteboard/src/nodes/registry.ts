@@ -1,13 +1,20 @@
 import type { ComponentType } from "react";
 import type { NodeProps } from "@xyflow/react";
 import type { CanvasNodeKind } from "../model/academic";
-import { AttachmentNode, ItemNode, NoteNode, PdfNode } from "./library";
+import {
+  ClaimNode,
+  FrameNode,
+  LiteratureNode,
+  NoteNode,
+  QuestionNode,
+  QuoteNode,
+} from "./academic";
+import { AttachmentNode, ItemNode, PdfNode } from "./library";
 import { ArrowNode, EllipseNode, LineNode, RectNode, TextNode } from "./shapes";
 import type { CanvasFlowNode, NodeGroup } from "./types";
 
 export interface WhiteboardNodeSpec {
   kind: CanvasNodeKind;
-  label: string;
   group: NodeGroup;
   defaultWidth: number;
   defaultHeight: number;
@@ -21,23 +28,13 @@ export interface WhiteboardNodeSpec {
 const NODE_SPECS: WhiteboardNodeSpec[] = [
   {
     kind: "item",
-    label: "Item",
     group: "library",
     defaultWidth: 240,
     defaultHeight: 96,
     Component: ItemNode,
   },
   {
-    kind: "note",
-    label: "Note",
-    group: "library",
-    defaultWidth: 240,
-    defaultHeight: 128,
-    Component: NoteNode,
-  },
-  {
     kind: "pdf",
-    label: "PDF",
     group: "library",
     defaultWidth: 240,
     defaultHeight: 220,
@@ -45,15 +42,55 @@ const NODE_SPECS: WhiteboardNodeSpec[] = [
   },
   {
     kind: "attachment",
-    label: "File",
     group: "library",
     defaultWidth: 240,
     defaultHeight: 96,
     Component: AttachmentNode,
   },
   {
+    kind: "literature",
+    group: "academic",
+    defaultWidth: 280,
+    defaultHeight: 136,
+    Component: LiteratureNode,
+  },
+  {
+    kind: "quote",
+    group: "academic",
+    defaultWidth: 280,
+    defaultHeight: 168,
+    Component: QuoteNode,
+  },
+  {
+    kind: "note",
+    group: "academic",
+    defaultWidth: 260,
+    defaultHeight: 152,
+    Component: NoteNode,
+  },
+  {
+    kind: "question",
+    group: "academic",
+    defaultWidth: 260,
+    defaultHeight: 128,
+    Component: QuestionNode,
+  },
+  {
+    kind: "claim",
+    group: "academic",
+    defaultWidth: 260,
+    defaultHeight: 128,
+    Component: ClaimNode,
+  },
+  {
+    kind: "frame",
+    group: "academic",
+    defaultWidth: 480,
+    defaultHeight: 320,
+    Component: FrameNode,
+  },
+  {
     kind: "text",
-    label: "Text",
     group: "draw",
     defaultWidth: 240,
     defaultHeight: 72,
@@ -61,7 +98,6 @@ const NODE_SPECS: WhiteboardNodeSpec[] = [
   },
   {
     kind: "rect",
-    label: "Rect",
     group: "draw",
     defaultWidth: 140,
     defaultHeight: 88,
@@ -69,7 +105,6 @@ const NODE_SPECS: WhiteboardNodeSpec[] = [
   },
   {
     kind: "ellipse",
-    label: "Oval",
     group: "draw",
     defaultWidth: 140,
     defaultHeight: 88,
@@ -77,7 +112,6 @@ const NODE_SPECS: WhiteboardNodeSpec[] = [
   },
   {
     kind: "line",
-    label: "Line",
     group: "draw",
     defaultWidth: 160,
     defaultHeight: 32,
@@ -85,7 +119,6 @@ const NODE_SPECS: WhiteboardNodeSpec[] = [
   },
   {
     kind: "arrow",
-    label: "Arrow",
     group: "draw",
     defaultWidth: 160,
     defaultHeight: 32,

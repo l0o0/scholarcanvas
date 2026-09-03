@@ -7,4 +7,4 @@ export interface CanvasFlowData extends Record<string, unknown> {
 
 export type CanvasFlowNode = Node<CanvasFlowData, CanvasNodeKind>;
 
-export type NodeGroup = "library" | "draw";
+export type NodeGroup = "library" | "academic" | "draw";

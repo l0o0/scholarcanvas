@@ -245,7 +245,7 @@ async function handlePickItem(
   session: WhiteboardSession,
   requestId: string,
   nodeId: string,
-  kind: "item" | "pdf" | "note" | "attachment",
+  kind: "item" | "pdf" | "attachment",
 ) {
   const editor = session.editor;
   if (!editor) return;
@@ -269,18 +269,6 @@ async function handlePickItem(
           "Untitled",
         subtitle: [creatorsText(item), date].filter(Boolean).join(" · "),
         itemID: item.id,
-      });
-      return;
-    }
-
-    if (kind === "note") {
-      if (!item.isNote?.()) throw new Error("Selected item is not a note");
-      const preview = notePreview(item);
-      editor.resolvePick(requestId, nodeId, {
-        kind: "note",
-        title: item.getField?.("title") || "Note",
-        preview: preview || "Empty note",
-        noteID: item.id,
       });
       return;
     }
@@ -696,6 +684,9 @@ function mountWhiteboardUI(
       hand: getString("whiteboard-hand"),
       addItem: getString("whiteboard-add-item"),
       addNote: getString("whiteboard-add-note"),
+      addQuestion: getString("whiteboard-add-question"),
+      addClaim: getString("whiteboard-add-claim"),
+      addFrame: getString("whiteboard-add-frame"),
       addPdf: getString("whiteboard-add-pdf"),
       addFile: getString("whiteboard-add-file"),
       addText: getString("whiteboard-add-text"),
@@ -703,6 +694,13 @@ function mountWhiteboardUI(
       addEllipse: getString("whiteboard-add-ellipse"),
       addLine: getString("whiteboard-add-line"),
       addArrow: getString("whiteboard-add-arrow"),
+      kindLiterature: getString("whiteboard-kind-literature"),
+      kindQuote: getString("whiteboard-kind-quote"),
+      kindNote: getString("whiteboard-kind-note"),
+      kindQuestion: getString("whiteboard-kind-question"),
+      kindClaim: getString("whiteboard-kind-claim"),
+      kindFrame: getString("whiteboard-kind-frame"),
+      annotations: getString("whiteboard-annotations"),
       eraser: getString("whiteboard-eraser"),
       undo: getString("whiteboard-undo"),
       redo: getString("whiteboard-redo"),
@@ -762,6 +760,9 @@ function mountWhiteboardUI(
       shortcutArrow: getString("whiteboard-shortcut-arrow"),
       shortcutLine: getString("whiteboard-shortcut-line"),
       shortcutText: getString("whiteboard-shortcut-text"),
+      shortcutQuestion: getString("whiteboard-shortcut-question"),
+      shortcutClaim: getString("whiteboard-shortcut-claim"),
+      shortcutFrame: getString("whiteboard-shortcut-frame"),
       shortcutEraser: getString("whiteboard-shortcut-eraser"),
       shortcutConstrain: getString("whiteboard-shortcut-constrain"),
       shortcutCancel: getString("whiteboard-shortcut-cancel"),

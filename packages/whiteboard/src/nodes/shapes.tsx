@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { useWhiteboardLabels } from "../chrome/labels";
 import { labelTextStyle, verticalAlignmentStyle } from "../whiteboard/document";
 import { CardShell } from "./CardShell";
 import type { CanvasFlowNode } from "./types";
@@ -8,17 +9,18 @@ function point(value: { x: number; y: number } | undefined, fallback: number) {
 }
 
 export function TextNode({ data, selected }: NodeProps<CanvasFlowNode>) {
+  const labels = useWhiteboardLabels();
   const model = data.model;
   if (model.kind !== "text") return null;
   const style = model.style ?? {};
   return (
-    <CardShell kind="text" selected={selected}>
+    <CardShell kind="text" kindLabel={labels.addText} selected={selected}>
       <div
         className="zmd-board-card-label-layout"
         style={verticalAlignmentStyle(style)}
       >
         <p className="zmd-board-card-title" style={labelTextStyle(style)}>
-          {model.data.title || "Text"}
+          {model.data.title || labels.addText}
         </p>
       </div>
     </CardShell>

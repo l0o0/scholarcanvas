@@ -1,21 +1,10 @@
 import type { ReactNode } from "react";
 import { Handle, Position } from "@xyflow/react";
-import type { BoardNodeKind } from "../model/snapshot";
-
-const LABELS: Record<BoardNodeKind, string> = {
-  item: "Item",
-  note: "Note",
-  pdf: "PDF",
-  attachment: "File",
-  text: "Text",
-  rect: "Shape",
-  ellipse: "Shape",
-  line: "Line",
-  arrow: "Arrow",
-};
+import type { CanvasNodeKind } from "../model/academic";
 
 export function CardShell(props: {
-  kind: BoardNodeKind;
+  kind: CanvasNodeKind;
+  kindLabel: string;
   selected?: boolean;
   children: ReactNode;
 }) {
@@ -27,7 +16,7 @@ export function CardShell(props: {
       <Handle type="source" position={Position.Right} />
       <Handle type="target" position={Position.Top} />
       <Handle type="source" position={Position.Bottom} />
-      <span className="zmd-board-card-kind">{LABELS[props.kind]}</span>
+      <span className="zmd-board-card-kind">{props.kindLabel}</span>
       {props.children}
     </article>
   );

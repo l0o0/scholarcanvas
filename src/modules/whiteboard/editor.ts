@@ -65,7 +65,7 @@ export function createWhiteboardEditor(
     onPickItem?: (
       requestId: string,
       nodeId: string,
-      kind: "item" | "pdf" | "note" | "attachment",
+      kind: "item" | "pdf" | "attachment",
     ) => void;
     onOpenItem?: (payload: {
       itemID?: number;

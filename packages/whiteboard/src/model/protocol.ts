@@ -32,6 +32,9 @@ export interface WhiteboardLabels {
   hand: string;
   addItem: string;
   addNote: string;
+  addQuestion: string;
+  addClaim: string;
+  addFrame: string;
   addPdf: string;
   addFile: string;
   addText: string;
@@ -39,6 +42,13 @@ export interface WhiteboardLabels {
   addEllipse: string;
   addLine: string;
   addArrow: string;
+  kindLiterature: string;
+  kindQuote: string;
+  kindNote: string;
+  kindQuestion: string;
+  kindClaim: string;
+  kindFrame: string;
+  annotations: string;
   eraser: string;
   undo: string;
   redo: string;
@@ -98,6 +108,9 @@ export interface WhiteboardLabels {
   shortcutArrow: string;
   shortcutLine: string;
   shortcutText: string;
+  shortcutQuestion: string;
+  shortcutClaim: string;
+  shortcutFrame: string;
   shortcutEraser: string;
   shortcutConstrain: string;
   shortcutCancel: string;
@@ -157,7 +170,7 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
         payload: {
           requestId: string;
           nodeId: string;
-          kind: "item" | "pdf" | "note" | "attachment";
+          kind: "item" | "pdf" | "attachment";
         };
       }
     | {

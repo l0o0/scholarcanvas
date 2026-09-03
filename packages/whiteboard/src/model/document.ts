@@ -1,12 +1,13 @@
-import type {
-  CanvasNode,
-  LiteratureSnapshot,
-  LiteratureSource,
-  NoteSource,
-  NoteSourceSnapshot,
-  QuoteSnapshot,
-  QuoteSource,
-  ZoteroLibraryRef,
+import {
+  ACADEMIC_SOURCE_CARD_SIZE,
+  type CanvasNode,
+  type LiteratureSnapshot,
+  type LiteratureSource,
+  type NoteSource,
+  type NoteSourceSnapshot,
+  type QuoteSnapshot,
+  type QuoteSource,
+  type ZoteroLibraryRef,
 } from "./academic";
 import type {
   AttachmentNodeData,
@@ -80,8 +81,7 @@ export function demoCanvasDocument(): CanvasDocument {
         id: "literature-1",
         kind: "literature",
         position: { x: 0, y: 0 },
-        width: 280,
-        height: 168,
+        ...ACADEMIC_SOURCE_CARD_SIZE.literature,
         source: { library: { type: "user" }, itemKey: "ITEM1234" },
         snapshot: { title: "A paper" },
       },
@@ -89,8 +89,7 @@ export function demoCanvasDocument(): CanvasDocument {
         id: "quote-1",
         kind: "quote",
         position: { x: 340, y: 0 },
-        width: 280,
-        height: 168,
+        ...ACADEMIC_SOURCE_CARD_SIZE.quote,
         source: {
           library: { type: "user" },
           itemKey: "ITEM1234",

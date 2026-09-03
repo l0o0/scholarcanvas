@@ -4,6 +4,11 @@ import type { CanvasNodeBase, CanvasPoint } from "./core";
 export type AcademicNodeKind =
   "literature" | "quote" | "note" | "question" | "claim" | "frame";
 
+export const ACADEMIC_SOURCE_CARD_SIZE = {
+  literature: { width: 280, height: 200 },
+  quote: { width: 280, height: 192 },
+} as const;
+
 export type ZoteroLibraryRef =
   { type: "user" } | { type: "group"; groupID: number };
 
@@ -132,8 +137,7 @@ export function createAcademicNode(
         id,
         kind,
         position,
-        width: 280,
-        height: 168,
+        ...ACADEMIC_SOURCE_CARD_SIZE.literature,
         source: (options as LiteratureNodeOptions).source,
         snapshot: (options as LiteratureNodeOptions).snapshot,
       };
@@ -142,8 +146,7 @@ export function createAcademicNode(
         id,
         kind,
         position,
-        width: 280,
-        height: 168,
+        ...ACADEMIC_SOURCE_CARD_SIZE.quote,
         source: (options as QuoteNodeOptions).source,
         snapshot: (options as QuoteNodeOptions).snapshot,
       };

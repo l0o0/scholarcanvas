@@ -208,10 +208,12 @@
 
 .zmd-board-card-kind {
   display: inline-block;
+  flex: 0 0 auto;
   margin-bottom: 8px;
   color: var(--zmd-board-muted, #6b7280);
   font-size: 10px;
   font-weight: 600;
+  line-height: 1.2;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
@@ -248,9 +250,16 @@
   overflow: hidden;
 }
 
+.zmd-board-card.is-literature .zmd-board-card-body > *,
+.zmd-board-card.is-quote .zmd-board-card-body > * {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
 .zmd-board-card-footer {
   flex: 0 0 auto;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .zmd-board-card-meta,
@@ -274,6 +283,15 @@
   overflow-wrap: anywhere;
 }
 
+.zmd-board-card.is-literature .zmd-board-card-body .zmd-board-card-meta {
+  display: -webkit-box;
+  overflow: hidden;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
 .zmd-board-card.is-quote .zmd-board-card-content {
   display: -webkit-box;
   overflow: hidden;
@@ -287,7 +305,31 @@
 }
 
 .zmd-board-card-comment {
+  display: -webkit-box;
+  overflow: hidden;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-style: italic;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.zmd-board-card-count {
+  display: -webkit-box;
+  overflow: hidden;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.zmd-board-card-footer .zmd-board-card-meta {
+  display: -webkit-box;
+  overflow: hidden;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .zmd-board-card-tags {
@@ -298,7 +340,7 @@
   color: var(--zmd-board-muted, #6b7280);
   font-size: 10px;
   line-height: 1.4;
-  max-height: 2.8em;
+  max-height: calc(2.8em + 4px);
   overflow: hidden;
 }
 

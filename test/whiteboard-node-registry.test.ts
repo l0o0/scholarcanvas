@@ -215,8 +215,8 @@ test("academic card bodies clip long copy without clipping provenance", () => {
   }
 });
 
-test("new literature cards reserve enough height for metadata and tags", () => {
-  const model = createAcademicNode(
+test("academic source defaults reserve complete priority lines without bulk", () => {
+  const literature = createAcademicNode(
     "literature",
     { x: 0, y: 0 },
     "literature-sized",
@@ -225,12 +225,97 @@ test("new literature cards reserve enough height for metadata and tags", () => {
       snapshot: { title: "Sized source" },
     },
   );
-  assert.equal(model.height, getNodeSpec("literature").defaultHeight);
-  assert.ok(model.height >= 168);
+  const quote = createAcademicNode("quote", { x: 0, y: 0 }, "quote-sized", {
+    source: {
+      library: { type: "user" },
+      itemKey: "ITEM1234",
+      attachmentKey: "PDF12345",
+      annotationKey: "ANNO123",
+    },
+    snapshot: { text: "Sized excerpt" },
+  });
+
+  // Border + vertical padding + the 12px kind line and its 8px gap.
+  const cardChrome = 2 + 26 + 12 + 8;
+  const bodyLine = 12 * 1.45;
+  const literatureMinimum = Math.ceil(
+    cardChrome +
+      2 * 13 * 1.35 + // title: two complete lines
+      2 * (6 + bodyLine) + // creators/year + publication
+      (7 + 2 * 10 * 1.4 + 4) + // two tag rows and their row gap
+      (6 + bodyLine), // annotation footer
+  );
+  const quoteMinimum = Math.ceil(
+    cardChrome +
+      (6 + 4 * bodyLine) + // primary excerpt
+      (6 + bodyLine) + // secondary comment
+      (6 + 2 * bodyLine), // provenance footer
+  );
+
+  assert.equal(literature.height, getNodeSpec("literature").defaultHeight);
+  assert.equal(quote.height, getNodeSpec("quote").defaultHeight);
+  assert.ok(literature.height >= literatureMinimum);
+  assert.ok(literature.height <= 200);
+  assert.ok(quote.height >= quoteMinimum);
+  assert.ok(quote.height <= 192);
   const demoLiterature = demoCanvasDocument().nodes.find(
     (node) => node.kind === "literature",
   );
+  const demoQuote = demoCanvasDocument().nodes.find(
+    (node) => node.kind === "quote",
+  );
   assert.equal(demoLiterature?.height, getNodeSpec("literature").defaultHeight);
+  assert.equal(demoQuote?.height, getNodeSpec("quote").defaultHeight);
+});
+
+test("academic card layout prevents fractional lines and wraps provenance", () => {
+  const longToken = `doi:${"10.1234/long-provenance-token".repeat(10)}`;
+  const markup = renderNode(
+    createAcademicNode("quote", { x: 0, y: 0 }, "quote-long", {
+      source: {
+        library: { type: "user" },
+        itemKey: "ITEM1234",
+        attachmentKey: "PDF12345",
+        annotationKey: "ANNO123",
+      },
+      snapshot: {
+        text: "Primary excerpt ".repeat(30),
+        comment: longToken,
+        citation: longToken,
+        pageLabel: "42",
+      },
+    }),
+  );
+  assert.match(
+    markup,
+    new RegExp(
+      `class="zmd-board-card-comment">${longToken.replaceAll("/", "\\/")}`,
+    ),
+  );
+  assert.match(
+    markup,
+    /class="zmd-board-card-footer"[^>]*>[\s\S]*class="zmd-board-card-meta"/,
+  );
+  assert.match(
+    boardCss,
+    /\.zmd-board-card\.is-literature \.zmd-board-card-body\s*>\s*\*,\s*\.zmd-board-card\.is-quote \.zmd-board-card-body\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/s,
+  );
+  assert.match(
+    boardCss,
+    /\.zmd-board-card-footer\s*\{[^}]*overflow-wrap:\s*anywhere/s,
+  );
+  assert.match(
+    boardCss,
+    /\.zmd-board-card\.is-literature \.zmd-board-card-body \.zmd-board-card-meta\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*-webkit-line-clamp:\s*1/s,
+  );
+  assert.match(
+    boardCss,
+    /\.zmd-board-card-comment\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*-webkit-line-clamp:\s*1/s,
+  );
+  assert.match(
+    boardCss,
+    /\.zmd-board-card-footer \.zmd-board-card-meta\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*-webkit-line-clamp:\s*2/s,
+  );
 });
 
 test("renders local academic text as plain pre-wrapped content", () => {

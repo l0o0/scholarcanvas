@@ -1,6 +1,9 @@
 import type { ComponentType } from "react";
 import type { NodeProps } from "@xyflow/react";
-import type { CanvasNodeKind } from "../model/academic";
+import {
+  ACADEMIC_SOURCE_CARD_SIZE,
+  type CanvasNodeKind,
+} from "../model/academic";
 import {
   ClaimNode,
   FrameNode,
@@ -50,15 +53,15 @@ const NODE_SPECS: WhiteboardNodeSpec[] = [
   {
     kind: "literature",
     group: "academic",
-    defaultWidth: 280,
-    defaultHeight: 168,
+    defaultWidth: ACADEMIC_SOURCE_CARD_SIZE.literature.width,
+    defaultHeight: ACADEMIC_SOURCE_CARD_SIZE.literature.height,
     Component: LiteratureNode,
   },
   {
     kind: "quote",
     group: "academic",
-    defaultWidth: 280,
-    defaultHeight: 168,
+    defaultWidth: ACADEMIC_SOURCE_CARD_SIZE.quote.width,
+    defaultHeight: ACADEMIC_SOURCE_CARD_SIZE.quote.height,
     Component: QuoteNode,
   },
   {

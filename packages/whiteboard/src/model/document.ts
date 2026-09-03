@@ -223,7 +223,12 @@ export function parseCanvasDocument(value: unknown): CanvasParseResult {
 
   const viewport = parseViewport(value.viewport);
   const metadata = parseMetadata(value.metadata);
-  const extensions = parseExtensions(value.extensions);
+  const extensions = has(value, "extensions")
+    ? parseExtensions(value.extensions)
+    : undefined;
+  if (has(value, "extensions") && !extensions) {
+    throw new CanvasDocumentError("Canvas document extensions are malformed.");
+  }
   return {
     document: {
       version: CANVAS_DOCUMENT_VERSION,
@@ -625,6 +630,9 @@ function parseNodeStyle(value: unknown): CanvasNodeStyle | undefined {
   for (const field of numberFields) {
     const fieldValue = parseOptionalNumber(value, field);
     if (fieldValue === INVALID) return undefined;
+    if (field === "fontSize" && fieldValue !== undefined && fieldValue <= 0) {
+      return undefined;
+    }
     if (fieldValue !== undefined) style[field] = fieldValue;
   }
   for (const field of booleanFields) {
@@ -679,7 +687,9 @@ function parseMetadata(value: unknown): CanvasMetadata | undefined {
 }
 
 function parseExtensions(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? { ...value } : undefined;
+  if (!isRecord(value)) return undefined;
+  if (has(value, "bamboo") && !isRecord(value.bamboo)) return undefined;
+  return { ...value };
 }
 
 function parsePoint(value: unknown): CanvasPoint | undefined {

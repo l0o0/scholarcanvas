@@ -144,6 +144,21 @@ export function mergePickerData(
   }
 }
 
+export function nodeTextStyle(style: Partial<CanvasNodeStyle>): CSSProperties {
+  return {
+    ...(style.fontFamily !== undefined ? { fontFamily: style.fontFamily } : {}),
+    ...(style.fontSize !== undefined ? { fontSize: style.fontSize } : {}),
+    ...(style.fontWeight !== undefined ? { fontWeight: style.fontWeight } : {}),
+    ...(style.fontStyle !== undefined ? { fontStyle: style.fontStyle } : {}),
+    ...(style.textDecoration !== undefined
+      ? { textDecoration: style.textDecoration }
+      : {}),
+    ...(style.textAlign !== undefined ? { textAlign: style.textAlign } : {}),
+    ...(style.textColor !== undefined ? { color: style.textColor } : {}),
+    ...(style.textOpacity !== undefined ? { opacity: style.textOpacity } : {}),
+  };
+}
+
 export function labelTextStyle(style: Partial<CanvasNodeStyle>): CSSProperties {
   return {
     fontFamily: style.fontFamily || "system-ui, sans-serif",
@@ -157,6 +172,7 @@ export function labelTextStyle(style: Partial<CanvasNodeStyle>): CSSProperties {
     lineHeight: 1.25,
     width: "100%",
     display: "block",
+    ...nodeTextStyle(style),
   };
 }
 

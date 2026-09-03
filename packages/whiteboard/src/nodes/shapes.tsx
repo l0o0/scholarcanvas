@@ -1,11 +1,25 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { useWhiteboardLabels } from "../chrome/labels";
+import { canvasNodeSurfaceDefaults } from "../model/academic";
 import { labelTextStyle, verticalAlignmentStyle } from "../whiteboard/document";
-import { CardShell } from "./CardShell";
+import { CardShell, nodeSurfaceFill, nodeSurfaceStroke } from "./CardShell";
 import type { CanvasFlowNode } from "./types";
 
 function point(value: { x: number; y: number } | undefined, fallback: number) {
   return value ?? { x: fallback, y: fallback };
+}
+
+function resolvedStrokeStyle(style: CanvasFlowNode["data"]["model"]["style"]) {
+  return style?.strokeStyle ?? (style?.dashed ? "dashed" : "solid");
+}
+
+function strokeDasharray(style: CanvasFlowNode["data"]["model"]["style"]) {
+  const strokeStyle = resolvedStrokeStyle(style);
+  return strokeStyle === "dotted"
+    ? "2 6"
+    : strokeStyle === "dashed"
+      ? "8 6"
+      : undefined;
 }
 
 export function TextNode({ data, selected }: NodeProps<CanvasFlowNode>) {
@@ -14,7 +28,12 @@ export function TextNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   if (model.kind !== "text") return null;
   const style = model.style ?? {};
   return (
-    <CardShell kind="text" kindLabel={labels.addText} selected={selected}>
+    <CardShell
+      kind="text"
+      kindLabel={labels.addText}
+      selected={selected}
+      nodeStyle={model.style}
+    >
       <div
         className="zmd-board-card-label-layout"
         style={verticalAlignmentStyle(style)}
@@ -28,17 +47,19 @@ export function TextNode({ data, selected }: NodeProps<CanvasFlowNode>) {
 }
 
 function shapeStyle(
+  kind: "rect" | "ellipse",
   style: CanvasFlowNode["data"]["model"]["style"],
-  ellipse?: boolean,
 ) {
   const value = style ?? {};
+  const defaults = canvasNodeSurfaceDefaults(kind);
+  const stroke = nodeSurfaceStroke(kind, value) ?? defaults.stroke;
   return {
-    borderColor: value.stroke || "#1f2937",
-    background: value.fill || "#ffffff",
-    borderWidth: value.strokeWidth ?? 2,
-    borderStyle: value.dashed ? "dashed" : "solid",
-    borderRadius: ellipse ? 999 : (value.radius ?? 8),
-    color: value.stroke || "#1f2937",
+    borderColor: stroke,
+    background: nodeSurfaceFill(kind, value) ?? defaults.fill,
+    borderWidth: value.strokeWidth ?? defaults.strokeWidth,
+    borderStyle: resolvedStrokeStyle(value),
+    borderRadius: kind === "ellipse" ? 999 : (value.radius ?? defaults.radius),
+    color: stroke,
     ...verticalAlignmentStyle(value),
   } as const;
 }
@@ -49,7 +70,7 @@ export function RectNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   return (
     <div
       className={`zmd-board-shape is-rect${selected ? " is-selected" : ""}`}
-      style={shapeStyle(model.style)}
+      style={shapeStyle("rect", model.style)}
     >
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
@@ -68,7 +89,7 @@ export function EllipseNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   return (
     <div
       className={`zmd-board-shape is-ellipse${selected ? " is-selected" : ""}`}
-      style={shapeStyle(model.style, true)}
+      style={shapeStyle("ellipse", model.style)}
     >
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
@@ -97,7 +118,9 @@ function StrokeShape({
   const start = point(model.data.from, 0);
   const end = model.data.to ?? { x: boxW, y: boxH / 2 };
   const markerId = `zmd-board-arrow-${id}`;
-  const stroke = style.stroke || "#1f2937";
+  const stroke =
+    nodeSurfaceStroke(model.kind, style) ??
+    canvasNodeSurfaceDefaults(model.kind).stroke;
   return (
     <div
       className={`zmd-board-shape is-stroke${selected ? " is-selected" : ""}`}
@@ -133,7 +156,7 @@ function StrokeShape({
           y2={end.y}
           stroke="currentColor"
           strokeWidth={style.strokeWidth ?? 2}
-          strokeDasharray={style.dashed ? "8 6" : undefined}
+          strokeDasharray={strokeDasharray(style)}
           markerEnd={arrow ? `url(#${markerId})` : undefined}
         />
       </svg>

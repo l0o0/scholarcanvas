@@ -167,6 +167,27 @@ test("drops nodes with non-finite coordinates or non-positive dimensions", () =>
   );
 });
 
+test("drops nodes with non-positive font sizes", () => {
+  const result = parseCanvasDocument({
+    version: 2,
+    nodes: [
+      { ...claim("zero-font"), style: { fontSize: 0 } },
+      { ...claim("negative-font"), style: { fontSize: -12 } },
+      { ...claim("valid-font"), style: { fontSize: 12 } },
+    ],
+    connections: [],
+  });
+
+  assert.deepEqual(
+    result.document.nodes.map((node) => node.id),
+    ["valid-font"],
+  );
+  assert.deepEqual(
+    result.issues.map((issue) => issue.code),
+    ["malformed-node", "malformed-node"],
+  );
+});
+
 test("drops malformed individual nodes while retaining valid records", () => {
   const result = parseCanvasDocument({
     version: 2,
@@ -263,6 +284,43 @@ test("preserves only explicit extension records", () => {
   assert.deepEqual(result.document.extensions, { documentPlugin: ["one"] });
   assert.deepEqual(result.document.viewport, { x: 10, y: 20, zoom: 1.5 });
   assert.deepEqual(result.document.metadata, { title: "Canvas" });
+});
+
+test("rejects non-object values in the reserved Bamboo extension namespace", () => {
+  assert.throws(
+    () =>
+      parseCanvasDocument({
+        version: 2,
+        nodes: [],
+        connections: [],
+        extensions: { bamboo: "vendor" },
+      }),
+    CanvasDocumentError,
+  );
+
+  const result = parseCanvasDocument({
+    version: 2,
+    nodes: [
+      { ...claim("bad-node"), extensions: { bamboo: "vendor" } },
+      claim("valid-node"),
+    ],
+    connections: [
+      {
+        ...academicConnection("bad-edge", "valid-node", "valid-node"),
+        extensions: { bamboo: 42 },
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    result.document.nodes.map((node) => node.id),
+    ["valid-node"],
+  );
+  assert.deepEqual(result.document.connections, []);
+  assert.deepEqual(
+    result.issues.map((issue) => issue.code),
+    ["malformed-node", "malformed-connection"],
+  );
 });
 
 test("creates an empty version-two document", () => {

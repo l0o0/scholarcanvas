@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { effectiveCanvasNodeTextStyle } from "../model/academic";
 import type { CanvasNodeStyle } from "../model/core";
 import type { WhiteboardLabels } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
@@ -25,7 +26,7 @@ const FONTS = [
   { value: '"Noto Serif SC", serif', label: "fontSerifSc" },
 ] as const;
 
-const SIZES = [12, 14, 16, 18, 24, 32, 48];
+const SIZES = [12, 13, 14, 16, 18, 24, 32, 48];
 const WEIGHTS = ["normal", "bold"] as const;
 
 type TextMenu = "format" | "color" | "align" | null;
@@ -48,16 +49,20 @@ export function TextStyleBar(props: {
   onHoldFocus?: () => void;
 }) {
   const style = props.node.data.model.style ?? {};
+  const effective = effectiveCanvasNodeTextStyle(
+    props.node.data.model.kind,
+    style,
+  );
   const [menu, setMenu] = useState<TextMenu>(null);
-  const bold = style.fontWeight === "bold";
-  const italic = style.fontStyle === "italic";
-  const underline = style.textDecoration === "underline";
-  const strike = style.textDecoration === "line-through";
-  const align = style.textAlign || "center";
-  const valign = style.verticalAlign || "middle";
-  const fontSize = style.fontSize || 16;
-  const fontFamily = style.fontFamily || "system-ui, sans-serif";
-  const color = style.textColor || "#111827";
+  const bold = effective.fontWeight === "bold";
+  const italic = effective.fontStyle === "italic";
+  const underline = effective.textDecoration === "underline";
+  const strike = effective.textDecoration === "line-through";
+  const align = effective.textAlign;
+  const valign = effective.verticalAlign;
+  const fontSize = effective.fontSize;
+  const fontFamily = effective.fontFamily;
+  const color = effective.textColor;
 
   useEffect(() => {
     if (!menu) return;
@@ -158,7 +163,7 @@ export function TextStyleBar(props: {
               title={props.labels.color}
               labels={props.labels}
               color={color}
-              opacity={style.textOpacity ?? 1}
+              opacity={effective.textOpacity}
               onChange={(next) => props.onChange({ textColor: next })}
               onOpacityChange={(next) => props.onChange({ textOpacity: next })}
               onClose={() => setMenu(null)}
@@ -182,7 +187,7 @@ export function TextStyleBar(props: {
       </label>
       <label className="zmd-board-style-group">
         <select
-          value={style.fontWeight || "normal"}
+          value={effective.fontWeight}
           onChange={(event) =>
             props.onChange({
               fontWeight: event.target.value as "normal" | "bold",

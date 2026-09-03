@@ -253,7 +253,10 @@ test("SVG export keeps canonical geometry, XML escaping, styles, and semantic ed
 
   assert.match(svg, /A paper &amp; &lt;archive&gt; &quot;edition&quot;/);
   assert.match(svg, /Evidence/);
-  assert.match(svg, /First line\nSecond &amp; &lt;line&gt; &quot;quoted&quot;/);
+  assert.match(
+    svg,
+    /<tspan[^>]*>First line<\/tspan><tspan[^>]*>Second &amp; &lt;line&gt; &quot;quoted&quot;<\/tspan>/,
+  );
   assert.match(svg, /data-relation="supports"/);
   assert.equal(svg.match(/data-relation=/g)?.length, 1);
   assert.ok(
@@ -268,25 +271,240 @@ test("SVG export keeps canonical geometry, XML escaping, styles, and semantic ed
   );
   assert.match(
     svg,
-    /<line x1="15" y1="90" x2="105" y2="30" stroke="#123456" stroke-width="4" stroke-opacity="0.6" stroke-dasharray="2 6" marker-end="url\(#arrow-123456\)"\/>/,
+    /<line x1="15" y1="90" x2="105" y2="30" stroke="#123456" stroke-width="4" stroke-opacity="0.6" stroke-dasharray="2 6" marker-end="url\(#canvas-arrow-\d+\)"\/>/,
   );
   assert.match(
     svg,
-    /<ellipse cx="390" cy="564" rx="70" ry="44" fill="#ffffff" stroke="#94a3b8" stroke-width="2"\/>/,
+    /<ellipse cx="390" cy="564" rx="70" ry="44" fill="#ffffff" stroke="#1f2937" stroke-width="2"\/>/,
   );
   assert.match(
     svg,
-    /<rect x="200" y="40" width="160" height="100" rx="18" fill="url\(#hatch-abcdef\)" stroke="#654321" stroke-width="3" stroke-dasharray="12 9"\/>/,
+    /<rect x="200" y="40" width="160" height="100" rx="18" fill="url\(#canvas-hatch-\d+\)" stroke="#654321" stroke-width="3" stroke-dasharray="12 9"\/>/,
   );
   assert.match(
     svg,
-    /<text x="348" y="128" font-family="A&amp;B &quot;Serif&quot;" font-size="24" font-weight="bold" font-style="italic" text-decoration="underline" text-anchor="end" fill="#102030" opacity="0.75">Context<\/text>/,
+    /<text x="348" y="123\.2" font-family="A&amp;B &quot;Serif&quot;" font-size="24" font-weight="bold" font-style="italic" text-decoration="underline" text-anchor="end" fill="#102030" opacity="0\.75" clip-path="url\(#canvas-node-clip-4\)"><tspan x="348" y="123\.2">Context<\/tspan><\/text>/,
   );
   assert.match(
     svg,
     /stroke="#fedcba" stroke-width="1.5" stroke-dasharray="6 4"\/>/,
   );
   assert.doesNotMatch(svg, /stroke="#fedcba"[^>]*marker-end=/);
+});
+
+test("SVG export matches canonical stroke precedence and Frame defaults", () => {
+  const svg = buildCanvasSvg({
+    version: 2,
+    nodes: [
+      {
+        id: "frame-defaults",
+        kind: "frame",
+        position: { x: 0, y: 0 },
+        width: 320,
+        height: 200,
+        title: "Boundary",
+      },
+      {
+        id: "solid-claim",
+        kind: "claim",
+        position: { x: 40, y: 40 },
+        width: 200,
+        height: 96,
+        content: "Explicitly solid",
+        style: { dashed: true, strokeStyle: "solid" },
+      },
+    ],
+    connections: [],
+  });
+
+  assert.match(
+    svg,
+    /<rect x="0" y="0" width="320" height="200" rx="8" fill="none"[^>]*stroke-dasharray="12 9"/,
+  );
+  const claim = svg.match(
+    /<rect x="40" y="40" width="200" height="96"[^>]*\/>/,
+  )?.[0];
+  assert.ok(claim, "missing explicitly solid Academic node");
+  assert.doesNotMatch(claim, /stroke-dasharray=/);
+});
+
+test("SVG export keeps the reading-card default text layout", () => {
+  const svg = buildCanvasSvg({
+    version: 2,
+    nodes: [
+      {
+        id: "default-note",
+        kind: "note",
+        position: { x: 20, y: 30 },
+        width: 200,
+        height: 100,
+        content: "Default note",
+      },
+    ],
+    connections: [],
+  });
+
+  assert.match(
+    svg,
+    /<text x="32" y="51\.6"[^>]*font-size="12"[^>]*font-weight="normal"[^>]*text-anchor="start"/,
+  );
+});
+
+test("SVG export replaces forbidden XML characters in text and attributes", () => {
+  const invalid = `before\u0001middle\ud800after`;
+  const svg = buildCanvasSvg({
+    version: 2,
+    nodes: [
+      {
+        id: "invalid-xml",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 240,
+        height: 96,
+        content: invalid,
+        style: { fontFamily: `Safe\u0001Font`, fontSize: -10 },
+      },
+    ],
+    connections: [],
+  });
+
+  assert.equal(svg.includes("\u0001"), false);
+  assert.equal(svg.includes("\ud800"), false);
+  assert.match(svg, /font-family="Safe�Font"/);
+  assert.match(svg, /font-size="12"/);
+  assert.match(svg, />before�middle�after<\/tspan>/);
+});
+
+test("SVG paint IDs stay unique when different colors sanitize alike", () => {
+  const colors = ["hsl(1 23% 45%)", "hsl(12 3% 45%)"] as const;
+  const nodes: CanvasNode[] = colors.flatMap((color, index) => [
+    {
+      id: `arrow-${index}`,
+      kind: "arrow",
+      position: { x: index * 160, y: 0 },
+      width: 120,
+      height: 48,
+      data: { title: "" },
+      style: { stroke: color },
+    },
+    {
+      id: `hatch-${index}`,
+      kind: "rect",
+      position: { x: index * 160, y: 80 },
+      width: 120,
+      height: 64,
+      data: { title: "" },
+      style: { fill: color, fillStyle: "hatch" },
+    },
+  ]);
+  const document: CanvasDocument = { version: 2, nodes, connections: [] };
+  const svg = buildCanvasSvg(document);
+  const markerIds = [...svg.matchAll(/<marker id="([^"]+)"/g)].map(
+    (match) => match[1],
+  );
+  const patternIds = [...svg.matchAll(/<pattern id="([^"]+)"/g)].map(
+    (match) => match[1],
+  );
+
+  assert.equal(markerIds.length, 2);
+  assert.equal(patternIds.length, 2);
+  assert.equal(new Set(markerIds).size, 2);
+  assert.equal(new Set(patternIds).size, 2);
+  for (const id of [...markerIds, ...patternIds]) {
+    assert.match(id!, /^canvas-(?:arrow|hatch)-\d+$/);
+  }
+  assert.equal(buildCanvasSvg(document), svg);
+});
+
+test("SVG export wraps explicit lines and long tokens into positioned tspans", () => {
+  const document: CanvasDocument = {
+    version: 2,
+    nodes: [
+      {
+        id: `unsafe-"><script>alert(1)</script>`,
+        kind: "note",
+        position: { x: 10, y: 20 },
+        width: 104,
+        height: 128,
+        content:
+          "Alpha beta gamma\nSUPERCALIFRAGILISTICEXPIALIDOCIOUS & <safe>",
+        style: {
+          fontSize: 12,
+          textAlign: "left",
+          verticalAlign: "top",
+        },
+      },
+    ],
+    connections: [],
+  };
+
+  const svg = buildCanvasSvg(document);
+  const spans = [
+    ...svg.matchAll(/<tspan x="22" y="([^"]+)">([^<]*)<\/tspan>/g),
+  ];
+  assert.ok(spans.length >= 4, "width wrapping must add visual lines");
+  assert.equal(spans[0]?.[1], "41.6");
+  assert.equal(Number(spans[1]?.[1]) - Number(spans[0]?.[1]), 15);
+  assert.match(svg, /SUPERCAL/);
+  assert.match(svg, /&amp; &lt;safe&gt;/);
+  assert.match(
+    svg,
+    /<clipPath id="canvas-node-clip-0"><rect x="22" y="32" width="80" height="104"\/><\/clipPath>/,
+  );
+  assert.match(
+    svg,
+    /<text[^>]*clip-path="url\(#canvas-node-clip-0\)"[^>]*><tspan/,
+  );
+  assert.doesNotMatch(svg, /<script>|id="[^"]*script/i);
+  assert.equal(buildCanvasSvg(document), svg, "wrapping must be deterministic");
+});
+
+test("SVG export limits lines by node height and positions vertical alignment", () => {
+  const renderAt = (verticalAlign: "top" | "middle" | "bottom") =>
+    buildCanvasSvg({
+      version: 2,
+      nodes: [
+        {
+          id: verticalAlign,
+          kind: "claim",
+          position: { x: 0, y: 100 },
+          width: 180,
+          height: 100,
+          content: "First\nSecond",
+          style: { fontSize: 20, textAlign: "center", verticalAlign },
+        },
+      ],
+      connections: [],
+    });
+  const firstBaseline = (svg: string) => {
+    const match = svg.match(/<tspan x="90" y="([^"]+)">First<\/tspan>/);
+    assert.ok(match, "first line must be a positioned tspan");
+    return Number(match[1]);
+  };
+
+  const top = firstBaseline(renderAt("top"));
+  const middle = firstBaseline(renderAt("middle"));
+  const bottom = firstBaseline(renderAt("bottom"));
+  assert.ok(top < middle && middle < bottom);
+
+  const clipped = buildCanvasSvg({
+    version: 2,
+    nodes: [
+      {
+        id: "short",
+        kind: "question",
+        position: { x: 0, y: 0 },
+        width: 180,
+        height: 49,
+        content: "one\ntwo\nthree\nfour",
+        style: { fontSize: 10, verticalAlign: "top" },
+      },
+    ],
+    connections: [],
+  });
+  assert.equal(clipped.match(/<tspan\b/g)?.length, 2);
+  assert.match(clipped, /height="25"/);
+  assert.doesNotMatch(clipped, />three<\/tspan>|>four<\/tspan>/);
 });
 
 test("contain geometry preserves landscape and portrait aspect ratios", () => {

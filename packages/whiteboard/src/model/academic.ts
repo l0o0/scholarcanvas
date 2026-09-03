@@ -1,5 +1,5 @@
 import type { BasicNode, BasicNodeKind } from "./basic";
-import type { CanvasNodeBase, CanvasPoint } from "./core";
+import type { CanvasNodeBase, CanvasNodeStyle, CanvasPoint } from "./core";
 
 export type AcademicNodeKind =
   "literature" | "quote" | "note" | "question" | "claim" | "frame";
@@ -82,6 +82,133 @@ export type AcademicNode =
 
 export type CanvasNode = BasicNode | AcademicNode;
 export type CanvasNodeKind = BasicNodeKind | AcademicNodeKind;
+
+export type CanvasNodeSurfaceDefaults = Required<
+  Pick<
+    CanvasNodeStyle,
+    "stroke" | "fill" | "strokeWidth" | "radius" | "strokeStyle"
+  >
+>;
+
+export type CanvasNodeTextDefaults = Required<
+  Pick<
+    CanvasNodeStyle,
+    | "fontFamily"
+    | "fontSize"
+    | "fontWeight"
+    | "fontStyle"
+    | "textDecoration"
+    | "textAlign"
+    | "verticalAlign"
+    | "textColor"
+    | "textOpacity"
+  >
+>;
+
+export function canvasNodeSurfaceDefaults(
+  kind: CanvasNodeKind,
+): CanvasNodeSurfaceDefaults {
+  if (kind === "frame") {
+    return {
+      stroke: "#d1d5db",
+      fill: "transparent",
+      strokeWidth: 1,
+      radius: 8,
+      strokeStyle: "dashed",
+    };
+  }
+  if (
+    kind === "rect" ||
+    kind === "ellipse" ||
+    kind === "line" ||
+    kind === "arrow"
+  ) {
+    return {
+      stroke: "#1f2937",
+      fill: "#ffffff",
+      strokeWidth: 2,
+      radius: 8,
+      strokeStyle: "solid",
+    };
+  }
+  return {
+    stroke: "#e5e7eb",
+    fill: "#ffffff",
+    strokeWidth: 1,
+    radius: 8,
+    strokeStyle: "solid",
+  };
+}
+
+export function canvasNodeTextDefaults(
+  kind: CanvasNodeKind,
+): CanvasNodeTextDefaults {
+  const common = {
+    fontFamily: "system-ui, sans-serif",
+    fontStyle: "normal",
+    textDecoration: "none",
+    textColor: "#111827",
+    textOpacity: 1,
+  } as const;
+  if (
+    kind === "item" ||
+    kind === "pdf" ||
+    kind === "attachment" ||
+    kind === "literature" ||
+    kind === "frame"
+  ) {
+    return {
+      ...common,
+      fontSize: 13,
+      fontWeight: "bold",
+      textAlign: "left",
+      verticalAlign: "top",
+    };
+  }
+  if (
+    kind === "quote" ||
+    kind === "note" ||
+    kind === "question" ||
+    kind === "claim"
+  ) {
+    return {
+      ...common,
+      fontSize: 12,
+      fontWeight: "normal",
+      textAlign: "left",
+      verticalAlign: "top",
+    };
+  }
+  return {
+    ...common,
+    fontSize: 16,
+    fontWeight: "normal",
+    textAlign: "center",
+    verticalAlign: "middle",
+  };
+}
+
+export function effectiveCanvasNodeTextStyle(
+  kind: CanvasNodeKind,
+  style: Partial<CanvasNodeStyle> = {},
+): CanvasNodeTextDefaults {
+  const defaults = canvasNodeTextDefaults(kind);
+  const fontSize = style.fontSize;
+  return {
+    fontFamily: style.fontFamily || defaults.fontFamily,
+    fontSize:
+      typeof fontSize === "number" && Number.isFinite(fontSize) && fontSize > 0
+        ? fontSize
+        : defaults.fontSize,
+    fontWeight: style.fontWeight ?? defaults.fontWeight,
+    fontStyle: style.fontStyle ?? defaults.fontStyle,
+    textDecoration: style.textDecoration ?? defaults.textDecoration,
+    textAlign: style.textAlign ?? defaults.textAlign,
+    verticalAlign: style.verticalAlign ?? defaults.verticalAlign,
+    textColor: style.textColor || defaults.textColor,
+    textOpacity: style.textOpacity ?? defaults.textOpacity,
+  };
+}
 
 export interface LiteratureNodeOptions {
   source: LiteratureSource;

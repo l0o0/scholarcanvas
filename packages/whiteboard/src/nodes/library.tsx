@@ -1,5 +1,6 @@
 import type { NodeProps } from "@xyflow/react";
 import { useWhiteboardLabels } from "../chrome/labels";
+import { nodeTextStyle } from "../whiteboard/document";
 import { CardShell } from "./CardShell";
 import type { CanvasFlowNode } from "./types";
 
@@ -8,8 +9,18 @@ export function ItemNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   const model = data.model;
   if (model.kind !== "item") return null;
   return (
-    <CardShell kind="item" kindLabel={labels.addItem} selected={selected}>
-      <h3 className="zmd-board-card-title">{model.data.title}</h3>
+    <CardShell
+      kind="item"
+      kindLabel={labels.addItem}
+      selected={selected}
+      nodeStyle={model.style}
+    >
+      <h3
+        className="zmd-board-card-title"
+        style={nodeTextStyle(model.style ?? {})}
+      >
+        {model.data.title}
+      </h3>
       {model.data.subtitle ? (
         <p className="zmd-board-card-meta">{model.data.subtitle}</p>
       ) : null}
@@ -22,7 +33,12 @@ export function PdfNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   const model = data.model;
   if (model.kind !== "pdf") return null;
   return (
-    <CardShell kind="pdf" kindLabel={labels.addPdf} selected={selected}>
+    <CardShell
+      kind="pdf"
+      kindLabel={labels.addPdf}
+      selected={selected}
+      nodeStyle={model.style}
+    >
       {model.data.image ? (
         <img
           className="zmd-board-pdf-image"
@@ -34,7 +50,12 @@ export function PdfNode({ data, selected }: NodeProps<CanvasFlowNode>) {
           <span>{model.data.pdfPage ? model.data.pdfPage : labels.addPdf}</span>
         </div>
       )}
-      <h3 className="zmd-board-card-title">{model.data.title}</h3>
+      <h3
+        className="zmd-board-card-title"
+        style={nodeTextStyle(model.style ?? {})}
+      >
+        {model.data.title}
+      </h3>
       {model.data.subtitle ? (
         <p className="zmd-board-card-meta">{model.data.subtitle}</p>
       ) : null}
@@ -47,8 +68,18 @@ export function AttachmentNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   const model = data.model;
   if (model.kind !== "attachment") return null;
   return (
-    <CardShell kind="attachment" kindLabel={labels.addFile} selected={selected}>
-      <h3 className="zmd-board-card-title">{model.data.title}</h3>
+    <CardShell
+      kind="attachment"
+      kindLabel={labels.addFile}
+      selected={selected}
+      nodeStyle={model.style}
+    >
+      <h3
+        className="zmd-board-card-title"
+        style={nodeTextStyle(model.style ?? {})}
+      >
+        {model.data.title}
+      </h3>
       {model.data.subtitle ? (
         <p className="zmd-board-card-meta">{model.data.subtitle}</p>
       ) : null}

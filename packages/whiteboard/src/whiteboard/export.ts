@@ -1,4 +1,8 @@
-import type { CanvasNode } from "../model/academic";
+import {
+  canvasNodeSurfaceDefaults,
+  effectiveCanvasNodeTextStyle,
+  type CanvasNode,
+} from "../model/academic";
 import type { CanvasNodeStyle } from "../model/core";
 import type { CanvasDocument } from "../model/document";
 
@@ -17,35 +21,131 @@ function boundsOf(nodes: CanvasNode[]) {
 }
 
 function escapeXml(value: string): string {
-  return value
+  let xmlSafe = "";
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    xmlSafe +=
+      codePoint === 0x9 ||
+      codePoint === 0xa ||
+      codePoint === 0xd ||
+      (codePoint >= 0x20 && codePoint <= 0xd7ff) ||
+      (codePoint >= 0xe000 && codePoint <= 0xfffd) ||
+      (codePoint >= 0x10000 && codePoint <= 0x10ffff)
+        ? character
+        : "\ufffd";
+  }
+  return xmlSafe
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
 
-function paintId(prefix: string, color: string): string {
-  const token = color.replace(/[^a-z0-9_-]/gi, "") || "default";
-  return `${prefix}-${token}`;
-}
-
-function strokeDash(style: CanvasNodeStyle): string | undefined {
+function strokeDash(
+  style: CanvasNodeStyle,
+  defaultDashed = false,
+): string | undefined {
   if (style.strokeStyle === "dotted") return "2 6";
-  if (style.strokeStyle === "dashed" || style.dashed) return "12 9";
-  return undefined;
+  if (style.strokeStyle === "dashed") return "12 9";
+  if (style.strokeStyle === "solid") return undefined;
+  return (style.dashed ?? defaultDashed) ? "12 9" : undefined;
 }
 
 function attribute(name: string, value: string | number | undefined): string {
   return value === undefined ? "" : ` ${name}="${escapeXml(String(value))}"`;
 }
 
-function textElement(node: CanvasNode, width: number, height: number): string {
+function glyphWidth(character: string, fontSize: number): number {
+  if (/\s/u.test(character)) return fontSize * 0.33;
+  if (/[ilI1.,'`:;!|]/u.test(character)) return fontSize * 0.3;
+  if (/[MW@%&#]/u.test(character)) return fontSize * 0.9;
+  const codePoint = character.codePointAt(0) ?? 0;
+  if (
+    (codePoint >= 0x1100 && codePoint <= 0x11ff) ||
+    (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7af) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0xfe10 && codePoint <= 0xfe6f) ||
+    (codePoint >= 0xff00 && codePoint <= 0xffef) ||
+    (codePoint >= 0x1f300 && codePoint <= 0x1faff)
+  ) {
+    return fontSize;
+  }
+  return fontSize * 0.6;
+}
+
+function wrapVisualLine(
+  value: string,
+  availableWidth: number,
+  fontSize: number,
+): string[] {
+  const characters = Array.from(value);
+  if (!characters.length) return [""];
+  const lines: string[] = [];
+  let start = 0;
+  while (start < characters.length) {
+    while (start < characters.length && /\s/u.test(characters[start]!)) {
+      start += 1;
+    }
+    if (start >= characters.length) break;
+    let end = start;
+    let width = 0;
+    let lastBreak = -1;
+    while (end < characters.length) {
+      const nextWidth = width + glyphWidth(characters[end]!, fontSize);
+      if (nextWidth > availableWidth && end > start) break;
+      width = nextWidth;
+      if (/\s/u.test(characters[end]!)) lastBreak = end;
+      end += 1;
+      if (width > availableWidth) break;
+    }
+    if (end >= characters.length) {
+      lines.push(characters.slice(start).join("").trimEnd());
+      break;
+    }
+    if (lastBreak >= start) {
+      lines.push(characters.slice(start, lastBreak).join("").trimEnd());
+      start = lastBreak + 1;
+      continue;
+    }
+    lines.push(characters.slice(start, end).join(""));
+    start = end;
+  }
+  return lines.length ? lines : [""];
+}
+
+function wrappedTextLines(
+  value: string,
+  availableWidth: number,
+  fontSize: number,
+): string[] {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .flatMap((line) => wrapVisualLine(line, availableWidth, fontSize));
+}
+
+function textElement(
+  node: CanvasNode,
+  width: number,
+  height: number,
+  clipId: string,
+): string {
   const title = canvasNodeText(node);
   if (!title) return "";
-  const style = node.style ?? {};
+  const style = effectiveCanvasNodeTextStyle(node.kind, node.style);
   const padding = 12;
-  const align = style.textAlign || "center";
-  const vertical = style.verticalAlign || "middle";
+  const fontSize = style.fontSize;
+  const lineHeight = fontSize * 1.25;
+  const availableWidth = Math.max(1, width - padding * 2);
+  const availableHeight = Math.max(0, height - padding * 2);
+  const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
+  const lines = wrappedTextLines(title, availableWidth, fontSize).slice(
+    0,
+    maxLines,
+  );
+  const align = style.textAlign;
+  const vertical = style.verticalAlign;
   const x =
     node.position.x +
     (align === "left"
@@ -53,16 +153,23 @@ function textElement(node: CanvasNode, width: number, height: number): string {
       : align === "right"
         ? width - padding
         : width / 2);
-  const y =
+  const blockHeight = fontSize + (lines.length - 1) * lineHeight;
+  const firstBaseline =
     node.position.y +
     (vertical === "top"
-      ? padding + (style.fontSize || 16) * 0.8
+      ? padding + fontSize * 0.8
       : vertical === "bottom"
-        ? height - padding
-        : height / 2 + (style.fontSize || 16) * 0.35);
+        ? height - padding - fontSize * 0.2 - (lines.length - 1) * lineHeight
+        : height / 2 - blockHeight / 2 + fontSize * 0.8);
   const anchor =
     align === "left" ? "start" : align === "right" ? "end" : "middle";
-  return `<text${attribute("x", x)}${attribute("y", y)}${attribute("font-family", style.fontFamily || "system-ui, sans-serif")}${attribute("font-size", style.fontSize || 16)}${attribute("font-weight", style.fontWeight || "normal")}${attribute("font-style", style.fontStyle || "normal")}${attribute("text-decoration", style.textDecoration || "none")}${attribute("text-anchor", anchor)}${attribute("fill", style.textColor || "#111827")}${attribute("opacity", style.textOpacity ?? 1)}>${escapeXml(title)}</text>`;
+  const tspans = lines
+    .map(
+      (line, index) =>
+        `<tspan${attribute("x", x)}${attribute("y", firstBaseline + index * lineHeight)}>${escapeXml(line)}</tspan>`,
+    )
+    .join("");
+  return `<text${attribute("x", x)}${attribute("y", firstBaseline)}${attribute("font-family", style.fontFamily)}${attribute("font-size", fontSize)}${attribute("font-weight", style.fontWeight)}${attribute("font-style", style.fontStyle)}${attribute("text-decoration", style.textDecoration)}${attribute("text-anchor", anchor)}${attribute("fill", style.textColor)}${attribute("opacity", style.textOpacity)}${attribute("clip-path", `url(#${clipId})`)}>${tspans}</text>`;
 }
 
 export function canvasNodeText(node: CanvasNode): string {
@@ -114,6 +221,17 @@ export function containGeometry(
 export function buildCanvasSvg(doc: CanvasDocument): string {
   const bounds = boundsOf(doc.nodes);
   const definitions = new Map<string, string>();
+  const paintIds = new Map<string, string>();
+  let nextPaintId = 0;
+  const paintId = (prefix: "arrow" | "hatch", color: string) => {
+    const key = `${prefix}\u0000${color}`;
+    const existing = paintIds.get(key);
+    if (existing) return existing;
+    const id = `canvas-${prefix}-${nextPaintId}`;
+    nextPaintId += 1;
+    paintIds.set(key, id);
+    return id;
+  };
   const arrowMarker = (color: string) => {
     const id = paintId("arrow", color);
     definitions.set(
@@ -137,20 +255,18 @@ export function buildCanvasSvg(doc: CanvasDocument): string {
     ...doc.nodes.filter((node) => node.kind !== "frame"),
   ];
   const frameCount = orderedNodes.findIndex((node) => node.kind !== "frame");
-  const renderedNodes = orderedNodes.map((node) => {
+  const renderedNodes = orderedNodes.map((node, index) => {
     const x = node.position.x;
     const y = node.position.y;
     const width = node.width;
     const height = node.height;
     const style = node.style ?? {};
-    const stroke = style.stroke || "#94a3b8";
-    const fill = fillValue(style.fill || "#ffffff", style.fillStyle);
-    const strokeWidth = style.strokeWidth ?? 2;
-    const dash = strokeDash(style);
+    const defaults = canvasNodeSurfaceDefaults(node.kind);
+    const stroke = style.stroke || defaults.stroke;
+    const fill = fillValue(style.fill || defaults.fill, style.fillStyle);
+    const strokeWidth = style.strokeWidth ?? defaults.strokeWidth;
+    const dash = strokeDash(style, defaults.strokeStyle !== "solid");
     const common = `${attribute("fill", fill)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", style.strokeOpacity)}${attribute("stroke-dasharray", dash)}`;
-    if (node.kind === "ellipse") {
-      return `<g><ellipse${attribute("cx", x + width / 2)}${attribute("cy", y + height / 2)}${attribute("rx", width / 2)}${attribute("ry", height / 2)}${common}/>${textElement(node, width, height)}</g>`;
-    }
     if (node.kind === "line" || node.kind === "arrow") {
       const from = node.data.from ?? { x: 0, y: height / 2 };
       const to = node.data.to ?? { x: width, y: height / 2 };
@@ -160,8 +276,20 @@ export function buildCanvasSvg(doc: CanvasDocument): string {
           : "";
       return `<line${attribute("x1", x + from.x)}${attribute("y1", y + from.y)}${attribute("x2", x + to.x)}${attribute("y2", y + to.y)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", style.strokeOpacity)}${attribute("stroke-dasharray", dash)}${marker}/>`;
     }
-    const rx = node.kind === "rect" ? (style.radius ?? 8) : 8;
-    return `<g><rect${attribute("x", x)}${attribute("y", y)}${attribute("width", width)}${attribute("height", height)}${attribute("rx", rx)}${common}/>${textElement(node, width, height)}</g>`;
+    const clipId = `canvas-node-clip-${index}`;
+    const text = textElement(node, width, height, clipId);
+    if (text) {
+      const padding = 12;
+      definitions.set(
+        clipId,
+        `<clipPath id="${clipId}"><rect${attribute("x", x + padding)}${attribute("y", y + padding)}${attribute("width", Math.max(0, width - padding * 2))}${attribute("height", Math.max(0, height - padding * 2))}/></clipPath>`,
+      );
+    }
+    if (node.kind === "ellipse") {
+      return `<g><ellipse${attribute("cx", x + width / 2)}${attribute("cy", y + height / 2)}${attribute("rx", width / 2)}${attribute("ry", height / 2)}${common}/>${text}</g>`;
+    }
+    const rx = style.radius ?? 8;
+    return `<g><rect${attribute("x", x)}${attribute("y", y)}${attribute("width", width)}${attribute("height", height)}${attribute("rx", rx)}${common}/>${text}</g>`;
   });
   const splitIndex = frameCount < 0 ? renderedNodes.length : frameCount;
   const frames = renderedNodes.slice(0, splitIndex).join("\n");

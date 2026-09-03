@@ -29,6 +29,7 @@ import "@xyflow/react/dist/style.css";
 import "./board.css";
 import {
   createAcademicNode,
+  effectiveCanvasNodeTextStyle,
   type CanvasNode,
   type CanvasNodeKind,
 } from "../model/academic";
@@ -1024,7 +1025,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         }).nodes[0],
       ]);
       bump();
-      const raw: Record<string, string> = {};
+      const raw: Record<string, string> = Object.create(null) as Record<
+        string,
+        string
+      >;
       const types = Array.from(event.dataTransfer?.types || []);
       for (const type of types) {
         try {
@@ -1175,6 +1179,12 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     : null;
   const editingScreen = editingNode
     ? flowRef.current?.flowToScreenPosition(editingNode.position)
+    : null;
+  const editingTextStyle = editingNode
+    ? effectiveCanvasNodeTextStyle(
+        editingNode.data.model.kind,
+        editingNode.data.model.style,
+      )
     : null;
   const menuNode = menu ? nodes.find((node) => node.id === menu.nodeId) : null;
   const styleNode = styleTarget
@@ -1351,7 +1361,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <Controls showInteractive={false} position="bottom-right" />
         </ReactFlow>
-        {editing && editingNode && editingScreen ? (
+        {editing && editingNode && editingScreen && editingTextStyle ? (
           <div
             className="zmd-board-editor is-in-shape"
             style={{
@@ -1366,7 +1376,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                   ? 999
                   : (editingNode.data.model.style?.radius ?? 8) *
                     (viewportRef.current.zoom || 1),
-              ...verticalAlignmentStyle(editingNode.data.model.style ?? {}),
+              ...verticalAlignmentStyle(editingTextStyle),
             }}
           >
             <textarea
@@ -1375,10 +1385,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               className="zmd-board-in-shape-edit"
               value={editing.value}
               style={{
-                ...labelTextStyle(editingNode.data.model.style ?? {}),
+                ...labelTextStyle(editingTextStyle),
                 fontSize:
-                  (editingNode.data.model.style?.fontSize || 16) *
-                  (viewportRef.current.zoom || 1),
+                  editingTextStyle.fontSize * (viewportRef.current.zoom || 1),
               }}
               onChange={(event) =>
                 setEditing({

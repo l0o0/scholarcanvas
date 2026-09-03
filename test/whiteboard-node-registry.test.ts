@@ -16,6 +16,12 @@ import {
 } from "../packages/whiteboard/src/model/index.ts";
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
 import {
+  StyleBar,
+  supportsFillStyle,
+  supportsRadiusStyle,
+} from "../packages/whiteboard/src/chrome/StyleBar.tsx";
+import { TextStyleBar } from "../packages/whiteboard/src/chrome/TextStyleBar.tsx";
+import {
   canvasNodeTypes,
   getNodeSpec,
   listNodeSpecs,
@@ -65,6 +71,44 @@ function renderNode(model: CanvasNode) {
         } as never),
       ),
     ),
+  );
+}
+
+function renderStyleBar(model: CanvasNode) {
+  return renderToStaticMarkup(
+    createElement(StyleBar, {
+      node: {
+        id: model.id,
+        type: model.kind,
+        position: model.position,
+        data: { model },
+        width: model.width,
+        height: model.height,
+      },
+      left: 0,
+      top: 0,
+      labels,
+      onChange: () => {},
+    }),
+  );
+}
+
+function renderTextStyleBar(model: CanvasNode) {
+  return renderToStaticMarkup(
+    createElement(TextStyleBar, {
+      node: {
+        id: model.id,
+        type: model.kind,
+        position: model.position,
+        data: { model },
+        width: model.width,
+        height: model.height,
+      },
+      left: 0,
+      top: 0,
+      labels,
+      onChange: () => {},
+    }),
   );
 }
 
@@ -335,6 +379,228 @@ test("renders local academic text as plain pre-wrapped content", () => {
     assert.match(markup, /white-space:pre-wrap/);
     assert.doesNotMatch(markup, /<strong>/);
   }
+});
+
+test("Academic cards render non-default canonical surface and text styles", () => {
+  const style = {
+    stroke: "#123456",
+    fill: "#fef3c7",
+    strokeWidth: 4,
+    radius: 16,
+    dashed: true,
+    fontFamily: "Georgia, serif",
+    fontSize: 24,
+    fontWeight: "bold" as const,
+    fontStyle: "italic" as const,
+    textDecoration: "underline" as const,
+    textAlign: "right" as const,
+    verticalAlign: "bottom" as const,
+    textColor: "#102030",
+    textOpacity: 0.6,
+  };
+  const note = renderNode({
+    ...createAcademicNode("note", { x: 0, y: 0 }, "styled-note"),
+    content: "Styled note",
+    style,
+  });
+
+  assert.match(note, /--zmd-board-node-stroke:#123456/);
+  assert.match(note, /--zmd-board-node-fill:#fef3c7/);
+  assert.match(note, /--zmd-board-node-stroke-width:4px/);
+  assert.match(note, /--zmd-board-node-stroke-style:dashed/);
+  assert.match(note, /--zmd-board-node-radius:16px/);
+  assert.match(
+    note,
+    /class="zmd-board-card-body" style="justify-content:flex-end"/,
+  );
+  assert.match(
+    note,
+    /class="zmd-board-card-content" style="[^"]*font-family:Georgia, serif[^"]*font-size:24px[^"]*font-weight:bold[^"]*font-style:italic[^"]*text-decoration:underline[^"]*text-align:right[^"]*color:#102030[^"]*opacity:0\.6/,
+  );
+
+  const cardRule = canvasCss.match(/\.zmd-board-card\s*\{([^}]*)\}/)?.[1];
+  assert.ok(cardRule, "missing styled card rule");
+  for (const variable of [
+    "--zmd-board-node-stroke",
+    "--zmd-board-node-fill",
+    "--zmd-board-node-stroke-width",
+    "--zmd-board-node-stroke-style",
+    "--zmd-board-node-radius",
+  ]) {
+    assert.match(cardRule, new RegExp(`var\\(${variable}`));
+  }
+});
+
+test("Frames render the same canonical surface, text, and vertical styles", () => {
+  const frame = renderNode({
+    ...createAcademicNode("frame", { x: 0, y: 0 }, "styled-frame"),
+    title: "Styled boundary",
+    style: {
+      stroke: "#7c3aed",
+      fill: "#ede9fe",
+      strokeWidth: 2,
+      strokeStyle: "dotted",
+      radius: 32,
+      fontFamily: "Menlo, monospace",
+      fontSize: 18,
+      fontWeight: "bold",
+      fontStyle: "italic",
+      textDecoration: "line-through",
+      textAlign: "center",
+      verticalAlign: "middle",
+      textColor: "#312e81",
+      textOpacity: 0.75,
+    },
+  });
+
+  assert.match(frame, /--zmd-board-node-stroke:#7c3aed/);
+  assert.match(frame, /--zmd-board-node-fill:#ede9fe/);
+  assert.match(frame, /--zmd-board-node-stroke-style:dotted/);
+  assert.match(frame, /--zmd-board-node-radius:32px/);
+  assert.match(frame, /justify-content:center/);
+  assert.match(
+    frame,
+    /<h3 style="[^"]*font-family:Menlo, monospace[^"]*font-size:18px[^"]*font-weight:bold[^"]*font-style:italic[^"]*text-decoration:line-through[^"]*text-align:center[^"]*color:#312e81[^"]*opacity:0\.75[^"]*">Styled boundary<\/h3>/,
+  );
+  const frameRule = canvasCss.match(/\.zmd-board-frame\s*\{([^}]*)\}/)?.[1];
+  assert.ok(frameRule, "missing styled frame rule");
+  for (const variable of [
+    "--zmd-board-node-stroke",
+    "--zmd-board-node-fill",
+    "--zmd-board-node-stroke-width",
+    "--zmd-board-node-stroke-style",
+    "--zmd-board-node-radius",
+  ]) {
+    assert.match(frameRule, new RegExp(`var\\(${variable}`));
+  }
+});
+
+test("partial Frame styles resolve against the Frame surface defaults", () => {
+  const frame = renderNode({
+    ...createAcademicNode("frame", { x: 0, y: 0 }, "partial-frame"),
+    style: { fillStyle: "hatch", strokeOpacity: 0.5 },
+  });
+
+  assert.match(frame, /--zmd-board-node-fill:transparent/);
+  assert.match(
+    frame,
+    /--zmd-board-node-stroke:color-mix\(in srgb, var\(--zmd-board-border, #d1d5db\) 50%, transparent\)/,
+  );
+  assert.doesNotMatch(frame, /repeating-linear-gradient/);
+});
+
+test("selection style controls expose only surface properties the kind renders", () => {
+  const note = createAcademicNode("note", { x: 0, y: 0 }, "note-style");
+  const line = createBasicNode("line", { x: 0, y: 0 }, "line-style");
+  const ellipse = createBasicNode("ellipse", { x: 0, y: 0 }, "ellipse-style");
+  assert.equal(supportsFillStyle(note.kind), true);
+  assert.equal(supportsRadiusStyle(note.kind), true);
+  assert.equal(supportsFillStyle(line.kind), false);
+  assert.equal(supportsRadiusStyle(line.kind), false);
+  assert.equal(supportsRadiusStyle(ellipse.kind), false);
+
+  const noteControls = renderStyleBar(note);
+  const lineControls = renderStyleBar(line);
+  assert.match(noteControls, />localized-background</);
+  assert.match(noteControls, />localized-corners</);
+  assert.doesNotMatch(lineControls, />localized-background</);
+  assert.doesNotMatch(lineControls, />localized-corners</);
+});
+
+test("Basic shapes prefer canonical strokeStyle over the legacy dashed flag", () => {
+  for (const kind of ["rect", "ellipse"] as const) {
+    const solid = renderNode({
+      ...createBasicNode(kind, { x: 0, y: 0 }, `${kind}-solid`),
+      style: { dashed: true, strokeStyle: "solid" },
+    });
+    const dotted = renderNode({
+      ...createBasicNode(kind, { x: 0, y: 0 }, `${kind}-dotted`),
+      style: { strokeStyle: "dotted" },
+    });
+
+    assert.match(solid, /border-style:solid/);
+    assert.doesNotMatch(solid, /border-style:dashed/);
+    assert.match(dotted, /border-style:dotted/);
+  }
+
+  for (const kind of ["line", "arrow"] as const) {
+    const solid = renderNode({
+      ...createBasicNode(kind, { x: 0, y: 0 }, `${kind}-solid`),
+      style: { dashed: true, strokeStyle: "solid" },
+    });
+    const dotted = renderNode({
+      ...createBasicNode(kind, { x: 0, y: 0 }, `${kind}-dotted`),
+      style: { strokeStyle: "dotted" },
+    });
+
+    assert.doesNotMatch(solid, /stroke-dasharray=/);
+    assert.match(dotted, /stroke-dasharray="2 6"/);
+  }
+});
+
+test("Basic shapes render canonical fillStyle and strokeOpacity", () => {
+  const rect = renderNode({
+    ...createBasicNode("rect", { x: 0, y: 0 }, "rect-surface"),
+    style: {
+      fill: "#abcdef",
+      fillStyle: "hatch",
+      stroke: "#123456",
+      strokeOpacity: 0.5,
+    },
+  });
+  const ellipse = renderNode({
+    ...createBasicNode("ellipse", { x: 0, y: 0 }, "ellipse-surface"),
+    style: { fill: "#abcdef", fillStyle: "none" },
+  });
+  const line = renderNode({
+    ...createBasicNode("line", { x: 0, y: 0 }, "line-opacity"),
+    style: { stroke: "#123456", strokeOpacity: 0.5 },
+  });
+
+  assert.match(rect, /background:repeating-linear-gradient\(135deg, #abcdef/);
+  assert.match(
+    rect,
+    /border-color:color-mix\(in srgb, #123456 50%, transparent\)/,
+  );
+  assert.match(ellipse, /background:transparent/);
+  assert.match(line, /color:color-mix\(in srgb, #123456 50%, transparent\)/);
+});
+
+test("Frame surface controls reflect its rendered default boundary", () => {
+  const frameControls = renderStyleBar(
+    createAcademicNode("frame", { x: 0, y: 0 }, "frame-default-style"),
+  );
+  const noteControls = renderStyleBar(
+    createAcademicNode("note", { x: 0, y: 0 }, "note-default-style"),
+  );
+
+  assert.match(frameControls, /class="is-active"[^>]*aria-label="transparent"/);
+  assert.match(frameControls, /<option value="1" selected="">1px<\/option>/);
+  assert.doesNotMatch(
+    frameControls,
+    /class="is-active" style="background:#1f2937"/,
+  );
+  assert.match(
+    noteControls,
+    /class="is-active" style="background:#ffffff" aria-label="#ffffff"/,
+  );
+  assert.match(noteControls, /<option value="1" selected="">1px<\/option>/);
+  assert.doesNotMatch(
+    noteControls,
+    /class="is-active" style="background:#1f2937"/,
+  );
+});
+
+test("Academic text controls reflect the reading-card defaults", () => {
+  const noteControls = renderTextStyleBar(
+    createAcademicNode("note", { x: 0, y: 0 }, "note-default-text"),
+  );
+  const frameControls = renderTextStyleBar(
+    createAcademicNode("frame", { x: 0, y: 0 }, "frame-default-text"),
+  );
+
+  assert.match(noteControls, /<option value="12" selected="">12<\/option>/);
+  assert.match(frameControls, /<option value="13" selected="">13<\/option>/);
 });
 
 test("renders frame as a localized non-interactive boundary without handles", () => {

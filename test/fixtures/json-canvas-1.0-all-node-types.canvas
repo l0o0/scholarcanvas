@@ -1,0 +1,54 @@
+{
+  "nodes": [
+    {
+      "id": "group-1",
+      "type": "group",
+      "x": 0,
+      "y": 0,
+      "width": 720,
+      "height": 420,
+      "label": "Research sources",
+      "background": "assets/grid.png",
+      "backgroundStyle": "repeat"
+    },
+    {
+      "id": "text-1",
+      "type": "text",
+      "x": 40,
+      "y": 60,
+      "width": 240,
+      "height": 100,
+      "text": "A plain JSON Canvas note",
+      "color": "4"
+    },
+    {
+      "id": "file-1",
+      "type": "file",
+      "x": 320,
+      "y": 60,
+      "width": 240,
+      "height": 180,
+      "file": "papers/study.pdf",
+      "subpath": "#page=12"
+    },
+    {
+      "id": "link-1",
+      "type": "link",
+      "x": 320,
+      "y": 280,
+      "width": 320,
+      "height": 100,
+      "url": "https://example.org/paper?section=methods&year=2026"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "fromNode": "text-1",
+      "fromSide": "right",
+      "toNode": "file-1",
+      "toSide": "left",
+      "label": "supports"
+    }
+  ]
+}

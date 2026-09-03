@@ -22,6 +22,9 @@ export interface CanvasFileNode extends Record<string, unknown> {
   height: number;
   text?: string;
   label?: string;
+  file?: string;
+  subpath?: string;
+  url?: string;
   bamboo?: {
     node?: Record<string, unknown>;
     frameId?: string;
@@ -74,11 +77,44 @@ export interface ParsedCanvasFile {
 
 const DEFAULT_VIEWPORT: CanvasViewport = { x: 0, y: 0, zoom: 1 };
 const BAMBOO_EXTENSION_KEY = "bamboo";
+const JSON_CANVAS_NODE_EXTENSION_KEY = "jsonCanvas";
+const JSON_CANVAS_NODE_EXTENSION_FIELDS = [
+  "type",
+  "file",
+  "subpath",
+  "url",
+] as const;
+
+function cloneOwnInput(
+  value: unknown,
+  seen = new WeakMap<object, unknown>(),
+): unknown {
+  if (value === null || typeof value !== "object") return value;
+  const prior = seen.get(value);
+  if (prior !== undefined) return prior;
+  if (Array.isArray(value)) {
+    const clone: unknown[] = [];
+    seen.set(value, clone);
+    for (const item of value) clone.push(cloneOwnInput(item, seen));
+    return clone;
+  }
+  const clone = Object.create(null) as Record<string, unknown>;
+  seen.set(value, clone);
+  for (const [key, fieldValue] of Object.entries(value)) {
+    defineOwn(clone, key, cloneOwnInput(fieldValue, seen));
+  }
+  return clone;
+}
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = Object.create(null) as Record<string, unknown>;
+  for (const [key, fieldValue] of Object.entries(value)) {
+    defineOwn(record, key, fieldValue);
+  }
+  return record;
 }
 
 function withoutKeys(
@@ -97,13 +133,29 @@ function mergeRecords(
   for (const record of records) {
     if (!record) continue;
     for (const [key, value] of Object.entries(record)) {
-      const current = asRecord(result[key]);
+      const current = has(result, key) ? asRecord(result[key]) : undefined;
       const incoming = asRecord(value);
-      result[key] =
-        current && incoming ? (mergeRecords(current, incoming) ?? {}) : value;
+      defineOwn(
+        result,
+        key,
+        incoming ? (mergeRecords(current, incoming) ?? {}) : value,
+      );
     }
   }
   return Object.keys(result).length ? result : undefined;
+}
+
+function defineOwn(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
 }
 
 function has(source: Record<string, unknown>, key: string): boolean {
@@ -148,7 +200,12 @@ function hasValidBambooNodeEnvelope(node: Record<string, unknown>): boolean {
   if (node.type === "group") {
     return node.label === undefined || typeof node.label === "string";
   }
-  if (node.type === "file") return typeof node.file === "string";
+  if (node.type === "file") {
+    return (
+      typeof node.file === "string" &&
+      (node.subpath === undefined || typeof node.subpath === "string")
+    );
+  }
   return typeof node.url === "string";
 }
 
@@ -163,7 +220,14 @@ function standardExtensions(
 function bambooExtensions(
   extensions: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
-  return asRecord(extensions?.[BAMBOO_EXTENSION_KEY]);
+  if (!extensions || !has(extensions, BAMBOO_EXTENSION_KEY)) return undefined;
+  const bamboo = asRecord(extensions[BAMBOO_EXTENSION_KEY]);
+  if (!bamboo) {
+    throw new CanvasDocumentError(
+      "Canvas document Bamboo extensions must be an object.",
+    );
+  }
+  return mergeRecords(bamboo);
 }
 
 function decodedExtensions(
@@ -316,16 +380,16 @@ function unknownPayloadFields(
 ): Record<string, unknown> | undefined {
   const unknown: Record<string, unknown> = {};
   for (const [key, fieldValue] of Object.entries(value)) {
-    const fieldSchema = schema[key];
+    const fieldSchema = has(schema, key) ? schema[key] : undefined;
     if (!fieldSchema) {
-      unknown[key] = fieldValue;
+      defineOwn(unknown, key, fieldValue);
       continue;
     }
     if (fieldSchema === true) continue;
     const fieldRecord = asRecord(fieldValue);
     if (!fieldRecord) continue;
     const nested = unknownPayloadFields(fieldRecord, fieldSchema);
-    if (nested) unknown[key] = nested;
+    if (nested) defineOwn(unknown, key, nested);
   }
   return Object.keys(unknown).length ? unknown : undefined;
 }
@@ -360,8 +424,113 @@ function nodePayload(node: CanvasNode): Record<string, unknown> {
   return payload;
 }
 
+type JsonCanvasNodeExtension =
+  | { type: "file"; file: string; subpath?: string }
+  | { type: "link"; url: string };
+
+function parseJsonCanvasNodeExtension(
+  extensions: Record<string, unknown> | undefined,
+): JsonCanvasNodeExtension | undefined {
+  const marker =
+    extensions && has(extensions, JSON_CANVAS_NODE_EXTENSION_KEY)
+      ? asRecord(extensions[JSON_CANVAS_NODE_EXTENSION_KEY])
+      : undefined;
+  if (!marker) return undefined;
+  const type = has(marker, "type") ? marker.type : undefined;
+  const file = has(marker, "file") ? marker.file : undefined;
+  const subpath = has(marker, "subpath") ? marker.subpath : undefined;
+  const url = has(marker, "url") ? marker.url : undefined;
+  if (
+    type === "file" &&
+    typeof file === "string" &&
+    (subpath === undefined || typeof subpath === "string")
+  ) {
+    return {
+      type: "file",
+      file,
+      ...(typeof subpath === "string" ? { subpath } : {}),
+    };
+  }
+  return type === "link" && typeof url === "string"
+    ? { type: "link", url }
+    : undefined;
+}
+
+function sourceNodeExtension(
+  raw: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (
+    has(raw, "type") &&
+    raw.type === "file" &&
+    has(raw, "file") &&
+    typeof raw.file === "string" &&
+    (!has(raw, "subpath") || typeof raw.subpath === "string")
+  ) {
+    return {
+      [JSON_CANVAS_NODE_EXTENSION_KEY]: {
+        type: "file",
+        file: raw.file,
+        ...(typeof raw.subpath === "string" ? { subpath: raw.subpath } : {}),
+      },
+    };
+  }
+  return has(raw, "type") &&
+    raw.type === "link" &&
+    has(raw, "url") &&
+    typeof raw.url === "string"
+    ? {
+        [JSON_CANVAS_NODE_EXTENSION_KEY]: {
+          type: "link",
+          url: raw.url,
+        },
+      }
+    : undefined;
+}
+
+function mergeSourceNodeExtension(
+  decodedBamboo: Record<string, unknown> | undefined,
+  payload: Record<string, unknown> | undefined,
+  raw: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const merged = mergeRecords(decodedBamboo, unknownNodePayload(payload));
+  const source = sourceNodeExtension(raw);
+  if (!source) return merged;
+  const sourceMarker = asRecord(source[JSON_CANVAS_NODE_EXTENSION_KEY])!;
+  const previousMarker =
+    merged && has(merged, JSON_CANVAS_NODE_EXTENSION_KEY)
+      ? asRecord(merged[JSON_CANVAS_NODE_EXTENSION_KEY])
+      : undefined;
+  const marker = mergeRecords(
+    previousMarker
+      ? withoutKeys(previousMarker, JSON_CANVAS_NODE_EXTENSION_FIELDS)
+      : undefined,
+    sourceMarker,
+  )!;
+  const result = merged ?? {};
+  defineOwn(result, JSON_CANVAS_NODE_EXTENSION_KEY, marker);
+  return result;
+}
+
+function hasMatchingBambooProjection(
+  raw: Record<string, unknown>,
+  payload: Record<string, unknown> | undefined,
+  extensions: Record<string, unknown> | undefined,
+): boolean {
+  const source = parseJsonCanvasNodeExtension(extensions);
+  const projectedType =
+    payload?.kind === "frame"
+      ? "group"
+      : payload?.kind === "attachment" && source?.type === "file"
+        ? "file"
+        : payload?.kind === "text" && source?.type === "link"
+          ? "link"
+          : "text";
+  return raw.type === projectedType;
+}
+
 function toCanvasNode(node: CanvasNode): CanvasFileNode {
   const extensions = bambooExtensions(node.extensions);
+  const source = parseJsonCanvasNodeExtension(extensions);
   const frameId = "frameId" in node ? node.frameId : undefined;
   const bamboo = {
     node: nodePayload(node),
@@ -378,6 +547,33 @@ function toCanvasNode(node: CanvasNode): CanvasFileNode {
       width: node.width,
       height: node.height,
       label: node.title,
+      bamboo,
+    };
+  }
+  if (node.kind === "attachment" && source?.type === "file") {
+    return {
+      ...(standardExtensions(node.extensions) ?? {}),
+      id: node.id,
+      type: "file",
+      x: node.position.x,
+      y: node.position.y,
+      width: node.width,
+      height: node.height,
+      file: source.file,
+      ...(source.subpath !== undefined ? { subpath: source.subpath } : {}),
+      bamboo,
+    };
+  }
+  if (node.kind === "text" && source?.type === "link") {
+    return {
+      ...(standardExtensions(node.extensions) ?? {}),
+      id: node.id,
+      type: "link",
+      x: node.position.x,
+      y: node.position.y,
+      width: node.width,
+      height: node.height,
+      url: source.url,
       bamboo,
     };
   }
@@ -481,14 +677,15 @@ function decodeNode(value: unknown): unknown {
     "bamboo",
     ...(raw.type === "text" ? ["text"] : []),
     ...(raw.type === "group" ? ["label"] : []),
+    ...(raw.type === "file" ? ["file", "subpath"] : []),
+    ...(raw.type === "link" ? ["url"] : []),
   ]);
   const decodedBamboo = decodedBambooExtensions(bamboo, ["node", "frameId"]);
-  const extensions = decodedExtensions(
-    standard,
+  const mergedBamboo =
     decodedBamboo === INVALID_EXTENSIONS
       ? undefined
-      : mergeRecords(decodedBamboo, unknownNodePayload(payload)),
-  );
+      : mergeSourceNodeExtension(decodedBamboo, payload, raw);
+  const extensions = decodedExtensions(standard, mergedBamboo);
   const base = {
     id: raw.id,
     position: { x: raw.x, y: raw.y },
@@ -504,7 +701,12 @@ function decodeNode(value: unknown): unknown {
     return base;
   }
   if (bamboo) {
-    if (!hasValidBambooNodeEnvelope(raw)) return base;
+    if (
+      !hasValidBambooNodeEnvelope(raw) ||
+      !hasMatchingBambooProjection(raw, payload, mergedBamboo)
+    ) {
+      return base;
+    }
     return {
       ...(payload ?? {}),
       ...base,
@@ -527,6 +729,29 @@ function decodeNode(value: unknown): unknown {
       ...base,
       kind: "frame",
       title: typeof raw.label === "string" ? raw.label : "",
+    };
+  }
+  if (raw.type === "file") {
+    if (
+      typeof raw.file !== "string" ||
+      (raw.subpath !== undefined && typeof raw.subpath !== "string")
+    ) {
+      return base;
+    }
+    return {
+      ...base,
+      kind: "attachment",
+      data: {
+        title: raw.file,
+      },
+    };
+  }
+  if (raw.type === "link") {
+    if (typeof raw.url !== "string") return base;
+    return {
+      ...base,
+      kind: "text",
+      data: { title: raw.url },
     };
   }
   return base;
@@ -581,25 +806,29 @@ function decodeEdge(value: unknown): unknown {
 }
 
 export function canvasFileToDocument(value: unknown): ParsedCanvasFile {
-  const file = asRecord(value);
+  const file = asRecord(cloneOwnInput(value));
   if (!file) throw new CanvasDocumentError("Canvas file must be an object.");
   if (file.v === 1 && file.engine === "xyflow") {
     throw new CanvasDocumentError(
       "Legacy xyflow canvas files are unsupported.",
     );
   }
-  if (file.version !== JSON_CANVAS_VERSION) {
-    throw new CanvasDocumentError("JSON Canvas version must be 1.");
-  }
-  if (!Array.isArray(file.nodes) || !Array.isArray(file.edges)) {
-    throw new CanvasDocumentError(
-      "Canvas file nodes and edges must be arrays.",
-    );
-  }
-
   const bamboo = asRecord(file.bamboo);
   if (file.bamboo !== undefined && !bamboo) {
     throw new CanvasDocumentError("Canvas file Bamboo data must be an object.");
+  }
+  if (bamboo && file.version !== JSON_CANVAS_VERSION) {
+    throw new CanvasDocumentError("Bamboo JSON Canvas version must be 1.");
+  }
+  if (
+    (bamboo && (!Array.isArray(file.nodes) || !Array.isArray(file.edges))) ||
+    (!bamboo &&
+      ((has(file, "nodes") && !Array.isArray(file.nodes)) ||
+        (has(file, "edges") && !Array.isArray(file.edges))))
+  ) {
+    throw new CanvasDocumentError(
+      "Canvas file nodes and edges must be arrays when present.",
+    );
   }
   if (bamboo && bamboo.schemaVersion !== BAMBOO_SCHEMA_VERSION) {
     throw new CanvasDocumentError("Bamboo schema version must be 2.");
@@ -628,10 +857,12 @@ export function canvasFileToDocument(value: unknown): ParsedCanvasFile {
     );
   }
   const extensions = decodedExtensions(standard, decodedBamboo);
+  const nodes = Array.isArray(file.nodes) ? file.nodes : [];
+  const edges = Array.isArray(file.edges) ? file.edges : [];
   return parseCanvasDocument({
     version: CANVAS_DOCUMENT_VERSION,
-    nodes: file.nodes.map(decodeNode),
-    connections: file.edges.map(decodeEdge),
+    nodes: nodes.map(decodeNode),
+    connections: edges.map(decodeEdge),
     ...(bamboo?.viewport !== undefined ? { viewport: bamboo.viewport } : {}),
     ...(bamboo
       ? {

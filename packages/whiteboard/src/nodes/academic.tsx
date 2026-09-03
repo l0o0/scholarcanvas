@@ -1,6 +1,11 @@
 import type { NodeProps } from "@xyflow/react";
 import { useWhiteboardLabels } from "../chrome/labels";
-import { CardShell } from "./CardShell";
+import { nodeTextStyle } from "../whiteboard/document";
+import {
+  CardShell,
+  nodeContentAlignmentStyle,
+  nodeSurfaceStyle,
+} from "./CardShell";
 import type { CanvasFlowNode } from "./types";
 
 function citationLine(parts: Array<string | undefined>) {
@@ -18,6 +23,7 @@ export function LiteratureNode({ data, selected }: NodeProps<CanvasFlowNode>) {
       kind="literature"
       kindLabel={labels.kindLiterature}
       selected={selected}
+      nodeStyle={model.style}
       footer={
         snapshot.annotationCount !== undefined ? (
           <p className="zmd-board-card-count">
@@ -29,7 +35,12 @@ export function LiteratureNode({ data, selected }: NodeProps<CanvasFlowNode>) {
         ) : null
       }
     >
-      <h3 className="zmd-board-card-title">{snapshot.title}</h3>
+      <h3
+        className="zmd-board-card-title"
+        style={nodeTextStyle(model.style ?? {})}
+      >
+        {snapshot.title}
+      </h3>
       {citationLine([snapshot.creators, snapshot.year])}
       {snapshot.publicationTitle ? (
         <p className="zmd-board-card-meta">{snapshot.publicationTitle}</p>
@@ -55,6 +66,7 @@ export function QuoteNode({ data, selected }: NodeProps<CanvasFlowNode>) {
       kind="quote"
       kindLabel={labels.kindQuote}
       selected={selected}
+      nodeStyle={model.style}
       footer={citationLine([snapshot.citation, snapshot.pageLabel])}
     >
       {snapshot.color ? (
@@ -65,7 +77,12 @@ export function QuoteNode({ data, selected }: NodeProps<CanvasFlowNode>) {
           role="img"
         />
       ) : null}
-      <p className="zmd-board-card-content">{snapshot.text}</p>
+      <p
+        className="zmd-board-card-content"
+        style={nodeTextStyle(model.style ?? {})}
+      >
+        {snapshot.text}
+      </p>
       {snapshot.comment ? (
         <p className="zmd-board-card-comment">{snapshot.comment}</p>
       ) : null}
@@ -88,8 +105,19 @@ function AcademicTextNode({
         ? labels.kindQuestion
         : labels.kindClaim;
   return (
-    <CardShell kind={kind} kindLabel={kindLabel} selected={selected}>
-      <p className="zmd-board-card-content" style={{ whiteSpace: "pre-wrap" }}>
+    <CardShell
+      kind={kind}
+      kindLabel={kindLabel}
+      selected={selected}
+      nodeStyle={model.style}
+    >
+      <p
+        className="zmd-board-card-content"
+        style={{
+          ...nodeTextStyle(model.style ?? {}),
+          whiteSpace: "pre-wrap",
+        }}
+      >
         {model.content}
       </p>
     </CardShell>
@@ -112,14 +140,19 @@ export function FrameNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   const labels = useWhiteboardLabels();
   const model = data.model;
   if (model.kind !== "frame") return null;
+  const style = model.style ?? {};
   return (
     <section
       className={`zmd-board-frame${selected ? " is-selected" : ""}`}
       aria-label={`${labels.kindFrame}: ${model.title}`}
+      style={{
+        ...nodeSurfaceStyle("frame", style),
+        ...nodeContentAlignmentStyle(style),
+      }}
     >
       <header className="zmd-board-frame-title">
         <span className="zmd-board-frame-kind">{labels.kindFrame}</span>
-        <h3>{model.title}</h3>
+        <h3 style={nodeTextStyle(style)}>{model.title}</h3>
       </header>
       {(["top", "right", "bottom", "left"] as const).map((edge) => (
         <span

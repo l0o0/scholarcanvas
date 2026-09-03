@@ -9,6 +9,10 @@ import {
   type CanvasDocument,
 } from "../packages/whiteboard/src/model/document.ts";
 import {
+  canvasDocumentToFile,
+  canvasFileToDocument,
+} from "../packages/whiteboard/src/model/canvas-file.ts";
+import {
   beginNodeEditing,
   CanvasDocumentHistory,
   canvasDocumentToFlow,
@@ -27,6 +31,7 @@ import {
   consumeEditFocusHold,
   handleEditBlur,
 } from "../packages/whiteboard/src/whiteboard/editFocus.ts";
+import { buildCanvasSvg } from "../packages/whiteboard/src/whiteboard/export.ts";
 import { captureCanvasArrowKey } from "../packages/whiteboard/src/whiteboard/keyboard.ts";
 import {
   useCanvasDocumentRuntime,
@@ -626,6 +631,68 @@ test("style transition commits Academic content and style in one node update", (
   assert.equal(next.data.model.style?.fontSize, 24);
   assert.equal(flowNodeText(next), "Typed claim");
   assert.equal(flowNodeText(node), "Old");
+});
+
+test("Academic edits reopen with the same canonical style and export it", () => {
+  const [node] = canvasDocumentToFlow({
+    version: 2,
+    nodes: [
+      {
+        id: "claim-styled",
+        kind: "claim",
+        position: { x: 10, y: 20 },
+        width: 260,
+        height: 128,
+        content: "Draft",
+      },
+    ],
+    connections: [],
+  }).nodes;
+  const style = {
+    fill: "#fef3c7",
+    stroke: "#7c3aed",
+    strokeWidth: 4,
+    strokeStyle: "dashed" as const,
+    radius: 16,
+    fontFamily: "Georgia, serif",
+    fontSize: 18,
+    fontWeight: "bold" as const,
+    fontStyle: "italic" as const,
+    textDecoration: "underline" as const,
+    textAlign: "right" as const,
+    verticalAlign: "bottom" as const,
+    textColor: "#312e81",
+    textOpacity: 0.75,
+  };
+  const edited = mergeEditingStyle(node, "Committed claim", style);
+  const snapshot = flowToCanvasDocument([edited], [], {
+    x: 0,
+    y: 0,
+    zoom: 1,
+  });
+  const reopened = canvasFileToDocument(
+    canvasDocumentToFile(snapshot, { now: "2026-09-04T00:00:00.000Z" }),
+  ).document;
+  const reopenedFlow = canvasDocumentToFlow(reopened);
+
+  assert.deepEqual(reopened.nodes[0].style, style);
+  assert.deepEqual(
+    beginNodeEditing(reopenedFlow.nodes, "claim-styled")?.editing,
+    {
+      nodeId: "claim-styled",
+      value: "Committed claim",
+    },
+  );
+  const svg = buildCanvasSvg(reopened);
+  assert.match(
+    svg,
+    /<rect x="10" y="20" width="260" height="128" rx="16" fill="#fef3c7" stroke="#7c3aed" stroke-width="4" stroke-dasharray="12 9"\/>/,
+  );
+  assert.match(
+    svg,
+    /font-family="Georgia, serif" font-size="18" font-weight="bold" font-style="italic" text-decoration="underline" text-anchor="end" fill="#312e81" opacity="0\.75"/,
+  );
+  assert.match(svg, />Committed claim<\/tspan>/);
 });
 
 test("flow model updates are immutable and keep the renderer kind synchronized", () => {

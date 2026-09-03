@@ -1,4 +1,8 @@
 import type { CanvasNodeStyle } from "../model/core";
+import {
+  canvasNodeSurfaceDefaults,
+  type CanvasNodeKind,
+} from "../model/academic";
 import type { WhiteboardLabels } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 
@@ -6,6 +10,14 @@ const STROKES = ["#1f2937", "#2563eb", "#dc2626", "#059669", "#d97706"];
 const FILLS = ["transparent", "#ffffff", "#f3f4f6", "#dbeafe"];
 const WIDTHS = [1, 2, 4];
 const RADII = [0, 8, 16, 32];
+
+export function supportsFillStyle(kind: CanvasNodeKind): boolean {
+  return kind !== "line" && kind !== "arrow";
+}
+
+export function supportsRadiusStyle(kind: CanvasNodeKind): boolean {
+  return kind !== "ellipse" && kind !== "line" && kind !== "arrow";
+}
 
 export function StyleBar(props: {
   node: CanvasFlowNode;
@@ -20,14 +32,19 @@ export function StyleBar(props: {
   const model = node.data.model;
   const style = model.style ?? {};
   const kind = model.kind;
-  const stroke = style.stroke || "#1f2937";
-  const fill = style.fill || "#ffffff";
-  const strokeWidth = style.strokeWidth ?? 2;
-  const radius = style.radius ?? 8;
+  const defaults = canvasNodeSurfaceDefaults(kind);
+  const stroke = style.stroke || defaults.stroke;
+  const fill = style.fill || defaults.fill;
+  const strokeWidth = style.strokeWidth ?? defaults.strokeWidth;
+  const radius = style.radius ?? defaults.radius;
+  const dashed =
+    style.strokeStyle !== undefined
+      ? style.strokeStyle !== "solid"
+      : (style.dashed ?? defaults.strokeStyle !== "solid");
   const width = Math.round(node.width ?? 120);
   const height = Math.round(node.height ?? 80);
-  const showFill = kind === "rect" || kind === "ellipse";
-  const showRadius = kind === "rect";
+  const showFill = supportsFillStyle(kind);
+  const showRadius = supportsRadiusStyle(kind);
 
   return (
     <div
@@ -94,10 +111,15 @@ export function StyleBar(props: {
         <span>{props.labels.style}</span>
         <button
           type="button"
-          className={style.dashed ? "is-active" : ""}
-          onClick={() => props.onChange({ dashed: !style.dashed })}
+          className={dashed ? "is-active" : ""}
+          onClick={() =>
+            props.onChange({
+              dashed: !dashed,
+              strokeStyle: dashed ? "solid" : "dashed",
+            })
+          }
         >
-          {style.dashed ? props.labels.dashed : props.labels.solid}
+          {dashed ? props.labels.dashed : props.labels.solid}
         </button>
       </label>
       {showRadius ? (

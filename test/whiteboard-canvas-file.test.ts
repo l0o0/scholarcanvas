@@ -452,11 +452,11 @@ test("reports malformed Bamboo-backed JSON Canvas node envelopes", () => {
 
   assert.deepEqual(
     parsed.document.nodes.map((node) => node.id),
-    ["valid-bamboo-text"],
+    ["missing-label", "valid-bamboo-text"],
   );
   assert.deepEqual(
     parsed.issues.map((issue) => issue.code),
-    Array.from({ length: 10 }, () => "malformed-node"),
+    Array.from({ length: 9 }, () => "malformed-node"),
   );
 });
 

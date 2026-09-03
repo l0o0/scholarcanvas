@@ -1,17 +1,17 @@
 import type { ComponentType } from "react";
 import type { NodeProps } from "@xyflow/react";
-import type { BoardNodeKind } from "../model/snapshot";
+import type { CanvasNodeKind } from "../model/academic";
 import { AttachmentNode, ItemNode, NoteNode, PdfNode } from "./library";
 import { ArrowNode, EllipseNode, LineNode, RectNode, TextNode } from "./shapes";
-import type { AcademicNode, NodeGroup } from "./types";
+import type { CanvasFlowNode, NodeGroup } from "./types";
 
 export interface WhiteboardNodeSpec {
-  kind: BoardNodeKind;
+  kind: CanvasNodeKind;
   label: string;
   group: NodeGroup;
   defaultWidth: number;
   defaultHeight: number;
-  Component: ComponentType<NodeProps<AcademicNode>>;
+  Component: ComponentType<NodeProps<CanvasFlowNode>>;
 }
 
 /**
@@ -101,7 +101,7 @@ export function listNodeSpecs(group?: NodeGroup): WhiteboardNodeSpec[] {
     : NODE_SPECS.slice();
 }
 
-export function getNodeSpec(kind: BoardNodeKind): WhiteboardNodeSpec {
+export function getNodeSpec(kind: CanvasNodeKind): WhiteboardNodeSpec {
   const spec = byKind.get(kind);
   if (!spec) throw new Error(`Unknown whiteboard node kind: ${kind}`);
   return spec;
@@ -109,4 +109,4 @@ export function getNodeSpec(kind: BoardNodeKind): WhiteboardNodeSpec {
 
 export const boardNodeTypes = Object.fromEntries(
   NODE_SPECS.map((spec) => [spec.kind, spec.Component]),
-) as Record<BoardNodeKind, WhiteboardNodeSpec["Component"]>;
+) as Record<CanvasNodeKind, WhiteboardNodeSpec["Component"]>;

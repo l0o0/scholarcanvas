@@ -13,12 +13,12 @@ import {
   type WhiteboardLabels,
   type WhiteboardTheme,
 } from "./model/protocol";
-import type { BoardDocument } from "./model/snapshot";
+import { emptyCanvasDocument } from "./model/document";
 
 const channel = new URL(window.location.href).searchParams.get("channel") || "";
 
 let theme: WhiteboardTheme = "light";
-let pendingSnapshot: BoardDocument | Record<string, unknown> | null = null;
+let pendingSnapshot: unknown = null;
 let labels: WhiteboardLabels | undefined;
 let runtime: WhiteboardRuntime | null = null;
 let rev = 0;
@@ -77,8 +77,8 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
         payload: {
           requestId: data.payload.requestId,
           rev,
-          snapshot: runtime?.getSnapshot() ??
-            pendingSnapshot ?? { v: 1, engine: "xyflow", nodes: [], edges: [] },
+          snapshot:
+            runtime?.getSnapshot() ?? pendingSnapshot ?? emptyCanvasDocument(),
         },
       });
       break;

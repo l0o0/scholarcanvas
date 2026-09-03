@@ -1,14 +1,13 @@
-import type { BoardDocument } from "../model/snapshot";
-import type { AcademicNode } from "../nodes";
+import type { CanvasNode } from "../model/academic";
+import type { CanvasNodeStyle } from "../model/core";
+import type { CanvasDocument } from "../model/document";
 
-function boundsOf(nodes: AcademicNode[]) {
+function boundsOf(nodes: CanvasNode[]) {
   if (!nodes.length) return { x: 0, y: 0, width: 800, height: 600 };
   const left = Math.min(...nodes.map((n) => n.position.x));
   const top = Math.min(...nodes.map((n) => n.position.y));
-  const right = Math.max(...nodes.map((n) => n.position.x + (n.width ?? 200)));
-  const bottom = Math.max(
-    ...nodes.map((n) => n.position.y + (n.height ?? 120)),
-  );
+  const right = Math.max(...nodes.map((n) => n.position.x + n.width));
+  const bottom = Math.max(...nodes.map((n) => n.position.y + n.height));
   return {
     x: left - 40,
     y: top - 40,
@@ -30,11 +29,9 @@ function paintId(prefix: string, color: string): string {
   return `${prefix}-${token}`;
 }
 
-function strokeDash(
-  data: BoardDocument["nodes"][number]["data"],
-): string | undefined {
-  if (data.strokeStyle === "dotted") return "2 6";
-  if (data.strokeStyle === "dashed" || data.dashed) return "12 9";
+function strokeDash(style: CanvasNodeStyle): string | undefined {
+  if (style.strokeStyle === "dotted") return "2 6";
+  if (style.strokeStyle === "dashed" || style.dashed) return "12 9";
   return undefined;
 }
 
@@ -42,15 +39,13 @@ function attribute(name: string, value: string | number | undefined): string {
   return value === undefined ? "" : ` ${name}="${escapeXml(String(value))}"`;
 }
 
-function textElement(
-  node: BoardDocument["nodes"][number],
-  width: number,
-  height: number,
-): string {
-  if (!node.data.title) return "";
+function textElement(node: CanvasNode, width: number, height: number): string {
+  const title = canvasNodeText(node);
+  if (!title) return "";
+  const style = node.style ?? {};
   const padding = 12;
-  const align = node.data.textAlign || "center";
-  const vertical = node.data.verticalAlign || "middle";
+  const align = style.textAlign || "center";
+  const vertical = style.verticalAlign || "middle";
   const x =
     node.position.x +
     (align === "left"
@@ -61,13 +56,30 @@ function textElement(
   const y =
     node.position.y +
     (vertical === "top"
-      ? padding + (node.data.fontSize || 16) * 0.8
+      ? padding + (style.fontSize || 16) * 0.8
       : vertical === "bottom"
         ? height - padding
-        : height / 2 + (node.data.fontSize || 16) * 0.35);
+        : height / 2 + (style.fontSize || 16) * 0.35);
   const anchor =
     align === "left" ? "start" : align === "right" ? "end" : "middle";
-  return `<text${attribute("x", x)}${attribute("y", y)}${attribute("font-family", node.data.fontFamily || "system-ui, sans-serif")}${attribute("font-size", node.data.fontSize || 16)}${attribute("font-weight", node.data.fontWeight || "normal")}${attribute("font-style", node.data.fontStyle || "normal")}${attribute("text-decoration", node.data.textDecoration || "none")}${attribute("text-anchor", anchor)}${attribute("fill", node.data.textColor || "#111827")}${attribute("opacity", node.data.textOpacity ?? 1)}>${escapeXml(node.data.title)}</text>`;
+  return `<text${attribute("x", x)}${attribute("y", y)}${attribute("font-family", style.fontFamily || "system-ui, sans-serif")}${attribute("font-size", style.fontSize || 16)}${attribute("font-weight", style.fontWeight || "normal")}${attribute("font-style", style.fontStyle || "normal")}${attribute("text-decoration", style.textDecoration || "none")}${attribute("text-anchor", anchor)}${attribute("fill", style.textColor || "#111827")}${attribute("opacity", style.textOpacity ?? 1)}>${escapeXml(title)}</text>`;
+}
+
+function canvasNodeText(node: CanvasNode): string {
+  switch (node.kind) {
+    case "literature":
+      return node.snapshot.title;
+    case "quote":
+      return node.snapshot.text;
+    case "note":
+    case "question":
+    case "claim":
+      return node.content;
+    case "frame":
+      return node.title;
+    default:
+      return node.data.title;
+  }
 }
 
 export function containGeometry(
@@ -90,8 +102,8 @@ export function containGeometry(
   };
 }
 
-export function buildBoardSvg(doc: BoardDocument): string {
-  const bounds = boundsOf(doc.nodes as unknown as AcademicNode[]);
+export function buildBoardSvg(doc: CanvasDocument): string {
+  const bounds = boundsOf(doc.nodes);
   const definitions = new Map<string, string>();
   const arrowMarker = (color: string) => {
     const id = paintId("arrow", color);
@@ -101,10 +113,7 @@ export function buildBoardSvg(doc: BoardDocument): string {
     );
     return id;
   };
-  const fillValue = (
-    fill: string,
-    fillStyle: (typeof doc.nodes)[number]["data"]["fillStyle"],
-  ) => {
+  const fillValue = (fill: string, fillStyle: CanvasNodeStyle["fillStyle"]) => {
     if (fillStyle === "none" || fill === "transparent") return "none";
     if (fillStyle !== "hatch") return fill;
     const id = paintId("hatch", fill);
@@ -118,38 +127,39 @@ export function buildBoardSvg(doc: BoardDocument): string {
     .map((node) => {
       const x = node.position.x;
       const y = node.position.y;
-      const width = node.width ?? 200;
-      const height = node.height ?? 120;
-      const stroke = node.data.stroke || "#94a3b8";
-      const fill = fillValue(node.data.fill || "#ffffff", node.data.fillStyle);
-      const strokeWidth = node.data.strokeWidth ?? 2;
-      const dash = strokeDash(node.data);
-      const common = `${attribute("fill", fill)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", node.data.strokeOpacity)}${attribute("stroke-dasharray", dash)}`;
-      if (node.type === "ellipse") {
+      const width = node.width;
+      const height = node.height;
+      const style = node.style ?? {};
+      const stroke = style.stroke || "#94a3b8";
+      const fill = fillValue(style.fill || "#ffffff", style.fillStyle);
+      const strokeWidth = style.strokeWidth ?? 2;
+      const dash = strokeDash(style);
+      const common = `${attribute("fill", fill)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", style.strokeOpacity)}${attribute("stroke-dasharray", dash)}`;
+      if (node.kind === "ellipse") {
         return `<g><ellipse${attribute("cx", x + width / 2)}${attribute("cy", y + height / 2)}${attribute("rx", width / 2)}${attribute("ry", height / 2)}${common}/>${textElement(node, width, height)}</g>`;
       }
-      if (node.type === "line" || node.type === "arrow") {
+      if (node.kind === "line" || node.kind === "arrow") {
         const from = node.data.from ?? { x: 0, y: height / 2 };
         const to = node.data.to ?? { x: width, y: height / 2 };
         const marker =
-          node.type === "arrow"
+          node.kind === "arrow"
             ? attribute("marker-end", `url(#${arrowMarker(stroke)})`)
             : "";
-        return `<line${attribute("x1", x + from.x)}${attribute("y1", y + from.y)}${attribute("x2", x + to.x)}${attribute("y2", y + to.y)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", node.data.strokeOpacity)}${attribute("stroke-dasharray", dash)}${marker}/>`;
+        return `<line${attribute("x1", x + from.x)}${attribute("y1", y + from.y)}${attribute("x2", x + to.x)}${attribute("y2", y + to.y)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", style.strokeOpacity)}${attribute("stroke-dasharray", dash)}${marker}/>`;
       }
-      const rx = node.type === "rect" ? (node.data.radius ?? 8) : 8;
+      const rx = node.kind === "rect" ? (style.radius ?? 8) : 8;
       return `<g><rect${attribute("x", x)}${attribute("y", y)}${attribute("width", width)}${attribute("height", height)}${attribute("rx", rx)}${common}/>${textElement(node, width, height)}</g>`;
     })
     .join("\n");
-  const edges = doc.edges
+  const edges = doc.connections
     .map((edge) => {
       const source = doc.nodes.find((n) => n.id === edge.source);
       const target = doc.nodes.find((n) => n.id === edge.target);
       if (!source || !target) return "";
-      const sx = source.position.x + (source.width ?? 200) / 2;
-      const sy = source.position.y + (source.height ?? 120) / 2;
-      const tx = target.position.x + (target.width ?? 200) / 2;
-      const ty = target.position.y + (target.height ?? 120) / 2;
+      const sx = source.position.x + source.width / 2;
+      const sy = source.position.y + source.height / 2;
+      const tx = target.position.x + target.width / 2;
+      const ty = target.position.y + target.height / 2;
       const color = edge.color || "#94a3b8";
       const marker =
         edge.arrow === false
@@ -167,11 +177,11 @@ ${shapes}
 </svg>`;
 }
 
-export function buildBoardMarkdown(doc: BoardDocument): string {
+export function buildBoardMarkdown(doc: CanvasDocument): string {
   const lines = ["# Whiteboard outline", ""];
   const byId = new Map(doc.nodes.map((node) => [node.id, node]));
   const outgoing = new Map<string, string[]>();
-  for (const edge of doc.edges) {
+  for (const edge of doc.connections) {
     const list = outgoing.get(edge.source) || [];
     list.push(edge.target);
     outgoing.set(edge.source, list);
@@ -182,8 +192,8 @@ export function buildBoardMarkdown(doc: BoardDocument): string {
     if (!node || visited.has(id)) return;
     visited.add(id);
     const prefix = "  ".repeat(indent) + "- ";
-    const title = node.data.title || node.type;
-    lines.push(`${prefix}${title} (${node.type})`);
+    const title = canvasNodeText(node) || node.kind;
+    lines.push(`${prefix}${title} (${node.kind})`);
     for (const next of outgoing.get(id) || []) visit(next, indent + 1);
   };
   for (const node of doc.nodes) visit(node.id, 0);

@@ -20,7 +20,6 @@ import {
   applyEdgeChanges,
   applyNodeChanges,
   type Connection,
-  type Edge,
   type EdgeChange,
   type NodeChange,
   type ReactFlowInstance,
@@ -28,16 +27,19 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./board.css";
-import type { WhiteboardLabels, WhiteboardTheme } from "../model/protocol";
 import {
-  createBoardNode,
-  demoBoard,
-  parseBoardDocument,
-  type BoardDocument,
-  type BoardNodeData,
-  type BoardNodeKind,
-} from "../model/snapshot";
-import { boardNodeTypes, type AcademicNode } from "../nodes";
+  createAcademicNode,
+  type CanvasNode,
+  type CanvasNodeKind,
+} from "../model/academic";
+import { createBasicNode } from "../model/basic";
+import {
+  demoCanvasDocument,
+  parseCanvasDocument,
+  type CanvasDocument,
+} from "../model/document";
+import type { WhiteboardLabels, WhiteboardTheme } from "../model/protocol";
+import { boardNodeTypes, type CanvasFlowNode } from "../nodes";
 import { PropertiesPanel } from "../chrome/PropertiesPanel";
 import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
@@ -55,7 +57,6 @@ import {
   type DrawKind,
 } from "../chrome/draw";
 import type { CanvasTool } from "../chrome/tools";
-import { getNodeSpec } from "../nodes";
 import {
   alignNodes,
   autoLayoutNodes,
@@ -64,11 +65,14 @@ import {
 } from "./layout";
 import { buildBoardMarkdown, buildBoardSvg, svgToPngDataUrl } from "./export";
 import {
-  BoardDocumentHistory,
-  boardDocumentToFlow,
-  flowToBoardDocument,
+  CanvasDocumentHistory,
+  canvasDocumentToFlow,
+  flowNodeText,
+  flowToCanvasDocument,
   labelTextStyle,
   mergeEditingStyle,
+  type CanvasFlowEdge,
+  updateFlowNodeModel,
   verticalAlignmentStyle,
   withEdgeColor,
 } from "./document";
@@ -158,7 +162,7 @@ const DEFAULT_LABELS: WhiteboardLabels = {
 export interface WhiteboardAppProps {
   theme: WhiteboardTheme;
   labels?: WhiteboardLabels;
-  initialSnapshot?: BoardDocument | Record<string, unknown> | null;
+  initialSnapshot?: unknown;
   onReady: (api: WhiteboardRuntime) => void;
   onChange: (rev: number) => void;
   onError: (message: string) => void;
@@ -191,11 +195,15 @@ export interface WhiteboardAppProps {
 export interface WhiteboardRuntime {
   setTheme: (theme: WhiteboardTheme) => void;
   setLabels: (labels: WhiteboardLabels) => void;
-  loadSnapshot: (snapshot: BoardDocument | Record<string, unknown>) => void;
-  getSnapshot: () => BoardDocument;
+  loadSnapshot: (snapshot: unknown) => void;
+  getSnapshot: () => CanvasDocument;
   undo: () => void;
   redo: () => void;
-  resolvePick: (requestId: string, nodeId: string, data: BoardNodeData) => void;
+  resolvePick: (
+    requestId: string,
+    nodeId: string,
+    data: PickerNodeData,
+  ) => void;
   rejectPick: (requestId: string, message: string) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
@@ -217,7 +225,19 @@ interface DrawSession {
   pointerId: number;
 }
 
-function nodeSize(node: AcademicNode) {
+interface PickerNodeData {
+  title: string;
+  subtitle?: string;
+  preview?: string;
+  itemID?: number;
+  noteID?: number;
+  attachmentID?: number;
+  pdfPage?: number;
+  image?: string;
+  asset?: string;
+}
+
+function nodeSize(node: CanvasFlowNode) {
   return {
     width:
       node.width ??
@@ -229,10 +249,10 @@ function nodeSize(node: AcademicNode) {
 }
 
 function applyDrawFrame(
-  node: AcademicNode,
+  node: CanvasFlowNode,
   frame: DrawFrame,
   kind: DrawKind,
-): AcademicNode {
+): CanvasFlowNode {
   let { position, width, height, start, end } = frame;
   if ((kind === "line" || kind === "arrow") && height < 16) {
     const pad = (16 - height) / 2;
@@ -243,24 +263,66 @@ function applyDrawFrame(
   }
   width = Math.max(width, 8);
   height = Math.max(height, 8);
+  const next = updateFlowNodeModel(node, (model) => {
+    if (model.kind !== "line" && model.kind !== "arrow") return model;
+    return { ...model, data: { ...model.data, from: start, to: end } };
+  });
   return {
-    ...node,
+    ...next,
     position,
     width,
     height,
     style: { width, height },
-    data: { ...node.data, from: start, to: end },
   };
+}
+
+function createCanvasNode(
+  kind: CanvasNodeKind,
+  position: { x: number; y: number },
+  id: string,
+): CanvasNode {
+  if (kind === "note") return createAcademicNode("note", position, id);
+  if (kind === "question") return createAcademicNode("question", position, id);
+  if (kind === "claim") return createAcademicNode("claim", position, id);
+  if (kind === "frame") return createAcademicNode("frame", position, id);
+  if (kind === "literature" || kind === "quote") {
+    throw new Error(`${kind} nodes require a Zotero source and snapshot.`);
+  }
+  return createBasicNode(kind, position, id);
+}
+
+function mergePickerData(model: CanvasNode, data: PickerNodeData): CanvasNode {
+  switch (model.kind) {
+    case "item":
+    case "pdf":
+    case "attachment":
+      return { ...model, data: { ...model.data, ...data } };
+    case "note":
+      return { ...model, content: data.preview ?? data.title };
+    default:
+      return model;
+  }
+}
+
+function hasOpenTarget(node: CanvasFlowNode): boolean {
+  const model = node.data.model;
+  if (!("data" in model)) return false;
+  return (
+    ("itemID" in model.data && Boolean(model.data.itemID)) ||
+    ("attachmentID" in model.data && Boolean(model.data.attachmentID))
+  );
 }
 
 export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const initial = useMemo(
-    () => parseBoardDocument(props.initialSnapshot ?? demoBoard()),
+    () =>
+      parseCanvasDocument(props.initialSnapshot ?? demoCanvasDocument())
+        .document,
     [props.initialSnapshot],
   );
-  const seed = useMemo(() => boardDocumentToFlow(initial), [initial]);
-  const [nodes, setNodes] = useState<AcademicNode[]>(seed.nodes);
-  const [edges, setEdges] = useState<Edge[]>(seed.edges);
+  const seed = useMemo(() => canvasDocumentToFlow(initial), [initial]);
+  const [nodes, setNodes] = useState<CanvasFlowNode[]>(seed.nodes);
+  const [edges, setEdges] = useState<CanvasFlowEdge[]>(seed.edges);
   const [theme, setTheme] = useState<WhiteboardTheme>(props.theme);
   const [labels, setLabels] = useState<WhiteboardLabels>(
     props.labels ?? DEFAULT_LABELS,
@@ -282,12 +344,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const viewportRef = useRef<Viewport>(
     initial.viewport ?? { x: 0, y: 0, zoom: 1 },
   );
-  const flowRef = useRef<ReactFlowInstance<AcademicNode> | null>(null);
+  const flowRef = useRef<ReactFlowInstance<
+    CanvasFlowNode,
+    CanvasFlowEdge
+  > | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
-  const documentHistoryRef = useRef<BoardDocumentHistory | null>(null);
+  const documentHistoryRef = useRef<CanvasDocumentHistory | null>(null);
   if (!documentHistoryRef.current) {
-    documentHistoryRef.current = new BoardDocumentHistory((revision) =>
+    documentHistoryRef.current = new CanvasDocumentHistory((revision) =>
       propsRef.current.onChange(revision),
     );
   }
@@ -295,7 +360,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const pendingPicksRef = useRef(new Map<string, string>());
   const runtimeRef = useRef<WhiteboardRuntime | null>(null);
   const drawRef = useRef<DrawSession | null>(null);
-  const preDrawRef = useRef<BoardDocument | null>(null);
+  const preDrawRef = useRef<CanvasDocument | null>(null);
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
 
@@ -310,7 +375,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
 
   const snapshotNow = useCallback(
     () =>
-      flowToBoardDocument(
+      flowToCanvasDocument(
         nodesRef.current,
         edgesRef.current,
         viewportRef.current,
@@ -322,8 +387,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     documentHistory.push(snapshotNow());
   }, [documentHistory, snapshotNow]);
 
-  const applyDocument = useCallback((doc: BoardDocument) => {
-    const next = boardDocumentToFlow(parseBoardDocument(doc));
+  const applyDocument = useCallback((value: unknown) => {
+    const doc = parseCanvasDocument(value).document;
+    const next = canvasDocumentToFlow(doc);
     setNodes(next.nodes);
     setEdges(next.edges);
     viewportRef.current = doc.viewport ?? { x: 0, y: 0, zoom: 1 };
@@ -331,7 +397,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   }, []);
 
   const onNodesChange = useCallback(
-    (changes: NodeChange<AcademicNode>[]) => {
+    (changes: NodeChange<CanvasFlowNode>[]) => {
       const structural = changes.some(
         (change) => change.type === "remove" || change.type === "add",
       );
@@ -343,7 +409,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   );
 
   const onEdgesChange = useCallback(
-    (changes: EdgeChange<Edge>[]) => {
+    (changes: EdgeChange<CanvasFlowEdge>[]) => {
       if (changes.some((change) => change.type === "remove")) pushHistory();
       setEdges((current) => applyEdgeChanges(changes, current));
       if (changes.some((change) => change.type !== "select")) bump();
@@ -354,8 +420,35 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const onConnect = useCallback(
     (connection: Connection) => {
       pushHistory();
+      const id = newId("edge");
+      const color = "#9ca3af";
       setEdges((current) =>
-        addEdge({ ...connection, id: newId("edge") }, current),
+        addEdge(
+          {
+            ...connection,
+            id,
+            data: {
+              connection: {
+                id,
+                kind: "basic",
+                source: connection.source,
+                target: connection.target,
+                sourceHandle: connection.sourceHandle,
+                targetHandle: connection.targetHandle,
+                color,
+                arrow: true,
+              },
+            },
+            style: { stroke: color },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              width: 16,
+              height: 16,
+              color,
+            },
+          },
+          current,
+        ),
       );
       bump();
     },
@@ -363,7 +456,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   );
 
   const addNode = useCallback(
-    (kind: BoardNodeKind, position?: { x: number; y: number }) => {
+    (kind: CanvasNodeKind, position?: { x: number; y: number }) => {
       pushHistory();
       const center = position ??
         flowRef.current?.screenToFlowPosition({
@@ -371,23 +464,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           y: window.innerHeight / 2,
         }) ?? { x: 120, y: 120 };
       const nodeId = newId(kind);
-      const spec = getNodeSpec(kind);
-      const created = boardDocumentToFlow({
-        v: 1,
-        engine: "xyflow",
-        nodes: [
-          {
-            ...createBoardNode(kind, center, nodeId),
-            width: spec.defaultWidth,
-            height: spec.defaultHeight,
-          },
-        ],
-        edges: [],
+      const created = canvasDocumentToFlow({
+        version: 2,
+        nodes: [createCanvasNode(kind, center, nodeId)],
+        connections: [],
       }).nodes[0];
       setNodes((current) => [...current, created]);
       bump();
       if (kind === "text") {
-        setEditing({ nodeId, value: created.data.title || "" });
+        setEditing({ nodeId, value: flowNodeText(created) });
       }
       if (isLibraryKind(kind)) {
         const requestId = `pick-${nodeId}-${Date.now().toString(36)}`;
@@ -478,11 +563,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       });
       preDrawRef.current = snapshotNow();
       const created = applyDrawFrame(
-        boardDocumentToFlow({
-          v: 1,
-          engine: "xyflow",
-          nodes: [createBoardNode(kind, origin, nodeId)],
-          edges: [],
+        canvasDocumentToFlow({
+          version: 2,
+          nodes: [createBasicNode(kind, origin, nodeId)],
+          connections: [],
         }).nodes[0],
         frame,
         kind,
@@ -520,7 +604,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   );
 
   const updateNode = useCallback(
-    (nodeId: string, updater: (node: AcademicNode) => AcademicNode) => {
+    (nodeId: string, updater: (node: CanvasFlowNode) => CanvasFlowNode) => {
       pushHistory();
       setNodes((current) =>
         current.map((node) => (node.id === nodeId ? updater(node) : node)),
@@ -542,23 +626,23 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         className: item.id === nodeId ? "is-editing-label" : undefined,
       })),
     );
-    setEditing({ nodeId, value: node.data.title || "" });
+    setEditing({ nodeId, value: flowNodeText(node) });
   }, []);
 
   const openNode = useCallback(
-    (node: AcademicNode) => {
-      const data = node.data;
-      if (data.noteID) {
-        propsRef.current.onOpenItem({ noteID: data.noteID });
-      } else if (data.attachmentID && node.type === "pdf") {
+    (node: CanvasFlowNode) => {
+      const model = node.data.model;
+      if (model.kind === "pdf" && model.data.attachmentID) {
         propsRef.current.onOpenItem({
-          attachmentID: data.attachmentID,
-          pdfPage: data.pdfPage,
+          attachmentID: model.data.attachmentID,
+          pdfPage: model.data.pdfPage,
         });
-      } else if (data.attachmentID) {
-        propsRef.current.onOpenItem({ attachmentID: data.attachmentID });
-      } else if (data.itemID) {
-        propsRef.current.onOpenItem({ itemID: data.itemID });
+      } else if (model.kind === "attachment" && model.data.attachmentID) {
+        propsRef.current.onOpenItem({
+          attachmentID: model.data.attachmentID,
+        });
+      } else if (model.kind === "item" && model.data.itemID) {
+        propsRef.current.onOpenItem({ itemID: model.data.itemID });
       } else {
         startEdit(node.id);
       }
@@ -577,16 +661,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       );
       return;
     }
-    if (node.data.title === value) {
+    if (flowNodeText(node) === value) {
       setNodes((current) =>
         current.map((item) => ({ ...item, className: undefined })),
       );
       return;
     }
     updateNode(nodeId, (current) => ({
-      ...current,
+      ...mergeEditingStyle(current, value, {}),
       className: undefined,
-      data: { ...current.data, title: value },
     }));
   }, [editing, updateNode]);
 
@@ -605,12 +688,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       const id = newId(node.type || "item");
       setNodes((current) => [
         ...current,
-        {
-          ...node,
-          id,
-          selected: false,
-          position: { x: node.position.x + 24, y: node.position.y + 24 },
-        },
+        updateFlowNodeModel(
+          {
+            ...node,
+            id,
+            selected: false,
+            position: { x: node.position.x + 24, y: node.position.y + 24 },
+          },
+          (model) => ({ ...model, id }),
+        ),
       ]);
       bump();
     },
@@ -791,11 +877,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       pushHistory();
       setNodes((current) => [
         ...current,
-        boardDocumentToFlow({
-          v: 1,
-          engine: "xyflow",
-          nodes: [createBoardNode("item", position, nodeId)],
-          edges: [],
+        canvasDocumentToFlow({
+          version: 2,
+          nodes: [createBasicNode("item", position, nodeId)],
+          connections: [],
         }).nodes[0],
       ]);
       bump();
@@ -916,7 +1001,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       setTheme,
       setLabels,
       loadSnapshot(snapshot) {
-        applyDocument(parseBoardDocument(snapshot));
+        applyDocument(snapshot);
         documentHistory.replace();
       },
       getSnapshot: snapshotNow,
@@ -936,7 +1021,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         pushHistory();
         setNodes((current) =>
           current.map((node) =>
-            node.id === nodeId ? { ...node, type: data.kind, data } : node,
+            node.id === nodeId
+              ? updateFlowNodeModel(node, (model) =>
+                  mergePickerData(model, data),
+                )
+              : node,
           ),
         );
         bump();
@@ -1020,10 +1109,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         labels={labels}
         node={
           selectedNodes.length === 1 &&
-          isLibraryKind(
-            (selectedNodes[0].type ||
-              selectedNodes[0].data.kind) as BoardNodeKind,
-          )
+          isLibraryKind(selectedNodes[0].data.model.kind)
             ? selectedNodes[0]
             : null
         }
@@ -1032,7 +1118,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         onCopy={copyNode}
         onDelete={deleteNode}
       />
-      <ReactFlow<AcademicNode>
+      <ReactFlow<CanvasFlowNode, CanvasFlowEdge>
         nodes={nodes}
         edges={edges}
         nodeTypes={boardNodeTypes}
@@ -1067,7 +1153,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           const origin = flowRef.current?.flowToScreenPosition(node.position);
           const size = nodeSize(node);
           const zoom = viewportRef.current.zoom || 1;
-          const kind = (node.type || node.data.kind) as BoardNodeKind;
+          const kind = node.data.model.kind;
           if (origin) {
             const local = {
               x: (event.clientX - origin.x) / zoom,
@@ -1150,9 +1236,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             borderRadius:
               editingNode.type === "ellipse"
                 ? 999
-                : (editingNode.data.radius ?? 8) *
+                : (editingNode.data.model.style?.radius ?? 8) *
                   (viewportRef.current.zoom || 1),
-            ...verticalAlignmentStyle(editingNode.data),
+            ...verticalAlignmentStyle(editingNode.data.model.style ?? {}),
           }}
         >
           <textarea
@@ -1160,9 +1246,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             className="zmd-board-in-shape-edit"
             value={editing.value}
             style={{
-              ...labelTextStyle(editingNode.data),
+              ...labelTextStyle(editingNode.data.model.style ?? {}),
               fontSize:
-                (editingNode.data.fontSize || 16) *
+                (editingNode.data.model.style?.fontSize || 16) *
                 (viewportRef.current.zoom || 1),
             }}
             onChange={(event) =>
@@ -1183,7 +1269,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 updateNode(editing.nodeId, (current) =>
                   mergeEditingStyle(current, editing.value, {
                     fontWeight:
-                      current.data.fontWeight === "bold" ? "normal" : "bold",
+                      current.data.model.style?.fontWeight === "bold"
+                        ? "normal"
+                        : "bold",
                   }),
                 );
                 return;
@@ -1216,9 +1304,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 <IconEdit />
                 <span>{labels.editText}</span>
               </button>
-              {(menuNode.data.itemID ||
-                menuNode.data.attachmentID ||
-                menuNode.data.noteID) && (
+              {hasOpenTarget(menuNode) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1265,7 +1351,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       ) : null}
       {editing && editingNode && editingScreen ? (
         <TextStyleBar
-          data={editingNode.data}
+          node={editingNode}
           labels={labels}
           left={
             editingScreen.x +
@@ -1291,17 +1377,22 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           left={styleScreen.x + (nodeSize(styleNode).width * zoom) / 2 - 280}
           top={Math.max(8, styleScreen.y - 56)}
           onChange={(patch) => {
-            const { width, height, ...data } = patch;
-            updateNode(styleNode.id, (current) => ({
-              ...current,
-              width: width ?? current.width,
-              height: height ?? current.height,
-              style: {
-                width: width ?? nodeSize(current).width,
-                height: height ?? nodeSize(current).height,
-              },
-              data: { ...current.data, ...data },
-            }));
+            const { width, height, ...style } = patch;
+            updateNode(styleNode.id, (current) => {
+              const next = updateFlowNodeModel(current, (model) => ({
+                ...model,
+                style: { ...(model.style ?? {}), ...style },
+              }));
+              return {
+                ...next,
+                width: width ?? current.width,
+                height: height ?? current.height,
+                style: {
+                  width: width ?? nodeSize(current).width,
+                  height: height ?? nodeSize(current).height,
+                },
+              };
+            });
           }}
         />
       ) : null}

@@ -1,6 +1,6 @@
-import type { AcademicNode } from "../nodes";
-import type { BoardNodeData } from "../model/snapshot";
+import type { CanvasNodeStyle } from "../model/core";
 import type { WhiteboardLabels } from "../model/protocol";
+import type { CanvasFlowNode } from "../nodes";
 
 const STROKES = ["#1f2937", "#2563eb", "#dc2626", "#059669", "#d97706"];
 const FILLS = ["transparent", "#ffffff", "#f3f4f6", "#dbeafe"];
@@ -8,21 +8,22 @@ const WIDTHS = [1, 2, 4];
 const RADII = [0, 8, 16, 32];
 
 export function StyleBar(props: {
-  node: AcademicNode;
+  node: CanvasFlowNode;
   left: number;
   top: number;
   labels: WhiteboardLabels;
   onChange: (
-    patch: Partial<BoardNodeData> & { width?: number; height?: number },
+    patch: Partial<CanvasNodeStyle> & { width?: number; height?: number },
   ) => void;
 }) {
   const { node } = props;
-  const data = node.data;
-  const kind = node.type || data.kind;
-  const stroke = data.stroke || "#1f2937";
-  const fill = data.fill || "#ffffff";
-  const strokeWidth = data.strokeWidth ?? 2;
-  const radius = data.radius ?? 8;
+  const model = node.data.model;
+  const style = model.style ?? {};
+  const kind = model.kind;
+  const stroke = style.stroke || "#1f2937";
+  const fill = style.fill || "#ffffff";
+  const strokeWidth = style.strokeWidth ?? 2;
+  const radius = style.radius ?? 8;
   const width = Math.round(node.width ?? 120);
   const height = Math.round(node.height ?? 80);
   const showFill = kind === "rect" || kind === "ellipse";
@@ -93,10 +94,10 @@ export function StyleBar(props: {
         <span>{props.labels.style}</span>
         <button
           type="button"
-          className={data.dashed ? "is-active" : ""}
-          onClick={() => props.onChange({ dashed: !data.dashed })}
+          className={style.dashed ? "is-active" : ""}
+          onClick={() => props.onChange({ dashed: !style.dashed })}
         >
-          {data.dashed ? props.labels.dashed : props.labels.solid}
+          {style.dashed ? props.labels.dashed : props.labels.solid}
         </button>
       </label>
       {showRadius ? (

@@ -9,5 +9,5 @@ export {
   listNodeSpecs,
   type WhiteboardNodeSpec,
 } from "./nodes";
-export type { AcademicNode } from "./nodes";
+export type { CanvasFlowData, CanvasFlowNode } from "./nodes";
 export * from "./model";

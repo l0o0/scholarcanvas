@@ -1,4 +1,4 @@
-import type { AcademicNode } from "../nodes";
+import type { CanvasFlowNode } from "../nodes";
 
 export interface FlowRect {
   x: number;
@@ -7,7 +7,7 @@ export interface FlowRect {
   height: number;
 }
 
-export function nodeRect(node: AcademicNode): FlowRect {
+export function nodeRect(node: CanvasFlowNode): FlowRect {
   return {
     x: node.position.x,
     y: node.position.y,
@@ -20,9 +20,9 @@ export type AlignMode =
   "left" | "right" | "top" | "bottom" | "horizontal" | "vertical";
 
 export function alignNodes(
-  nodes: AcademicNode[],
+  nodes: CanvasFlowNode[],
   mode: AlignMode,
-): AcademicNode[] {
+): CanvasFlowNode[] {
   if (nodes.length < 2) return nodes;
   const rects = nodes.map(nodeRect);
   const bounds = rects.reduce(
@@ -71,9 +71,9 @@ export function alignNodes(
 }
 
 export function distributeNodes(
-  nodes: AcademicNode[],
+  nodes: CanvasFlowNode[],
   direction: "horizontal" | "vertical",
-): AcademicNode[] {
+): CanvasFlowNode[] {
   if (nodes.length < 3) return nodes;
   const sorted = [...nodes].sort((a, b) =>
     direction === "horizontal"
@@ -107,7 +107,7 @@ export function distributeNodes(
   return nodes.map((node) => result[order.get(node.id)!]);
 }
 
-export function autoLayoutNodes(nodes: AcademicNode[]): AcademicNode[] {
+export function autoLayoutNodes(nodes: CanvasFlowNode[]): CanvasFlowNode[] {
   if (nodes.length < 2) return nodes;
   const sorted = [...nodes].sort((a, b) => a.position.y - b.position.y);
   const columns = Math.max(1, Math.ceil(Math.sqrt(nodes.length)));

@@ -1,31 +1,38 @@
 import type { WhiteboardLabels } from "../model/protocol";
-import type { AcademicNode } from "../nodes";
+import type { CanvasFlowNode } from "../nodes";
 import { getNodeSpec } from "../nodes";
+import { flowNodeText } from "../whiteboard/document";
 import { IconCopy, IconEdit, IconOpen, IconTrash } from "../whiteboard/icons";
 
 export function PropertiesPanel(props: {
   labels: WhiteboardLabels;
-  node: AcademicNode | null;
+  node: CanvasFlowNode | null;
   onEdit: (nodeId: string) => void;
-  onOpen: (node: AcademicNode) => void;
+  onOpen: (node: CanvasFlowNode) => void;
   onCopy: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
 }) {
   const { node, labels } = props;
   if (!node) return null;
-  const spec = getNodeSpec(node.type || node.data.kind);
+  const model = node.data.model;
+  const spec = getNodeSpec(model.kind);
+  const data = "data" in model ? model.data : undefined;
   const canOpen = !!(
-    node.data.itemID ||
-    node.data.attachmentID ||
-    node.data.noteID
+    data &&
+    (("itemID" in data && data.itemID) ||
+      ("attachmentID" in data && data.attachmentID))
   );
+  const subtitle =
+    data && "subtitle" in data && typeof data.subtitle === "string"
+      ? data.subtitle
+      : undefined;
 
   return (
     <aside className="zmd-board-properties" aria-label="Selection">
       <header className="zmd-board-properties-head">
         <span className="zmd-board-card-kind">{spec.label}</span>
-        <h2>{node.data.title || spec.label}</h2>
-        {node.data.subtitle ? <p>{node.data.subtitle}</p> : null}
+        <h2>{flowNodeText(node) || spec.label}</h2>
+        {subtitle ? <p>{subtitle}</p> : null}
       </header>
       <div className="zmd-board-properties-actions">
         <button type="button" onClick={() => props.onEdit(node.id)}>

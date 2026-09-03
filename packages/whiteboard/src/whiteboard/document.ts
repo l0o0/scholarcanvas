@@ -1,22 +1,27 @@
 import { MarkerType, type Edge, type Viewport } from "@xyflow/react";
 import type { CSSProperties } from "react";
-import type {
-  BoardDocument,
-  BoardNodeData,
-  BoardNodeKind,
-} from "../model/snapshot";
-import type { AcademicNode } from "../nodes";
+import type { CanvasNode } from "../model/academic";
+import type { CanvasConnection } from "../model/connection";
+import type { CanvasNodeStyle } from "../model/core";
+import type { CanvasDocument } from "../model/document";
+import type { CanvasFlowNode } from "../nodes";
 
-export function labelTextStyle(data: BoardNodeData): CSSProperties {
+export interface CanvasFlowEdgeData extends Record<string, unknown> {
+  connection: CanvasConnection;
+}
+
+export type CanvasFlowEdge = Edge<CanvasFlowEdgeData>;
+
+export function labelTextStyle(style: Partial<CanvasNodeStyle>): CSSProperties {
   return {
-    fontFamily: data.fontFamily || "system-ui, sans-serif",
-    fontSize: data.fontSize || 16,
-    fontWeight: data.fontWeight || "normal",
-    fontStyle: data.fontStyle || "normal",
-    textDecoration: data.textDecoration || "none",
-    textAlign: data.textAlign || "center",
-    color: data.textColor || "#111827",
-    opacity: data.textOpacity ?? 1,
+    fontFamily: style.fontFamily || "system-ui, sans-serif",
+    fontSize: style.fontSize || 16,
+    fontWeight: style.fontWeight || "normal",
+    fontStyle: style.fontStyle || "normal",
+    textDecoration: style.textDecoration || "none",
+    textAlign: style.textAlign || "center",
+    color: style.textColor || "#111827",
+    opacity: style.textOpacity ?? 1,
     lineHeight: 1.25,
     width: "100%",
     display: "block",
@@ -24,9 +29,9 @@ export function labelTextStyle(data: BoardNodeData): CSSProperties {
 }
 
 export function verticalAlignmentStyle(
-  data: Partial<BoardNodeData>,
+  style: Partial<CanvasNodeStyle>,
 ): CSSProperties {
-  const alignment = data.verticalAlign || "middle";
+  const alignment = style.verticalAlign || "middle";
   return {
     alignItems:
       alignment === "top"
@@ -37,38 +42,36 @@ export function verticalAlignmentStyle(
   };
 }
 
-export function boardDocumentToFlow(doc: BoardDocument): {
-  nodes: AcademicNode[];
-  edges: Edge[];
+export function canvasDocumentToFlow(document: CanvasDocument): {
+  nodes: CanvasFlowNode[];
+  edges: CanvasFlowEdge[];
 } {
   return {
-    nodes: doc.nodes.map((node) => ({
-      id: node.id,
-      type: node.type,
-      position: node.position,
-      data: node.data,
-      width: node.width,
-      height: node.height,
-      style:
-        node.width || node.height
-          ? { width: node.width, height: node.height }
-          : undefined,
+    nodes: document.nodes.map((model) => ({
+      id: model.id,
+      type: model.kind,
+      position: model.position,
+      data: { model },
+      width: model.width,
+      height: model.height,
+      style: { width: model.width, height: model.height },
     })),
-    edges: doc.edges.map((edge) => {
-      const color = edge.color ?? "#9ca3af";
+    edges: document.connections.map((connection) => {
+      const color = connection.color ?? "#9ca3af";
       return {
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        sourceHandle: edge.sourceHandle ?? undefined,
-        targetHandle: edge.targetHandle ?? undefined,
-        label: edge.label,
+        id: connection.id,
+        source: connection.source,
+        target: connection.target,
+        sourceHandle: connection.sourceHandle ?? undefined,
+        targetHandle: connection.targetHandle ?? undefined,
+        label: connection.label,
+        data: { connection },
         style: {
           stroke: color,
-          strokeDasharray: edge.dashed ? "6 4" : undefined,
+          strokeDasharray: connection.dashed ? "6 4" : undefined,
         },
         markerEnd:
-          edge.arrow === false
+          connection.arrow === false
             ? undefined
             : {
                 type: MarkerType.ArrowClosed,
@@ -81,58 +84,101 @@ export function boardDocumentToFlow(doc: BoardDocument): {
   };
 }
 
-export function flowToBoardDocument(
-  nodes: AcademicNode[],
-  edges: Edge[],
+export function flowToCanvasDocument(
+  nodes: CanvasFlowNode[],
+  edges: CanvasFlowEdge[],
   viewport: Viewport,
-): BoardDocument {
+): CanvasDocument {
   return {
-    v: 1,
-    engine: "xyflow",
+    version: 2,
     viewport,
     nodes: nodes.map((node) => ({
+      ...node.data.model,
       id: node.id,
-      type: (node.type as BoardNodeKind) || "item",
       position: node.position,
       width:
+        node.measured?.width ??
         node.width ??
-        (typeof node.style?.width === "number" ? node.style.width : undefined),
+        numericStyleDimension(node.style?.width) ??
+        node.data.model.width,
       height:
+        node.measured?.height ??
         node.height ??
-        (typeof node.style?.height === "number"
-          ? node.style.height
-          : undefined),
-      data: node.data,
+        numericStyleDimension(node.style?.height) ??
+        node.data.model.height,
     })),
-    edges: edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      sourceHandle: edge.sourceHandle ?? null,
-      targetHandle: edge.targetHandle ?? null,
-      label: typeof edge.label === "string" ? edge.label : undefined,
-      dashed: edge.style?.strokeDasharray ? true : undefined,
-      color:
-        typeof edge.style?.stroke === "string" ? edge.style.stroke : undefined,
-      arrow: Boolean(edge.markerEnd),
-    })),
+    connections: edges.map((edge) => {
+      const connection = edge.data?.connection ?? {
+        id: edge.id,
+        kind: "basic" as const,
+        source: edge.source,
+        target: edge.target,
+      };
+      return {
+        ...connection,
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        sourceHandle: edge.sourceHandle ?? null,
+        targetHandle: edge.targetHandle ?? null,
+        label: typeof edge.label === "string" ? edge.label : undefined,
+        dashed: Boolean(edge.style?.strokeDasharray),
+        color:
+          typeof edge.style?.stroke === "string"
+            ? edge.style.stroke
+            : undefined,
+        arrow: Boolean(edge.markerEnd),
+      };
+    }),
   };
+}
+
+export function updateFlowNodeModel(
+  node: CanvasFlowNode,
+  update: (model: CanvasNode) => CanvasNode,
+): CanvasFlowNode {
+  const model = update(node.data.model);
+  return { ...node, type: model.kind, data: { ...node.data, model } };
+}
+
+export function flowNodeText(node: CanvasFlowNode): string {
+  const model = node.data.model;
+  if (
+    model.kind === "note" ||
+    model.kind === "question" ||
+    model.kind === "claim"
+  ) {
+    return model.content;
+  }
+  if (model.kind === "frame") return model.title;
+  if (model.kind === "literature") return model.snapshot.title;
+  if (model.kind === "quote") return model.snapshot.text;
+  return model.data.title;
 }
 
 export function mergeEditingStyle(
-  node: AcademicNode,
-  title: string,
-  patch: Partial<BoardNodeData>,
-): AcademicNode {
-  return {
-    ...node,
-    data: { ...node.data, title, ...patch },
-  };
+  node: CanvasFlowNode,
+  text: string,
+  patch: Partial<CanvasNodeStyle>,
+): CanvasFlowNode {
+  return updateFlowNodeModel(node, (model) => ({
+    ...updateCanvasNodeText(model, text),
+    style: { ...(model.style ?? {}), ...patch },
+  }));
 }
 
-export function withEdgeColor(edge: Edge, color: string): Edge {
+export function withEdgeColor(
+  edge: CanvasFlowEdge,
+  color: string,
+): CanvasFlowEdge {
   return {
     ...edge,
+    data: edge.data
+      ? {
+          ...edge.data,
+          connection: { ...edge.data.connection, color },
+        }
+      : edge.data,
     style: { ...(edge.style ?? {}), stroke: color },
     markerEnd: edge.markerEnd
       ? {
@@ -145,10 +191,10 @@ export function withEdgeColor(edge: Edge, color: string): Edge {
   };
 }
 
-export class BoardDocumentHistory {
+export class CanvasDocumentHistory {
   revision = 0;
-  private history: BoardDocument[] = [];
-  private future: BoardDocument[] = [];
+  private history: CanvasDocument[] = [];
+  private future: CanvasDocument[] = [];
 
   constructor(private readonly onChange: (revision: number) => void) {}
 
@@ -157,7 +203,7 @@ export class BoardDocumentHistory {
     this.onChange(this.revision);
   }
 
-  push(document: BoardDocument) {
+  push(document: CanvasDocument) {
     this.history.push(document);
     if (this.history.length > 80) this.history.shift();
     this.future = [];
@@ -168,7 +214,7 @@ export class BoardDocumentHistory {
     this.future = [];
   }
 
-  undo(current: BoardDocument): BoardDocument | undefined {
+  undo(current: CanvasDocument): CanvasDocument | undefined {
     const previous = this.history.pop();
     if (!previous) return undefined;
     this.future.push(current);
@@ -176,11 +222,32 @@ export class BoardDocumentHistory {
     return previous;
   }
 
-  redo(current: BoardDocument): BoardDocument | undefined {
+  redo(current: CanvasDocument): CanvasDocument | undefined {
     const next = this.future.pop();
     if (!next) return undefined;
     this.history.push(current);
     this.changed();
     return next;
+  }
+}
+
+function numericStyleDimension(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function updateCanvasNodeText(model: CanvasNode, text: string): CanvasNode {
+  switch (model.kind) {
+    case "note":
+    case "question":
+    case "claim":
+      return { ...model, content: text };
+    case "frame":
+      return { ...model, title: text };
+    case "literature":
+      return { ...model, snapshot: { ...model.snapshot, title: text } };
+    case "quote":
+      return { ...model, snapshot: { ...model.snapshot, text } };
+    default:
+      return { ...model, data: { ...model.data, title: text } };
   }
 }

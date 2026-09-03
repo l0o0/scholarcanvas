@@ -1,4 +1,4 @@
-import type { BoardNodeKind } from "../model/snapshot";
+import type { CanvasNodeKind } from "../model/academic";
 import type { CanvasTool } from "./tools";
 
 export const CLICK_THRESHOLD = 5;
@@ -134,7 +134,7 @@ export function toolShortcut(key: string): CanvasTool | null {
 }
 
 export function isLibraryKind(
-  kind: BoardNodeKind,
+  kind: CanvasNodeKind,
 ): kind is "item" | "note" | "pdf" | "attachment" {
   return (
     kind === "item" ||
@@ -150,7 +150,7 @@ export function toolAfterDraw(_kind: DrawKind): CanvasTool {
 
 export function isBorderHit(
   local: Point,
-  box: { width: number; height: number; kind: BoardNodeKind },
+  box: { width: number; height: number; kind: CanvasNodeKind },
   threshold = 8,
 ): boolean {
   const width = Math.max(box.width, 1);

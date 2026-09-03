@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { WhiteboardApp } from "./whiteboard/app";
-import { demoBoard } from "./model/snapshot";
+import { demoCanvasDocument } from "./model/document";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing #root");
@@ -10,7 +10,7 @@ createRoot(root).render(
   <StrictMode>
     <WhiteboardApp
       theme="light"
-      initialSnapshot={demoBoard()}
+      initialSnapshot={demoCanvasDocument()}
       onReady={() => undefined}
       onChange={() => undefined}
       onError={(message) => console.error(message)}

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MarkerType } from "@xyflow/react";
-import type { CanvasDocument } from "../packages/whiteboard/src/model/document.ts";
+import {
+  parseCanvasDocument,
+  type CanvasDocument,
+} from "../packages/whiteboard/src/model/document.ts";
 import {
   CanvasDocumentHistory,
   canvasDocumentToFlow,
@@ -9,6 +12,8 @@ import {
   flowToCanvasDocument,
   labelTextStyle,
   mergeEditingStyle,
+  mergePickerData,
+  parsePickerNodeData,
   updateFlowNodeModel,
   verticalAlignmentStyle,
   withEdgeColor,
@@ -96,6 +101,62 @@ test("canonical documents adapt to React Flow and back", () => {
     "supports",
   );
   assert.equal(restored.viewport?.zoom, 1.25);
+});
+
+test("document shell survives editing, history, and host replacement", () => {
+  const loaded: CanvasDocument = {
+    ...academicDocument(),
+    metadata: {
+      title: "Review",
+      createdAt: "2026-09-03T00:00:00.000Z",
+    },
+    extensions: {
+      plugin: { mode: "evidence", flags: ["a", "b"] },
+    },
+  };
+  const flow = canvasDocumentToFlow(loaded);
+  const editedNodes = flow.nodes.map((node) =>
+    node.id === "claim-1"
+      ? mergeEditingStyle(node, "Revised claim", { fontWeight: "bold" })
+      : node,
+  );
+  const edited = flowToCanvasDocument(
+    editedNodes,
+    flow.edges,
+    { x: 8, y: 12, zoom: 1.1 },
+    flow.shell,
+  );
+
+  assert.deepEqual(edited.metadata, loaded.metadata);
+  assert.deepEqual(edited.extensions, loaded.extensions);
+
+  const replacement: CanvasDocument = {
+    ...EMPTY,
+    metadata: { title: "Replacement" },
+    extensions: { host: { sequence: 2 } },
+  };
+  const replacementFlow = canvasDocumentToFlow(replacement);
+  const replacementSnapshot = flowToCanvasDocument(
+    replacementFlow.nodes,
+    replacementFlow.edges,
+    replacement.viewport!,
+    replacementFlow.shell,
+  );
+  assert.deepEqual(replacementSnapshot.metadata, replacement.metadata);
+  assert.deepEqual(replacementSnapshot.extensions, replacement.extensions);
+
+  const history = new CanvasDocumentHistory(() => {});
+  history.push(edited);
+  const previous = history.undo(replacementSnapshot);
+  assert.deepEqual(previous?.metadata, loaded.metadata);
+  assert.deepEqual(previous?.extensions, loaded.extensions);
+  const next = history.redo(edited);
+  assert.deepEqual(next?.metadata, replacement.metadata);
+  assert.deepEqual(next?.extensions, replacement.extensions);
+
+  history.replace();
+  assert.equal(history.undo(replacementSnapshot), undefined);
+  assert.equal(history.redo(replacementSnapshot), undefined);
 });
 
 test("edge arrow state survives flow, snapshot, and history round trips", () => {
@@ -207,6 +268,122 @@ test("flow model updates are immutable and keep the renderer kind synchronized",
   assert.equal(next.type, "frame");
   assert.equal(next.data.model.kind, "frame");
   assert.equal(node.data.model.kind, "literature");
+});
+
+test("picker payloads select and populate each typed canonical node kind", () => {
+  const cases = [
+    {
+      payload: {
+        kind: "item",
+        title: "Paper",
+        subtitle: "Author · 2026",
+        preview: "Abstract",
+        itemID: 41,
+        unexpected: "drop me",
+      },
+      assertModel(model: ReturnType<typeof mergePickerData>) {
+        assert.equal(model.kind, "item");
+        assert.equal(model.kind === "item" && model.data.itemID, 41);
+        assert.equal(model.kind === "item" && model.data.preview, "Abstract");
+      },
+    },
+    {
+      payload: {
+        kind: "pdf",
+        title: "Paper.pdf",
+        subtitle: "p. 8",
+        attachmentID: 42,
+        pdfPage: 8,
+        image: "data:image/png;base64,abc",
+        asset: "assets/page.png",
+        unexpected: "drop me",
+      },
+      assertModel(model: ReturnType<typeof mergePickerData>) {
+        assert.equal(model.kind, "pdf");
+        assert.equal(model.kind === "pdf" && model.data.attachmentID, 42);
+        assert.equal(model.kind === "pdf" && model.data.pdfPage, 8);
+        assert.equal(
+          model.kind === "pdf" && model.data.asset,
+          "assets/page.png",
+        );
+      },
+    },
+    {
+      payload: {
+        kind: "attachment",
+        title: "Dataset.csv",
+        subtitle: "12 KB",
+        attachmentID: 43,
+        unexpected: "drop me",
+      },
+      assertModel(model: ReturnType<typeof mergePickerData>) {
+        assert.equal(model.kind, "attachment");
+        assert.equal(
+          model.kind === "attachment" && model.data.attachmentID,
+          43,
+        );
+      },
+    },
+    {
+      payload: {
+        kind: "note",
+        title: "Reading note",
+        preview: "Evidence summary",
+        noteID: 44,
+        unexpected: "drop me",
+      },
+      assertModel(model: ReturnType<typeof mergePickerData>) {
+        assert.equal(model.kind, "note");
+        assert.equal(
+          model.kind === "note" && model.content,
+          "Evidence summary",
+        );
+        assert.equal("data" in model, false);
+      },
+    },
+  ] as const;
+
+  for (const entry of cases) {
+    const parsed = parsePickerNodeData(entry.payload);
+    assert.ok(parsed);
+    assert.equal("unexpected" in parsed, false);
+    if (parsed.kind === "note") assert.equal(parsed.noteID, 44);
+
+    const placeholder = canvasDocumentToFlow({
+      version: 2,
+      nodes: [
+        {
+          id: "drop-1",
+          kind: "item",
+          position: { x: 10, y: 20 },
+          width: 240,
+          height: 96,
+          style: { fill: "#ffffff" },
+          extensions: { retained: true },
+          data: { title: "Pending" },
+        },
+      ],
+      connections: [],
+    }).nodes[0];
+    const next = updateFlowNodeModel(placeholder, (model) =>
+      mergePickerData(model, parsed),
+    );
+
+    assert.equal(next.type, entry.payload.kind);
+    assert.equal(next.data.model.kind, entry.payload.kind);
+    assert.deepEqual(next.data.model.position, { x: 10, y: 20 });
+    assert.deepEqual(next.data.model.style, { fill: "#ffffff" });
+    assert.deepEqual(next.data.model.extensions, { retained: true });
+    entry.assertModel(next.data.model);
+
+    const restored = flowToCanvasDocument([next], [], {
+      x: 0,
+      y: 0,
+      zoom: 1,
+    });
+    assert.equal(restored.nodes[0].kind, entry.payload.kind);
+    entry.assertModel(parseCanvasDocument(restored).document.nodes[0]);
+  }
 });
 
 test("a prevented style-bar blur cannot suppress the next real edit commit", () => {

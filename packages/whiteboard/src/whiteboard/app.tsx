@@ -71,6 +71,8 @@ import {
   flowToCanvasDocument,
   labelTextStyle,
   mergeEditingStyle,
+  mergePickerData,
+  parsePickerNodeData,
   type CanvasFlowEdge,
   updateFlowNodeModel,
   verticalAlignmentStyle,
@@ -199,11 +201,7 @@ export interface WhiteboardRuntime {
   getSnapshot: () => CanvasDocument;
   undo: () => void;
   redo: () => void;
-  resolvePick: (
-    requestId: string,
-    nodeId: string,
-    data: PickerNodeData,
-  ) => void;
+  resolvePick: (requestId: string, nodeId: string, data: unknown) => void;
   rejectPick: (requestId: string, message: string) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
@@ -223,18 +221,6 @@ interface DrawSession {
   kind: DrawKind;
   origin: { x: number; y: number };
   pointerId: number;
-}
-
-interface PickerNodeData {
-  title: string;
-  subtitle?: string;
-  preview?: string;
-  itemID?: number;
-  noteID?: number;
-  attachmentID?: number;
-  pdfPage?: number;
-  image?: string;
-  asset?: string;
 }
 
 function nodeSize(node: CanvasFlowNode) {
@@ -291,19 +277,6 @@ function createCanvasNode(
   return createBasicNode(kind, position, id);
 }
 
-function mergePickerData(model: CanvasNode, data: PickerNodeData): CanvasNode {
-  switch (model.kind) {
-    case "item":
-    case "pdf":
-    case "attachment":
-      return { ...model, data: { ...model.data, ...data } };
-    case "note":
-      return { ...model, content: data.preview ?? data.title };
-    default:
-      return model;
-  }
-}
-
 function hasOpenTarget(node: CanvasFlowNode): boolean {
   const model = node.data.model;
   if (!("data" in model)) return false;
@@ -344,6 +317,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const viewportRef = useRef<Viewport>(
     initial.viewport ?? { x: 0, y: 0, zoom: 1 },
   );
+  const documentShellRef = useRef(seed.shell);
   const flowRef = useRef<ReactFlowInstance<
     CanvasFlowNode,
     CanvasFlowEdge
@@ -379,6 +353,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         nodesRef.current,
         edgesRef.current,
         viewportRef.current,
+        documentShellRef.current,
       ),
     [],
   );
@@ -392,6 +367,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const next = canvasDocumentToFlow(doc);
     setNodes(next.nodes);
     setEdges(next.edges);
+    documentShellRef.current = next.shell;
     viewportRef.current = doc.viewport ?? { x: 0, y: 0, zoom: 1 };
     flowRef.current?.setViewport(viewportRef.current);
   }, []);
@@ -1018,12 +994,17 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       resolvePick(requestId, nodeId, data) {
         if (pendingPicksRef.current.get(requestId) !== nodeId) return;
         pendingPicksRef.current.delete(requestId);
+        const picker = parsePickerNodeData(data);
+        if (!picker) {
+          propsRef.current.onError("Invalid Zotero picker payload.");
+          return;
+        }
         pushHistory();
         setNodes((current) =>
           current.map((node) =>
             node.id === nodeId
               ? updateFlowNodeModel(node, (model) =>
-                  mergePickerData(model, data),
+                  mergePickerData(model, picker),
                 )
               : node,
           ),

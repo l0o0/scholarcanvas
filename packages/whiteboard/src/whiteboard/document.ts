@@ -12,6 +12,155 @@ export interface CanvasFlowEdgeData extends Record<string, unknown> {
 
 export type CanvasFlowEdge = Edge<CanvasFlowEdgeData>;
 
+export interface CanvasDocumentShell {
+  metadata?: CanvasDocument["metadata"];
+  extensions?: CanvasDocument["extensions"];
+}
+
+export interface CanvasFlowDocument {
+  nodes: CanvasFlowNode[];
+  edges: CanvasFlowEdge[];
+  shell: CanvasDocumentShell;
+}
+
+interface PickerDataBase<K extends string> {
+  kind: K;
+  title: string;
+  subtitle?: string;
+  preview?: string;
+}
+
+export interface PickerItemData extends PickerDataBase<"item"> {
+  itemID?: number;
+}
+
+export interface PickerPdfData extends PickerDataBase<"pdf"> {
+  itemID?: number;
+  attachmentID?: number;
+  pdfPage?: number;
+  image?: string;
+  asset?: string;
+}
+
+export interface PickerAttachmentData extends PickerDataBase<"attachment"> {
+  itemID?: number;
+  attachmentID?: number;
+}
+
+export interface PickerNoteData extends PickerDataBase<"note"> {
+  noteID?: number;
+}
+
+export type PickerNodeData =
+  PickerItemData | PickerPdfData | PickerAttachmentData | PickerNoteData;
+
+export function parsePickerNodeData(
+  value: unknown,
+): PickerNodeData | undefined {
+  if (!isRecord(value) || typeof value.title !== "string") return undefined;
+  const common = {
+    title: value.title,
+    ...optionalStringProperty(value, "subtitle"),
+    ...optionalStringProperty(value, "preview"),
+  };
+  switch (value.kind) {
+    case "item":
+      return {
+        kind: "item",
+        ...common,
+        ...optionalNumberProperty(value, "itemID"),
+      };
+    case "pdf":
+      return {
+        kind: "pdf",
+        ...common,
+        ...optionalNumberProperty(value, "itemID"),
+        ...optionalNumberProperty(value, "attachmentID"),
+        ...optionalNumberProperty(value, "pdfPage"),
+        ...optionalStringProperty(value, "image"),
+        ...optionalStringProperty(value, "asset"),
+      };
+    case "attachment":
+      return {
+        kind: "attachment",
+        ...common,
+        ...optionalNumberProperty(value, "itemID"),
+        ...optionalNumberProperty(value, "attachmentID"),
+      };
+    case "note":
+      return {
+        kind: "note",
+        ...common,
+        ...optionalNumberProperty(value, "noteID"),
+      };
+    default:
+      return undefined;
+  }
+}
+
+export function mergePickerData(
+  model: CanvasNode,
+  picker: PickerNodeData,
+): CanvasNode {
+  const shared = {
+    id: model.id,
+    position: model.position,
+    width: model.width,
+    height: model.height,
+    ...(model.kind !== "frame" && model.frameId
+      ? { frameId: model.frameId }
+      : {}),
+    ...(model.style ? { style: model.style } : {}),
+    ...(model.extensions ? { extensions: model.extensions } : {}),
+  };
+  switch (picker.kind) {
+    case "item":
+      return {
+        ...shared,
+        kind: "item",
+        data: {
+          title: picker.title,
+          ...definedString("subtitle", picker.subtitle),
+          ...definedString("preview", picker.preview),
+          ...definedNumber("itemID", picker.itemID),
+        },
+      };
+    case "pdf":
+      return {
+        ...shared,
+        kind: "pdf",
+        data: {
+          title: picker.title,
+          ...definedString("subtitle", picker.subtitle),
+          ...definedString("preview", picker.preview),
+          ...definedNumber("itemID", picker.itemID),
+          ...definedNumber("attachmentID", picker.attachmentID),
+          ...definedNumber("pdfPage", picker.pdfPage),
+          ...definedString("image", picker.image),
+          ...definedString("asset", picker.asset),
+        },
+      };
+    case "attachment":
+      return {
+        ...shared,
+        kind: "attachment",
+        data: {
+          title: picker.title,
+          ...definedString("subtitle", picker.subtitle),
+          ...definedString("preview", picker.preview),
+          ...definedNumber("itemID", picker.itemID),
+          ...definedNumber("attachmentID", picker.attachmentID),
+        },
+      };
+    case "note":
+      return {
+        ...shared,
+        kind: "note",
+        content: picker.preview ?? picker.title,
+      };
+  }
+}
+
 export function labelTextStyle(style: Partial<CanvasNodeStyle>): CSSProperties {
   return {
     fontFamily: style.fontFamily || "system-ui, sans-serif",
@@ -42,10 +191,9 @@ export function verticalAlignmentStyle(
   };
 }
 
-export function canvasDocumentToFlow(document: CanvasDocument): {
-  nodes: CanvasFlowNode[];
-  edges: CanvasFlowEdge[];
-} {
+export function canvasDocumentToFlow(
+  document: CanvasDocument,
+): CanvasFlowDocument {
   return {
     nodes: document.nodes.map((model) => ({
       id: model.id,
@@ -81,6 +229,10 @@ export function canvasDocumentToFlow(document: CanvasDocument): {
               },
       };
     }),
+    shell: {
+      ...(document.metadata ? { metadata: document.metadata } : {}),
+      ...(document.extensions ? { extensions: document.extensions } : {}),
+    },
   };
 }
 
@@ -88,10 +240,13 @@ export function flowToCanvasDocument(
   nodes: CanvasFlowNode[],
   edges: CanvasFlowEdge[],
   viewport: Viewport,
+  shell: CanvasDocumentShell = {},
 ): CanvasDocument {
   return {
     version: 2,
     viewport,
+    ...(shell.metadata ? { metadata: shell.metadata } : {}),
+    ...(shell.extensions ? { extensions: shell.extensions } : {}),
     nodes: nodes.map((node) => ({
       ...node.data.model,
       id: node.id,
@@ -250,4 +405,44 @@ function updateCanvasNodeText(model: CanvasNode, text: string): CanvasNode {
     default:
       return { ...model, data: { ...model.data, title: text } };
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function optionalStringProperty<K extends string>(
+  value: Record<string, unknown>,
+  key: K,
+): Partial<Record<K, string>> {
+  return typeof value[key] === "string"
+    ? ({ [key]: value[key] } as Partial<Record<K, string>>)
+    : {};
+}
+
+function optionalNumberProperty<K extends string>(
+  value: Record<string, unknown>,
+  key: K,
+): Partial<Record<K, number>> {
+  return typeof value[key] === "number"
+    ? ({ [key]: value[key] } as Partial<Record<K, number>>)
+    : {};
+}
+
+function definedString<K extends string>(
+  key: K,
+  value: string | undefined,
+): Partial<Record<K, string>> {
+  return value === undefined
+    ? {}
+    : ({ [key]: value } as Partial<Record<K, string>>);
+}
+
+function definedNumber<K extends string>(
+  key: K,
+  value: number | undefined,
+): Partial<Record<K, number>> {
+  return value === undefined
+    ? {}
+    : ({ [key]: value } as Partial<Record<K, number>>);
 }

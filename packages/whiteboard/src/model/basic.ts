@@ -1,4 +1,4 @@
-import type { CanvasNodeBase, CanvasPoint, CanvasNodeStyle } from "./core";
+import type { CanvasNodeBase, CanvasPoint } from "./core";
 
 export type BasicNodeKind =
   | "item"
@@ -149,7 +149,7 @@ export function createBasicNode<K extends BasicNodeKind>(
     position,
     width: defaults.width,
     height: defaults.height,
-    ...(defaults.style ? { style: defaults.style as CanvasNodeStyle } : {}),
-    data: defaults.data,
+    ...(defaults.style ? { style: { ...defaults.style } } : {}),
+    data: { ...defaults.data },
   } as Extract<BasicNode, { kind: K }>;
 }

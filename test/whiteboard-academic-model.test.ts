@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   createAcademicConnection,
   createAcademicNode,
+  createBasicNode,
   type LiteratureNode,
   type QuoteNode,
 } from "../packages/whiteboard/src/model/index.ts";
@@ -72,4 +73,15 @@ test("academic relationships allow arbitrary existing endpoint kinds", () => {
     target: "question-1",
     relation: "contradicts",
   });
+});
+
+test("basic factory defaults are isolated from returned node mutation", () => {
+  const first = createBasicNode("rect", { x: 0, y: 0 }, "rect-1");
+  first.data.title = "Changed";
+  first.style!.stroke = "#ff0000";
+
+  const second = createBasicNode("rect", { x: 10, y: 20 }, "rect-2");
+
+  assert.equal(second.data.title, "");
+  assert.equal(second.style!.stroke, "#1f2937");
 });

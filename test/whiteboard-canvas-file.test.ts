@@ -208,9 +208,15 @@ test("preserves unknown standard and nested Bamboo extension fields", () => {
             kind: "text",
             data: { title: "Hello", futureDataField: "data" },
             futurePayloadField: { keep: "payload" },
+            collision: { fromPayload: true },
           },
-          extensions: { nodeBamboo: { keep: true } },
+          extensions: {
+            nodeBamboo: { keep: true },
+            data: { existingDataField: "extension" },
+            collision: { fromExtensions: true },
+          },
           futureNodeField: [1, 2, 3],
+          collision: { fromSibling: true },
         },
       },
     ],
@@ -220,6 +226,7 @@ test("preserves unknown standard and nested Bamboo extension fields", () => {
         fromNode: "text-1",
         toNode: "text-1",
         fromSide: "right",
+        toSide: "left",
         vendorEdge: { keep: "edge" },
         bamboo: {
           kind: "basic",
@@ -246,6 +253,7 @@ test("preserves unknown standard and nested Bamboo extension fields", () => {
   assert.deepEqual(encoded.vendorRoot, { keep: "root" });
   assert.deepEqual(encoded.nodes[0].vendorNode, { keep: "node" });
   assert.equal(encoded.edges[0].fromSide, "right");
+  assert.equal(encoded.edges[0].toSide, "left");
   assert.deepEqual(encoded.edges[0].vendorEdge, { keep: "edge" });
   assert.deepEqual(encoded.bamboo.extensions, {
     rootBamboo: { keep: true },
@@ -254,8 +262,16 @@ test("preserves unknown standard and nested Bamboo extension fields", () => {
   assert.deepEqual(encoded.nodes[0].bamboo?.extensions, {
     nodeBamboo: { keep: true },
     futureNodeField: [1, 2, 3],
-    data: { futureDataField: "data" },
+    data: {
+      existingDataField: "extension",
+      futureDataField: "data",
+    },
     futurePayloadField: { keep: "payload" },
+    collision: {
+      fromExtensions: true,
+      fromSibling: true,
+      fromPayload: true,
+    },
   });
   assert.deepEqual(encoded.edges[0].bamboo?.extensions, {
     edgeBamboo: "nested",
@@ -322,6 +338,113 @@ test("rejects unsupported Bamboo schema versions", () => {
         bamboo: { schemaVersion: 3 },
       }),
     CanvasDocumentError,
+  );
+});
+
+test("requires JSON Canvas version one", () => {
+  assert.throws(
+    () => canvasFileToDocument({ nodes: [], edges: [] }),
+    CanvasDocumentError,
+  );
+});
+
+test("rejects malformed required Bamboo root fields", () => {
+  const validBamboo = {
+    schemaVersion: 2,
+    createdAt: NOW,
+    updatedAt: NOW,
+    viewport: { x: 0, y: 0, zoom: 1 },
+  };
+  const invalidBambooValues = [
+    { ...validBamboo, title: 42 },
+    { ...validBamboo, createdAt: 42 },
+    { ...validBamboo, updatedAt: 42 },
+    { ...validBamboo, viewport: { x: Infinity, y: 0, zoom: 1 } },
+    { ...validBamboo, viewport: { x: 0, y: NaN, zoom: 1 } },
+    { ...validBamboo, viewport: { x: 0, y: 0, zoom: 0 } },
+    { schemaVersion: 2 },
+  ];
+
+  for (const bamboo of invalidBambooValues) {
+    assert.throws(
+      () => canvasFileToDocument({ version: 1, nodes: [], edges: [], bamboo }),
+      CanvasDocumentError,
+    );
+  }
+});
+
+test("reports malformed Bamboo-backed JSON Canvas node envelopes", () => {
+  const geometry = { x: 0, y: 0, width: 240, height: 72 };
+  const textPayload = {
+    node: { kind: "text", data: { title: "Bamboo text" } },
+  };
+  const framePayload = { node: { kind: "frame", title: "Bamboo frame" } };
+  const parsed = canvasFileToDocument({
+    version: 1,
+    nodes: [
+      { id: "missing-type", ...geometry, text: "Text", bamboo: textPayload },
+      {
+        id: "invalid-type",
+        type: "unknown",
+        ...geometry,
+        text: "Text",
+        bamboo: textPayload,
+      },
+      { id: "missing-text", type: "text", ...geometry, bamboo: textPayload },
+      {
+        id: "invalid-text",
+        type: "text",
+        ...geometry,
+        text: 42,
+        bamboo: textPayload,
+      },
+      {
+        id: "missing-label",
+        type: "group",
+        ...geometry,
+        bamboo: framePayload,
+      },
+      {
+        id: "invalid-label",
+        type: "group",
+        ...geometry,
+        label: 42,
+        bamboo: framePayload,
+      },
+      {
+        id: "invalid-coordinate",
+        type: "text",
+        ...geometry,
+        x: Infinity,
+        text: "Text",
+        bamboo: textPayload,
+      },
+      {
+        id: "invalid-width",
+        type: "text",
+        ...geometry,
+        width: 0,
+        text: "Text",
+        bamboo: textPayload,
+      },
+      {
+        id: "valid-bamboo-text",
+        type: "text",
+        ...geometry,
+        text: "Text",
+        bamboo: textPayload,
+      },
+    ],
+    edges: [],
+  });
+
+  assert.deepEqual(
+    parsed.document.nodes.map((node) => node.id),
+    ["valid-bamboo-text"],
+  );
+  assert.deepEqual(
+    parsed.issues.map((issue) => issue.code),
+    Array.from({ length: 8 }, () => "malformed-node"),
   );
 });
 

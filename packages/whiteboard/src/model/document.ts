@@ -1,5 +1,4 @@
 import type {
-  AcademicNode,
   CanvasNode,
   LiteratureSnapshot,
   LiteratureSource,
@@ -11,7 +10,6 @@ import type {
 } from "./academic";
 import type {
   AttachmentNodeData,
-  BasicNode,
   ItemNodeData,
   LineNodeData,
   PdfNodeData,

@@ -33,6 +33,8 @@ export interface CanvasFileEdge extends Record<string, unknown> {
   id: string;
   fromNode: string;
   toNode: string;
+  fromSide?: "top" | "right" | "bottom" | "left";
+  toSide?: "top" | "right" | "bottom" | "left";
   label?: string;
   color?: string;
   bamboo?: {
@@ -91,12 +93,60 @@ function withoutKeys(
 function mergeRecords(
   ...records: Array<Record<string, unknown> | undefined>
 ): Record<string, unknown> | undefined {
-  const result = Object.assign({}, ...records.filter(Boolean));
+  const result: Record<string, unknown> = {};
+  for (const record of records) {
+    if (!record) continue;
+    for (const [key, value] of Object.entries(record)) {
+      const current = asRecord(result[key]);
+      const incoming = asRecord(value);
+      result[key] =
+        current && incoming ? (mergeRecords(current, incoming) ?? {}) : value;
+    }
+  }
   return Object.keys(result).length ? result : undefined;
 }
 
 function has(source: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(source, key);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isViewport(value: unknown): value is CanvasViewport {
+  const viewport = asRecord(value);
+  return Boolean(
+    viewport &&
+    isFiniteNumber(viewport.x) &&
+    isFiniteNumber(viewport.y) &&
+    isFiniteNumber(viewport.zoom) &&
+    viewport.zoom > 0,
+  );
+}
+
+function hasValidBambooNodeEnvelope(node: Record<string, unknown>): boolean {
+  if (
+    node.type !== "text" &&
+    node.type !== "group" &&
+    node.type !== "file" &&
+    node.type !== "link"
+  ) {
+    return false;
+  }
+  if (
+    !isFiniteNumber(node.x) ||
+    !isFiniteNumber(node.y) ||
+    !isFiniteNumber(node.width) ||
+    node.width <= 0 ||
+    !isFiniteNumber(node.height) ||
+    node.height <= 0
+  ) {
+    return false;
+  }
+  if (node.type === "text") return typeof node.text === "string";
+  if (node.type === "group") return typeof node.label === "string";
+  return true;
 }
 
 function standardExtensions(
@@ -451,6 +501,7 @@ function decodeNode(value: unknown): unknown {
     return base;
   }
   if (bamboo) {
+    if (!hasValidBambooNodeEnvelope(raw)) return base;
     return {
       ...(payload ?? {}),
       ...base,
@@ -534,7 +585,7 @@ export function canvasFileToDocument(value: unknown): ParsedCanvasFile {
       "Legacy xyflow canvas files are unsupported.",
     );
   }
-  if (file.version !== undefined && file.version !== JSON_CANVAS_VERSION) {
+  if (file.version !== JSON_CANVAS_VERSION) {
     throw new CanvasDocumentError("JSON Canvas version must be 1.");
   }
   if (!Array.isArray(file.nodes) || !Array.isArray(file.edges)) {
@@ -549,6 +600,15 @@ export function canvasFileToDocument(value: unknown): ParsedCanvasFile {
   }
   if (bamboo && bamboo.schemaVersion !== BAMBOO_SCHEMA_VERSION) {
     throw new CanvasDocumentError("Bamboo schema version must be 2.");
+  }
+  if (
+    bamboo &&
+    ((bamboo.title !== undefined && typeof bamboo.title !== "string") ||
+      typeof bamboo.createdAt !== "string" ||
+      typeof bamboo.updatedAt !== "string" ||
+      !isViewport(bamboo.viewport))
+  ) {
+    throw new CanvasDocumentError("Canvas file Bamboo metadata is malformed.");
   }
 
   const standard = withoutKeys(file, ["version", "nodes", "edges", "bamboo"]);

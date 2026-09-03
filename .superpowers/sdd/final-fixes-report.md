@@ -69,3 +69,23 @@ Follow-up verification to the original review:
 - `pnpm lint:check` and `git diff --check`: passed.
 - Chrome 152 dark-theme interaction smoke at `1440 x 900` and `390 x 844`: passed.
 - The final generated `packages/whiteboard/dist` was moved to `/tmp/bamboo-whiteboard-final-build.kPeofO/dist`; no distribution artifact remains in the worktree.
+
+## Shape-label color follow-up
+
+- RED: Rect, Ellipse, Line, and Arrow labels with an explicit red stroke and omitted `textColor` inherited the stroke from their containing shape. The same RED also showed that Line and Arrow labels were absent from deterministic SVG export. The new behavior tests failed at the renderer/style helper and export boundaries before production changes.
+- GREEN: `labelTextStyle` now supplies the display-only `var(--zmd-board-text, #111827)` fallback whenever `textColor` is omitted. Rect/Ellipse containers no longer set their text `color` from the border, and Line/Arrow apply `currentColor` only on their SVG element. The model remains unchanged until the user explicitly chooses a text color. Line/Arrow labels now use the same positioned, wrapped, clipped text export path as the other two Basic shapes, with deterministic export color `#111827`.
+- SSR/behavior coverage exercises all four kinds with an explicit stroke in both light and dark control themes, checks the renderer container/label/SVG separation, compares the editor-effective style and TextStyleBar display value, and confirms `style.textColor` remains absent. Export coverage checks all four labels rather than a source-code pattern.
+- The independent review caught one integration boundary before completion: the newly exported Line/Arrow labels initially reused the 12px vertical card padding, leaving only an 8px clip at their default 32px height and a zero-height clip at 24px. A second RED captured both actual geometries. The shared export layout now mirrors the DOM's stroke-label padding: 12px horizontally and zero vertically, for both wrapping/baselines and the clip rectangle; other node kinds retain 12px on both axes.
+- Chrome 152 at `1440 x 900`: PASS in both light and dark themes. Rect/Ellipse borders and Line/Arrow SVG strokes computed to `rgb(220, 38, 38)`, while every label and shape parent computed to `rgb(17, 24, 39)` in light and `rgb(232, 234, 237)` in dark. Real edit entry on Rect and Ellipse produced matching textarea, caret, and TextStyleBar colors with transparent editor fill; the snapshot still omitted `textColor`. There was no overflow and no console or page error. Visual inspection also confirmed the four labels stayed readable independently of their red strokes.
+- Evidence screenshots: `/tmp/bamboo-shape-colors-light.png` and `/tmp/bamboo-shape-colors-dark.png`.
+
+Final shape-label verification:
+
+- `pnpm exec tsx --test test/whiteboard-academic-document.test.ts test/whiteboard-canvas-file.test.ts test/whiteboard-export.test.ts test/whiteboard-node-registry.test.ts test/whiteboard-app-state.test.ts`: 119/119 passed.
+- `pnpm test:unit`: 468/468 passed.
+- Whiteboard package and root `tsc --noEmit`: passed.
+- `pnpm whiteboard:build`: passed (224 modules transformed).
+- `pnpm build`: passed (plugin build plus root TypeScript).
+- `pnpm lint:check` and `git diff --check`: passed.
+- The second independent read-only review reported 0 Critical, 0 Important, and 0 Minor issues after checking default/compact and top/middle/bottom Line/Arrow label geometry, unchanged card clipping, color inheritance, marker ordering, and non-persistence.
+- The final generated `packages/whiteboard/dist` was moved to `/tmp/bamboo-shape-label-final-build.43eDGY/dist`; no distribution artifact remains in the worktree.

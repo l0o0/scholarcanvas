@@ -125,6 +125,16 @@ function wrappedTextLines(
     .flatMap((line) => wrapVisualLine(line, availableWidth, fontSize));
 }
 
+function textPadding(node: CanvasNode): {
+  horizontal: number;
+  vertical: number;
+} {
+  return {
+    horizontal: 12,
+    vertical: node.kind === "line" || node.kind === "arrow" ? 0 : 12,
+  };
+}
+
 function textElement(
   node: CanvasNode,
   width: number,
@@ -134,11 +144,11 @@ function textElement(
   const title = canvasNodeText(node);
   if (!title) return "";
   const style = effectiveCanvasNodeTextStyle(node.kind, node.style);
-  const padding = 12;
+  const padding = textPadding(node);
   const fontSize = style.fontSize;
   const lineHeight = fontSize * 1.25;
-  const availableWidth = Math.max(1, width - padding * 2);
-  const availableHeight = Math.max(0, height - padding * 2);
+  const availableWidth = Math.max(1, width - padding.horizontal * 2);
+  const availableHeight = Math.max(0, height - padding.vertical * 2);
   const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
   const lines = wrappedTextLines(title, availableWidth, fontSize).slice(
     0,
@@ -149,17 +159,20 @@ function textElement(
   const x =
     node.position.x +
     (align === "left"
-      ? padding
+      ? padding.horizontal
       : align === "right"
-        ? width - padding
+        ? width - padding.horizontal
         : width / 2);
   const blockHeight = fontSize + (lines.length - 1) * lineHeight;
   const firstBaseline =
     node.position.y +
     (vertical === "top"
-      ? padding + fontSize * 0.8
+      ? padding.vertical + fontSize * 0.8
       : vertical === "bottom"
-        ? height - padding - fontSize * 0.2 - (lines.length - 1) * lineHeight
+        ? height -
+          padding.vertical -
+          fontSize * 0.2 -
+          (lines.length - 1) * lineHeight
         : height / 2 - blockHeight / 2 + fontSize * 0.8);
   const anchor =
     align === "left" ? "start" : align === "right" ? "end" : "middle";
@@ -267,6 +280,15 @@ export function buildCanvasSvg(doc: CanvasDocument): string {
     const strokeWidth = style.strokeWidth ?? defaults.strokeWidth;
     const dash = strokeDash(style, defaults.strokeStyle !== "solid");
     const common = `${attribute("fill", fill)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", style.strokeOpacity)}${attribute("stroke-dasharray", dash)}`;
+    const clipId = `canvas-node-clip-${index}`;
+    const text = textElement(node, width, height, clipId);
+    if (text) {
+      const padding = textPadding(node);
+      definitions.set(
+        clipId,
+        `<clipPath id="${clipId}"><rect${attribute("x", x + padding.horizontal)}${attribute("y", y + padding.vertical)}${attribute("width", Math.max(0, width - padding.horizontal * 2))}${attribute("height", Math.max(0, height - padding.vertical * 2))}/></clipPath>`,
+      );
+    }
     if (node.kind === "line" || node.kind === "arrow") {
       const from = node.data.from ?? { x: 0, y: height / 2 };
       const to = node.data.to ?? { x: width, y: height / 2 };
@@ -274,16 +296,7 @@ export function buildCanvasSvg(doc: CanvasDocument): string {
         node.kind === "arrow"
           ? attribute("marker-end", `url(#${arrowMarker(stroke)})`)
           : "";
-      return `<line${attribute("x1", x + from.x)}${attribute("y1", y + from.y)}${attribute("x2", x + to.x)}${attribute("y2", y + to.y)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", style.strokeOpacity)}${attribute("stroke-dasharray", dash)}${marker}/>`;
-    }
-    const clipId = `canvas-node-clip-${index}`;
-    const text = textElement(node, width, height, clipId);
-    if (text) {
-      const padding = 12;
-      definitions.set(
-        clipId,
-        `<clipPath id="${clipId}"><rect${attribute("x", x + padding)}${attribute("y", y + padding)}${attribute("width", Math.max(0, width - padding * 2))}${attribute("height", Math.max(0, height - padding * 2))}/></clipPath>`,
-      );
+      return `<g><line${attribute("x1", x + from.x)}${attribute("y1", y + from.y)}${attribute("x2", x + to.x)}${attribute("y2", y + to.y)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", style.strokeOpacity)}${attribute("stroke-dasharray", dash)}${marker}/>${text}</g>`;
     }
     if (node.kind === "ellipse") {
       return `<g><ellipse${attribute("cx", x + width / 2)}${attribute("cy", y + height / 2)}${attribute("rx", width / 2)}${attribute("ry", height / 2)}${common}/>${text}</g>`;

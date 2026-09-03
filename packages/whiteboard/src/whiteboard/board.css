@@ -706,7 +706,6 @@
 .zmd-board-shape.is-stroke {
   border: none;
   background: transparent;
-  color: var(--zmd-board-edge, #9ca3af);
   position: relative;
 }
 

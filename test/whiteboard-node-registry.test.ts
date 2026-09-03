@@ -12,6 +12,7 @@ import {
   createAcademicNode,
   createBasicNode,
   demoCanvasDocument,
+  effectiveCanvasNodeUiTextStyle,
   type CanvasNode,
 } from "../packages/whiteboard/src/model/index.ts";
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
@@ -27,6 +28,7 @@ import {
   getNodeSpec,
   listNodeSpecs,
 } from "../packages/whiteboard/src/nodes/index.ts";
+import { labelTextStyle } from "../packages/whiteboard/src/whiteboard/document.ts";
 
 const labels = new Proxy(
   {
@@ -674,6 +676,54 @@ test("unstyled renderers and controls resolve dark UI defaults without persistin
   assert.equal(text.style, undefined);
   assert.equal(note.style, undefined);
   assert.equal(frame.style, undefined);
+});
+
+test("Basic shape labels use theme text independently from an explicit stroke", async (t) => {
+  for (const kind of ["rect", "ellipse", "line", "arrow"] as const) {
+    await t.test(kind, () => {
+      const created = createBasicNode(kind, { x: 0, y: 0 }, `${kind}-text`);
+      const model = {
+        ...created,
+        data: { ...created.data, title: `${kind} label` },
+        style: { ...(created.style ?? {}), stroke: "#dc2626" },
+      };
+      const displayColor = "var(--zmd-board-text, #111827)";
+      assert.equal(labelTextStyle(model.style).color, displayColor);
+      assert.equal(
+        labelTextStyle(effectiveCanvasNodeUiTextStyle(kind, model.style)).color,
+        displayColor,
+      );
+
+      const markup = renderNode(model);
+      const container = markup.slice(0, markup.indexOf(">") + 1);
+      assert.doesNotMatch(container, /(?:style="|;)color:#dc2626/);
+      assert.match(
+        markup,
+        new RegExp(
+          `style="[^"]*color:var\\(--zmd-board-text, #111827\\)[^"]*"[^>]*>${kind} label<\\/span>`,
+        ),
+      );
+      if (kind === "line" || kind === "arrow") {
+        assert.match(
+          markup,
+          /<svg class="zmd-board-stroke" style="color:#dc2626"/,
+        );
+      } else {
+        assert.match(container, /border-color:#dc2626/);
+      }
+
+      for (const [theme, color] of [
+        ["light", "#111827"],
+        ["dark", "#e8eaed"],
+      ] as const) {
+        assert.match(
+          renderTextStyleBar(model, theme),
+          new RegExp(`class="zmd-board-color-letter" style="color:${color}"`),
+        );
+      }
+      assert.equal(model.style.textColor, undefined);
+    });
+  }
 });
 
 test("renders frame as a localized non-interactive boundary without handles", () => {

@@ -1001,6 +1001,6 @@ test("shape and editor layout map every vertical alignment with middle default",
   });
   const defaultLabel = labelTextStyle({});
   assert.equal(defaultLabel.lineHeight, 1.25);
-  assert.equal("color" in defaultLabel, false);
+  assert.equal(defaultLabel.color, "var(--zmd-board-text, #111827)");
   assert.equal(labelTextStyle({ textColor: "#abcdef" }).color, "#abcdef");
 });

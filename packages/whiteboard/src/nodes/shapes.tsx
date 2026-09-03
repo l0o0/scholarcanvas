@@ -63,7 +63,6 @@ function shapeStyle(
     borderWidth: value.strokeWidth ?? defaults.strokeWidth,
     borderStyle: resolvedStrokeStyle(value),
     borderRadius: kind === "ellipse" ? 999 : (value.radius ?? defaults.radius),
-    color: stroke,
     ...verticalAlignmentStyle(value),
   } as const;
 }
@@ -128,12 +127,12 @@ function StrokeShape({
   return (
     <div
       className={`zmd-board-shape is-stroke${selected ? " is-selected" : ""}`}
-      style={{ color: stroke }}
     >
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
       <svg
         className="zmd-board-stroke"
+        style={{ color: stroke }}
         viewBox={`0 0 ${boxW} ${boxH}`}
         preserveAspectRatio="none"
         aria-hidden="true"

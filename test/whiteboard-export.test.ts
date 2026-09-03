@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CanvasNode } from "../packages/whiteboard/src/model/academic.ts";
+import { createBasicNode } from "../packages/whiteboard/src/model/basic.ts";
 import type { CanvasDocument } from "../packages/whiteboard/src/model/document.ts";
 import {
   buildCanvasMarkdown,
@@ -290,6 +291,59 @@ test("SVG export keeps canonical geometry, XML escaping, styles, and semantic ed
     /stroke="#fedcba" stroke-width="1.5" stroke-dasharray="6 4"\/>/,
   );
   assert.doesNotMatch(svg, /stroke="#fedcba"[^>]*marker-end=/);
+});
+
+test("SVG shape labels keep deterministic text color when stroke is explicit", () => {
+  const nodes = (["rect", "ellipse", "line", "arrow"] as const).map(
+    (kind, index) => ({
+      id: `${kind}-text-color`,
+      kind,
+      position: { x: index * 180, y: 0 },
+      width: 160,
+      height: 88,
+      data: { title: `${kind} label` },
+      style: { stroke: "#dc2626" },
+    }),
+  ) as CanvasNode[];
+  const svg = buildCanvasSvg({ version: 2, nodes, connections: [] });
+
+  assert.equal((svg.match(/fill="#111827"/g) ?? []).length, 4);
+  assert.equal((svg.match(/>\w+ label<\/tspan>/g) ?? []).length, 4);
+});
+
+test("SVG stroke labels remain visible at default and compact heights", () => {
+  const defaultLine = createBasicNode("line", { x: 0, y: 0 }, "line-label");
+  defaultLine.data.title = "Default line";
+  const compactArrow = {
+    ...createBasicNode("arrow", { x: 0, y: 48 }, "arrow-label"),
+    height: 24,
+    data: { title: "Compact arrow" },
+  };
+  const svg = buildCanvasSvg({
+    version: 2,
+    nodes: [defaultLine, compactArrow],
+    connections: [],
+  });
+  const clips = [
+    ...svg.matchAll(
+      /<clipPath id="canvas-node-clip-\d+"><rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"\/><\/clipPath>/g,
+    ),
+  ].map((match) => match.slice(1).map(Number));
+  const baselines = [...svg.matchAll(/<text[^>]* y="([^"]+)"[^>]*>/g)].map(
+    (match) => Number(match[1]),
+  );
+
+  assert.deepEqual(clips, [
+    [12, 0, 136, 32],
+    [12, 48, 136, 24],
+  ]);
+  assert.equal(baselines.length, clips.length);
+  clips.forEach(([, top, , height], index) => {
+    assert.ok(baselines[index]! > top!);
+    assert.ok(baselines[index]! < top! + height!);
+  });
+  assert.match(svg, />Default line<\/tspan>/);
+  assert.match(svg, />Compact arrow<\/tspan>/);
 });
 
 test("SVG export matches canonical stroke precedence and Frame defaults", () => {

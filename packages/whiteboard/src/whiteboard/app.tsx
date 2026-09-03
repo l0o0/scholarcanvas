@@ -65,7 +65,7 @@ import {
   distributeNodes,
   type AlignMode,
 } from "./layout";
-import { buildBoardMarkdown, buildBoardSvg, svgToPngDataUrl } from "./export";
+import { buildCanvasMarkdown, buildCanvasSvg, svgToPngDataUrl } from "./export";
 import {
   beginNodeEditing,
   canvasDocumentToFlow,
@@ -979,11 +979,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           requestId,
           format,
           mimeType: "text/markdown",
-          text: buildBoardMarkdown(doc),
+          text: buildCanvasMarkdown(doc),
         });
         return;
       }
-      const svg = buildBoardSvg(doc);
+      const svg = buildCanvasSvg(doc);
       if (format === "svg") {
         propsRef.current.onExportFile({
           requestId,

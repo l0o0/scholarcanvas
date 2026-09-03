@@ -1,5 +1,5 @@
 export {
-  buildBoardMarkdown,
-  buildBoardSvg,
+  buildCanvasMarkdown,
+  buildCanvasSvg,
   svgToPngDataUrl,
 } from "../../packages/whiteboard/src/whiteboard/export";

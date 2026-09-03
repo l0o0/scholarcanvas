@@ -723,7 +723,16 @@
   inset: 0;
   box-sizing: border-box;
   padding: 0 12px;
+  overflow: hidden;
   pointer-events: none;
+}
+
+.zmd-board-stroke-label-text {
+  min-width: 0;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: hidden;
 }
 
 .zmd-board-shape.is-line,

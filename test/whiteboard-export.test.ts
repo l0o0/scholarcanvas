@@ -346,6 +346,60 @@ test("SVG stroke labels remain visible at default and compact heights", () => {
   assert.match(svg, />Compact arrow<\/tspan>/);
 });
 
+test("SVG stroke labels preserve left, center, and right alignment", () => {
+  const alignments = ["left", "center", "right"] as const;
+  const nodes = (["line", "arrow"] as const).flatMap((kind, row) =>
+    alignments.map((textAlign, column) => ({
+      id: `${kind}-${textAlign}`,
+      kind,
+      position: { x: column * 200, y: row * 64 },
+      width: 160,
+      height: 32,
+      data: { title: `${kind} ${textAlign}` },
+      style: { textAlign },
+    })),
+  ) as CanvasNode[];
+  const svg = buildCanvasSvg({ version: 2, nodes, connections: [] });
+
+  nodes.forEach((node) => {
+    const align = node.style!.textAlign!;
+    const x =
+      node.position.x + (align === "left" ? 12 : align === "right" ? 148 : 80);
+    const anchor =
+      align === "left" ? "start" : align === "right" ? "end" : "middle";
+    assert.match(
+      svg,
+      new RegExp(
+        `<text x="${x}"[^>]*text-anchor="${anchor}"[^>]*><tspan x="${x}"[^>]*>${node.kind} ${align}<\\/tspan>`,
+      ),
+      node.id,
+    );
+  });
+});
+
+test("SVG stroke labels constrain long tokens and preserve explicit lines", () => {
+  const longLine = createBasicNode("line", { x: 0, y: 0 }, "long-line");
+  longLine.data.title = "SUPERCALIFRAGILISTICEXPIALIDOCIOUS";
+  const multilineArrow = {
+    ...createBasicNode("arrow", { x: 0, y: 48 }, "multiline-arrow"),
+    height: 64,
+    data: { title: "A\nB" },
+  };
+  const svg = buildCanvasSvg({
+    version: 2,
+    nodes: [longLine, multilineArrow],
+    connections: [],
+  });
+  const textElements = [...svg.matchAll(/<text[^>]*>(.*?)<\/text>/g)].map(
+    (match) => match[1]!,
+  );
+
+  assert.equal((textElements[0]!.match(/<tspan/g) ?? []).length, 1);
+  assert.match(textElements[0]!, />SUPERCALIFRAGIL<\/tspan>/);
+  assert.equal((textElements[1]!.match(/<tspan/g) ?? []).length, 2);
+  assert.match(textElements[1]!, />A<\/tspan><tspan[^>]*>B<\/tspan>/);
+});
+
 test("SVG export matches canonical stroke precedence and Frame defaults", () => {
   const svg = buildCanvasSvg({
     version: 2,

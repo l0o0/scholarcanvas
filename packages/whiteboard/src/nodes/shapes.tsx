@@ -124,6 +124,9 @@ function StrokeShape({
   const stroke =
     nodeSurfaceStroke(model.kind, style) ??
     `var(--zmd-board-edge, ${canvasNodeSurfaceDefaults(model.kind).stroke})`;
+  const fontSize = style.fontSize || 16;
+  const maxTextHeight =
+    Math.max(1, Math.floor(boxH / (fontSize * 1.25))) * fontSize * 1.25;
   return (
     <div
       className={`zmd-board-shape is-stroke${selected ? " is-selected" : ""}`}
@@ -170,9 +173,20 @@ function StrokeShape({
             ...labelTextStyle(style),
             ...verticalAlignmentStyle(style),
             display: "flex",
+            justifyContent:
+              style.textAlign === "left"
+                ? "flex-start"
+                : style.textAlign === "right"
+                  ? "flex-end"
+                  : "center",
           }}
         >
-          {model.data.title}
+          <span
+            className="zmd-board-stroke-label-text"
+            style={{ maxHeight: maxTextHeight }}
+          >
+            {model.data.title}
+          </span>
         </span>
       ) : null}
     </div>

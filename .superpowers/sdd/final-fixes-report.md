@@ -89,3 +89,23 @@ Final shape-label verification:
 - `pnpm lint:check` and `git diff --check`: passed.
 - The second independent read-only review reported 0 Critical, 0 Important, and 0 Minor issues after checking default/compact and top/middle/bottom Line/Arrow label geometry, unchanged card clipping, color inheritance, marker ordering, and non-persistence.
 - The final generated `packages/whiteboard/dist` was moved to `/tmp/bamboo-shape-label-final-build.43eDGY/dist`; no distribution artifact remains in the worktree.
+
+## Stroke-label alignment follow-up
+
+- Verified the review finding in Chrome before changing production code. A 160px flex label with 12px horizontal padding placed the anonymous text item at an identical 12px offset for left, center, and right `text-align`; computed `justify-content` remained `normal`. The automated RED likewise failed for Line and Arrow at default, left, center, and right alignment.
+- The first GREEN maps the effective/default horizontal alignment on the stroke-label flex container: left to `flex-start`, center or omission to `center`, and right to `flex-end`. The internal review then found a second concrete failure in the same anonymous flex item: a long unbroken title escaped the node horizontally, while `A\nB` collapsed to one line in the live canvas. The second automated RED failed for both Line and Arrow before production changed.
+- The completed GREEN gives the label an intrinsic-width inner span, preserves explicit lines with `pre-wrap`, permits deterministic long-token wrapping with `overflow-wrap: anywhere`, and clips both the inner text and outer node boundary. Its maximum height uses the same complete-line capacity as SVG—`max(1, floor(height / (fontSize × 1.25))) × fontSize × 1.25`—so overflow retains the leading lines before top/middle/bottom placement. This closed two issues found by independent review: `max-height: 100%` made all three vertical alignments identical, while clipping only at the outer boundary made bottom alignment show the text tail although SVG retained the head. Persisted style, stroke/color behavior, and export geometry remain unchanged.
+- Automated coverage checks both Line and Arrow across omission/left/center/right, their editor-effective style, the constrained multiline DOM contract, and deterministic SVG `x`/`text-anchor` output for both kinds across all three explicit alignments. It also characterizes SVG long-token and explicit-line clipping; existing default 32px and compact 24px SVG clip tests remain green.
+- Chrome 152 at `1440 x 900`, light and dark: PASS. For six live Line/Arrow nodes, the measured text-range offset matched the expected padded left, mathematical center, or padded right position with a maximum error of 0.008px. Paired short-text top/middle/bottom bounds stayed within the 32px node height. A 160 × 32 long-token label wrapped to three native lines but capped its visible leading block to 20px; top/middle/bottom placed that block at `0/6/12px`, stayed inside the padded horizontal bounds, and kept its 60px scroll content clipped. A 160 × 32 bottom-aligned `A\nB` likewise retained two source lines but displayed only leading `A` in its 20px block at 12px, matching SVG line selection and placement. Label text retained the theme color, SVG strokes retained the explicit red, and `textColor` remained omitted. Entering edit on the right-aligned Line produced a right-aligned dark textarea; TextStyleBar marked its right-alignment control active. There was no ellipsis, document overflow, or console/page error.
+- Evidence screenshots: `/tmp/bamboo-align-light.png` and `/tmp/bamboo-align-dark.png`.
+
+Final stroke-label alignment verification:
+
+- `pnpm exec tsx --test test/whiteboard-academic-document.test.ts test/whiteboard-canvas-file.test.ts test/whiteboard-export.test.ts test/whiteboard-node-registry.test.ts test/whiteboard-app-state.test.ts`: 133/133 passed.
+- `pnpm test:unit`: 482/482 passed.
+- Whiteboard package and root `tsc --noEmit`: passed.
+- `pnpm whiteboard:build`: passed (224 modules transformed).
+- `pnpm build`: passed (plugin build plus root TypeScript).
+- `pnpm lint:check` and `git diff --check`: passed.
+- The final independent read-only review reported 0 Critical, 0 Important, and 0 Minor issues after checking horizontal and vertical geometry, complete-line overflow capacity, leading-line selection, 24/32px clipping, theme/stroke separation, editing, controls, and model non-persistence.
+- The final generated `packages/whiteboard/dist` was moved to `/tmp/bamboo-stroke-align-final-build.IpHTAJ/dist`; no distribution artifact remains in the worktree.

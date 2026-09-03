@@ -700,7 +700,7 @@ test("Basic shape labels use theme text independently from an explicit stroke", 
       assert.match(
         markup,
         new RegExp(
-          `style="[^"]*color:var\\(--zmd-board-text, #111827\\)[^"]*"[^>]*>${kind} label<\\/span>`,
+          `style="[^"]*color:var\\(--zmd-board-text, #111827\\)[^"]*"[^>]*>(?:<span class="zmd-board-stroke-label-text"[^>]*>)?${kind} label<\\/span>`,
         ),
       );
       if (kind === "line" || kind === "arrow") {
@@ -761,6 +761,76 @@ test("every text-bearing draw node renders its requested vertical alignment", as
       assert.match(markup, /align-items:flex-start/);
     });
   }
+});
+
+test("stroke labels position flex text for every horizontal alignment", async (t) => {
+  for (const kind of ["line", "arrow"] as const) {
+    for (const [textAlign, justifyContent] of [
+      [undefined, "center"],
+      ["left", "flex-start"],
+      ["center", "center"],
+      ["right", "flex-end"],
+    ] as const) {
+      await t.test(`${kind} ${textAlign ?? "default"}`, () => {
+        const model = {
+          ...createBasicNode(kind, { x: 0, y: 0 }, `${kind}-${textAlign}`),
+          style: { ...(textAlign ? { textAlign } : {}) },
+          data: { title: "Aligned" },
+        };
+        const effectiveAlign = textAlign ?? "center";
+        assert.equal(labelTextStyle(model.style).textAlign, effectiveAlign);
+        assert.equal(
+          effectiveCanvasNodeUiTextStyle(kind, model.style).textAlign,
+          effectiveAlign,
+        );
+        const markup = renderNode(model);
+        assert.match(
+          markup,
+          new RegExp(
+            `class="zmd-board-stroke-label" style="[^"]*justify-content:${justifyContent}`,
+          ),
+        );
+      });
+    }
+  }
+});
+
+test("stroke labels constrain long tokens and preserve explicit lines", async (t) => {
+  const title = "SUPERCALIFRAGILISTICEXPIALIDOCIOUS\nSecond line";
+  for (const kind of ["line", "arrow"] as const) {
+    await t.test(kind, () => {
+      const model = {
+        ...createBasicNode(kind, { x: 0, y: 0 }, `${kind}-wrapped`),
+        height: 64,
+        data: { title },
+      };
+      const markup = renderNode(model);
+      assert.match(
+        markup,
+        /<span class="zmd-board-stroke-label-text"[^>]*>SUPERCALIFRAGILISTICEXPIALIDOCIOUS\nSecond line<\/span>/,
+      );
+      assert.match(
+        markup,
+        /class="zmd-board-stroke-label-text" style="max-height:60px"/,
+      );
+      assert.match(
+        renderNode({ ...model, height: 32 }),
+        /class="zmd-board-stroke-label-text" style="max-height:20px"/,
+      );
+    });
+  }
+  assert.match(
+    canvasCss,
+    /\.zmd-board-stroke-label\s*\{[^}]*overflow:\s*hidden/s,
+  );
+  assert.match(
+    canvasCss,
+    /\.zmd-board-stroke-label-text\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*white-space:\s*pre-wrap[^}]*overflow-wrap:\s*anywhere[^}]*overflow:\s*hidden/s,
+  );
+  assert.doesNotMatch(
+    canvasCss,
+    /\.zmd-board-stroke-label-text\s*\{[^}]*line-clamp:/s,
+  );
 });
 
 test("lists only Zotero picker nodes when filtered as library", () => {

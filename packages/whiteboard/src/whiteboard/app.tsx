@@ -23,7 +23,6 @@ import {
   type EdgeChange,
   type NodeChange,
   type ReactFlowInstance,
-  type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./board.css";
@@ -65,10 +64,8 @@ import {
 } from "./layout";
 import { buildBoardMarkdown, buildBoardSvg, svgToPngDataUrl } from "./export";
 import {
-  CanvasDocumentHistory,
   canvasDocumentToFlow,
   flowNodeText,
-  flowToCanvasDocument,
   labelTextStyle,
   mergeEditingStyle,
   mergePickerData,
@@ -80,6 +77,7 @@ import {
 } from "./document";
 import { armEditFocusHold, handleEditBlur } from "./editFocus";
 import { IconCopy, IconEdit, IconExport, IconOpen, IconTrash } from "./icons";
+import { useCanvasDocumentRuntime } from "./runtime";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
   board: "Board",
@@ -293,9 +291,34 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         .document,
     [props.initialSnapshot],
   );
-  const seed = useMemo(() => canvasDocumentToFlow(initial), [initial]);
-  const [nodes, setNodes] = useState<CanvasFlowNode[]>(seed.nodes);
-  const [edges, setEdges] = useState<CanvasFlowEdge[]>(seed.edges);
+  const flowRef = useRef<ReactFlowInstance<
+    CanvasFlowNode,
+    CanvasFlowEdge
+  > | null>(null);
+  const propsRef = useRef(props);
+  propsRef.current = props;
+  const documentRuntime = useCanvasDocumentRuntime(
+    initial,
+    (revision) => propsRef.current.onChange(revision),
+    (viewport) => flowRef.current?.setViewport(viewport),
+  );
+  const {
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    nodesRef,
+    edgesRef,
+    viewportRef,
+    history: documentHistory,
+    changed: bump,
+    pushHistory,
+    applyDocument,
+    loadSnapshot,
+    getSnapshot: snapshotNow,
+    undo,
+    redo,
+  } = documentRuntime;
   const [theme, setTheme] = useState<WhiteboardTheme>(props.theme);
   const [labels, setLabels] = useState<WhiteboardLabels>(
     props.labels ?? DEFAULT_LABELS,
@@ -314,63 +337,12 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const [styleTarget, setStyleTarget] = useState<string | null>(null);
   const holdEditFocusRef = useRef(false);
 
-  const viewportRef = useRef<Viewport>(
-    initial.viewport ?? { x: 0, y: 0, zoom: 1 },
-  );
-  const documentShellRef = useRef(seed.shell);
-  const flowRef = useRef<ReactFlowInstance<
-    CanvasFlowNode,
-    CanvasFlowEdge
-  > | null>(null);
-  const propsRef = useRef(props);
-  propsRef.current = props;
-  const documentHistoryRef = useRef<CanvasDocumentHistory | null>(null);
-  if (!documentHistoryRef.current) {
-    documentHistoryRef.current = new CanvasDocumentHistory((revision) =>
-      propsRef.current.onChange(revision),
-    );
-  }
-  const documentHistory = documentHistoryRef.current;
   const pendingPicksRef = useRef(new Map<string, string>());
   const runtimeRef = useRef<WhiteboardRuntime | null>(null);
   const drawRef = useRef<DrawSession | null>(null);
   const preDrawRef = useRef<CanvasDocument | null>(null);
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
-
-  const bump = useCallback(() => {
-    documentHistory.changed();
-  }, [documentHistory]);
-
-  const nodesRef = useRef(nodes);
-  const edgesRef = useRef(edges);
-  nodesRef.current = nodes;
-  edgesRef.current = edges;
-
-  const snapshotNow = useCallback(
-    () =>
-      flowToCanvasDocument(
-        nodesRef.current,
-        edgesRef.current,
-        viewportRef.current,
-        documentShellRef.current,
-      ),
-    [],
-  );
-
-  const pushHistory = useCallback(() => {
-    documentHistory.push(snapshotNow());
-  }, [documentHistory, snapshotNow]);
-
-  const applyDocument = useCallback((value: unknown) => {
-    const doc = parseCanvasDocument(value).document;
-    const next = canvasDocumentToFlow(doc);
-    setNodes(next.nodes);
-    setEdges(next.edges);
-    documentShellRef.current = next.shell;
-    viewportRef.current = doc.viewport ?? { x: 0, y: 0, zoom: 1 };
-    flowRef.current?.setViewport(viewportRef.current);
-  }, []);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<CanvasFlowNode>[]) => {
@@ -976,21 +948,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const runtime: WhiteboardRuntime = {
       setTheme,
       setLabels,
-      loadSnapshot(snapshot) {
-        applyDocument(snapshot);
-        documentHistory.replace();
-      },
+      loadSnapshot,
       getSnapshot: snapshotNow,
-      undo() {
-        const previous = documentHistory.undo(snapshotNow());
-        if (!previous) return;
-        applyDocument(previous);
-      },
-      redo() {
-        const next = documentHistory.redo(snapshotNow());
-        if (!next) return;
-        applyDocument(next);
-      },
+      undo,
+      redo,
       resolvePick(requestId, nodeId, data) {
         if (pendingPicksRef.current.get(requestId) !== nodeId) return;
         pendingPicksRef.current.delete(requestId);
@@ -1021,7 +982,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     };
     runtimeRef.current = runtime;
     propsRef.current.onReady(runtime);
-  }, [applyDocument, bump, documentHistory, pushHistory, snapshotNow]);
+  }, [bump, loadSnapshot, pushHistory, redo, snapshotNow, undo]);
 
   useEffect(() => {
     setTheme(props.theme);

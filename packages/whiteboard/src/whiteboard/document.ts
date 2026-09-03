@@ -58,19 +58,35 @@ export function parsePickerNodeData(
   value: unknown,
 ): PickerNodeData | undefined {
   if (!isRecord(value) || typeof value.title !== "string") return undefined;
+  if (!hasValidOptionalPickerFields(value, ["subtitle", "preview"], [])) {
+    return undefined;
+  }
   const common = {
     title: value.title,
     ...optionalStringProperty(value, "subtitle"),
     ...optionalStringProperty(value, "preview"),
   };
   switch (value.kind) {
-    case "item":
+    case "item": {
+      if (!hasValidOptionalPickerFields(value, [], ["itemID"])) {
+        return undefined;
+      }
       return {
         kind: "item",
         ...common,
         ...optionalNumberProperty(value, "itemID"),
       };
-    case "pdf":
+    }
+    case "pdf": {
+      if (
+        !hasValidOptionalPickerFields(
+          value,
+          ["image", "asset"],
+          ["itemID", "attachmentID", "pdfPage"],
+        )
+      ) {
+        return undefined;
+      }
       return {
         kind: "pdf",
         ...common,
@@ -80,19 +96,30 @@ export function parsePickerNodeData(
         ...optionalStringProperty(value, "image"),
         ...optionalStringProperty(value, "asset"),
       };
-    case "attachment":
+    }
+    case "attachment": {
+      if (
+        !hasValidOptionalPickerFields(value, [], ["itemID", "attachmentID"])
+      ) {
+        return undefined;
+      }
       return {
         kind: "attachment",
         ...common,
         ...optionalNumberProperty(value, "itemID"),
         ...optionalNumberProperty(value, "attachmentID"),
       };
-    case "note":
+    }
+    case "note": {
+      if (!hasValidOptionalPickerFields(value, [], ["noteID"])) {
+        return undefined;
+      }
       return {
         kind: "note",
         ...common,
         ...optionalNumberProperty(value, "noteID"),
       };
+    }
     default:
       return undefined;
   }
@@ -424,9 +451,26 @@ function optionalNumberProperty<K extends string>(
   value: Record<string, unknown>,
   key: K,
 ): Partial<Record<K, number>> {
-  return typeof value[key] === "number"
+  return typeof value[key] === "number" && Number.isFinite(value[key])
     ? ({ [key]: value[key] } as Partial<Record<K, number>>)
     : {};
+}
+
+function hasValidOptionalPickerFields(
+  value: Record<string, unknown>,
+  stringKeys: string[],
+  numberKeys: string[],
+): boolean {
+  return (
+    stringKeys.every(
+      (key) => !Object.hasOwn(value, key) || typeof value[key] === "string",
+    ) &&
+    numberKeys.every(
+      (key) =>
+        !Object.hasOwn(value, key) ||
+        (typeof value[key] === "number" && Number.isFinite(value[key])),
+    )
+  );
 }
 
 function definedString<K extends string>(

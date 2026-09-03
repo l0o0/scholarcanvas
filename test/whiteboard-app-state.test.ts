@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MarkerType } from "@xyflow/react";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   parseCanvasDocument,
   type CanvasDocument,
@@ -23,6 +25,10 @@ import {
   consumeEditFocusHold,
   handleEditBlur,
 } from "../packages/whiteboard/src/whiteboard/editFocus.ts";
+import {
+  useCanvasDocumentRuntime,
+  type CanvasDocumentRuntime,
+} from "../packages/whiteboard/src/whiteboard/runtime.ts";
 
 const EMPTY: CanvasDocument = {
   version: 2,
@@ -157,6 +163,114 @@ test("document shell survives editing, history, and host replacement", () => {
   history.replace();
   assert.equal(history.undo(replacementSnapshot), undefined);
   assert.equal(history.redo(replacementSnapshot), undefined);
+});
+
+test("runtime snapshots are atomic before React commits loaded state", () => {
+  const initial: CanvasDocument = {
+    version: 2,
+    nodes: [
+      {
+        id: "initial",
+        kind: "claim",
+        position: { x: 10, y: 20 },
+        width: 260,
+        height: 128,
+        content: "Initial",
+      },
+    ],
+    connections: [],
+    viewport: { x: 1, y: 2, zoom: 1 },
+    metadata: { title: "Initial shell" },
+    extensions: { generation: 1 },
+  };
+  const loaded: CanvasDocument = {
+    version: 2,
+    nodes: [
+      {
+        id: "loaded",
+        kind: "question",
+        position: { x: 30, y: 40 },
+        width: 260,
+        height: 128,
+        content: "Loaded?",
+      },
+    ],
+    connections: [],
+    viewport: { x: 12, y: -8, zoom: 1.25 },
+    metadata: { title: "Loaded shell" },
+    extensions: { generation: 2 },
+  };
+  let runtime: CanvasDocumentRuntime | undefined;
+
+  function Harness() {
+    runtime = useCanvasDocumentRuntime(
+      initial,
+      () => {},
+      () => {},
+    );
+    return null;
+  }
+
+  renderToStaticMarkup(createElement(Harness));
+  assert.ok(runtime);
+  runtime.loadSnapshot(loaded);
+
+  assert.deepEqual(runtime.getSnapshot(), loaded);
+});
+
+test("runtime supports immediate consecutive undo and redo before React commits", () => {
+  const first: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "first",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "First",
+      },
+    ],
+    viewport: { x: 1, y: 2, zoom: 1 },
+    metadata: { title: "First" },
+    extensions: { revision: 1 },
+  };
+  const second: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "second",
+        kind: "claim",
+        position: { x: 100, y: 120 },
+        width: 260,
+        height: 128,
+        content: "Second",
+      },
+    ],
+    viewport: { x: -4, y: 8, zoom: 1.5 },
+    metadata: { title: "Second" },
+    extensions: { revision: 2 },
+  };
+  let runtime: CanvasDocumentRuntime | undefined;
+
+  function Harness() {
+    runtime = useCanvasDocumentRuntime(
+      first,
+      () => {},
+      () => {},
+    );
+    return null;
+  }
+
+  renderToStaticMarkup(createElement(Harness));
+  assert.ok(runtime);
+  runtime.pushHistory();
+  runtime.applyDocument(second);
+
+  runtime.undo();
+  assert.deepEqual(runtime.getSnapshot(), first);
+  runtime.redo();
+  assert.deepEqual(runtime.getSnapshot(), second);
 });
 
 test("edge arrow state survives flow, snapshot, and history round trips", () => {
@@ -382,7 +496,23 @@ test("picker payloads select and populate each typed canonical node kind", () =>
       zoom: 1,
     });
     assert.equal(restored.nodes[0].kind, entry.payload.kind);
-    entry.assertModel(parseCanvasDocument(restored).document.nodes[0]);
+    const reparsed = parseCanvasDocument(restored).document;
+    assert.deepEqual(reparsed, restored);
+    entry.assertModel(reparsed.nodes[0]);
+  }
+});
+
+test("picker parser rejects invalid values for known optional fields", () => {
+  for (const payload of [
+    { kind: "item", title: "Paper", itemID: Number.NaN },
+    { kind: "item", title: "Paper", itemID: Number.POSITIVE_INFINITY },
+    { kind: "item", title: "Paper", subtitle: 42 },
+    { kind: "pdf", title: "Paper.pdf", attachmentID: "42" },
+    { kind: "pdf", title: "Paper.pdf", image: { url: "bad" } },
+    { kind: "attachment", title: "File", preview: false },
+    { kind: "note", title: "Note", noteID: undefined },
+  ]) {
+    assert.equal(parsePickerNodeData(payload), undefined);
   }
 });
 

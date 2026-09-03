@@ -344,6 +344,8 @@ test("renders frame as a localized non-interactive boundary without handles", ()
   });
   assert.match(markup, />Localized frame</);
   assert.match(markup, /Study boundary/);
+  assert.match(markup, /class="zmd-board-frame-title"/);
+  assert.equal((markup.match(/zmd-board-frame-hit-edge/g) ?? []).length, 4);
   assert.doesNotMatch(markup, /react-flow__handle/);
 });
 

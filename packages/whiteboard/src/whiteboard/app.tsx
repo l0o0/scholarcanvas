@@ -22,6 +22,7 @@ import {
   type Connection,
   type EdgeChange,
   type NodeChange,
+  type OnNodeDrag,
   type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -69,6 +70,7 @@ import {
   beginNodeEditing,
   canvasDocumentToFlow,
   flowNodeText,
+  flowToCanvasDocument,
   labelTextStyle,
   mergeEditingStyle,
   mergePickerData,
@@ -80,6 +82,16 @@ import {
 } from "./document";
 import { armEditFocusHold, handleEditBlur } from "./editFocus";
 import { IconCopy, IconEdit, IconExport, IconOpen, IconTrash } from "./icons";
+import {
+  beginFrameDragState,
+  deleteNodeFromDocument,
+  finishFrameDragState,
+  moveNodesInDocument,
+  settleFrameDragState,
+  updateFrameDragState,
+  type FrameDragState,
+} from "./frame";
+import { captureCanvasArrowKey } from "./keyboard";
 import { useCanvasDocumentRuntime } from "./runtime";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
@@ -327,6 +339,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     nodesRef,
     edgesRef,
     viewportRef,
+    shellRef,
     history: documentHistory,
     changed: bump,
     pushHistory,
@@ -358,29 +371,184 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const runtimeRef = useRef<WhiteboardRuntime | null>(null);
   const drawRef = useRef<DrawSession | null>(null);
   const preDrawRef = useRef<CanvasDocument | null>(null);
+  const frameDragRef = useRef<FrameDragState | null>(null);
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
 
+  const applyNodePositions = useCallback(
+    (positioned: readonly CanvasFlowNode[]) => {
+      const document = moveNodesInDocument(
+        snapshotNow(),
+        positioned.map((node) => ({ id: node.id, position: node.position })),
+      );
+      const models = new Map(document.nodes.map((node) => [node.id, node]));
+      setNodes((current) =>
+        current.map((node) => {
+          const model = models.get(node.id);
+          return model
+            ? {
+                ...node,
+                position: model.position,
+                data: { ...node.data, model },
+              }
+            : node;
+        }),
+      );
+    },
+    [setNodes, snapshotNow],
+  );
+
+  const deleteCanvasElements = useCallback(
+    (nodeIds: string[], edgeIds: string[] = []) => {
+      const nodeIdSet = new Set(nodeIds);
+      const edgeIdSet = new Set(edgeIds);
+      if (!nodeIdSet.size && !edgeIdSet.size) return;
+
+      let document = snapshotNow();
+      const existingNodeIds = new Set(document.nodes.map((node) => node.id));
+      const existingEdgeIds = new Set(
+        document.connections.map((connection) => connection.id),
+      );
+      if (
+        !nodeIds.some((id) => existingNodeIds.has(id)) &&
+        !edgeIds.some((id) => existingEdgeIds.has(id))
+      ) {
+        return;
+      }
+
+      const settledDrag = settleFrameDragState(
+        frameDragRef.current ?? undefined,
+      );
+      frameDragRef.current = settledDrag.state ?? null;
+      pushHistory();
+      for (const nodeId of nodeIdSet) {
+        document = deleteNodeFromDocument(document, nodeId);
+      }
+      if (edgeIdSet.size) {
+        document = {
+          ...document,
+          connections: document.connections.filter(
+            (connection) => !edgeIdSet.has(connection.id),
+          ),
+        };
+      }
+      applyDocument(document);
+      bump();
+    },
+    [applyDocument, bump, pushHistory, snapshotNow],
+  );
+
   const onNodesChange = useCallback(
     (changes: NodeChange<CanvasFlowNode>[]) => {
-      const structural = changes.some(
-        (change) => change.type === "remove" || change.type === "add",
+      const removedNodeIds = changes
+        .filter((change) => change.type === "remove")
+        .map((change) => change.id);
+      if (removedNodeIds.length) {
+        deleteCanvasElements(removedNodeIds);
+      }
+
+      let retainedChanges = changes.filter(
+        (change) => change.type !== "remove",
       );
-      if (structural) pushHistory();
-      setNodes((current) => applyNodeChanges(changes, current));
-      if (changes.some((change) => change.type !== "select")) bump();
+      if (!retainedChanges.length) return;
+      if (retainedChanges.some((change) => change.type === "add")) {
+        pushHistory();
+      }
+
+      const drag = frameDragRef.current;
+      if (drag?.phase === "ending") {
+        retainedChanges = retainedChanges.filter(
+          (change) => change.type !== "position",
+        );
+        if (!retainedChanges.length) return;
+      }
+      const positionUpdates = retainedChanges.flatMap((change) =>
+        change.type === "position" && change.position
+          ? [{ id: change.id, position: change.position }]
+          : [],
+      );
+
+      if (drag && positionUpdates.length) {
+        setNodes((current) => {
+          const currentDocument = flowToCanvasDocument(
+            current,
+            edgesRef.current,
+            viewportRef.current,
+            shellRef.current,
+          );
+          const moved = updateFrameDragState(
+            currentDocument,
+            drag,
+            positionUpdates,
+          );
+          frameDragRef.current = moved.state;
+          const movedById = new Map(
+            moved.document.nodes.map((node) => [node.id, node]),
+          );
+          const movedNodes = current.map((node) => {
+            const model = movedById.get(node.id);
+            return model
+              ? {
+                  ...node,
+                  position: model.position,
+                  data: { ...node.data, model },
+                }
+              : node;
+          });
+          return applyNodeChanges(retainedChanges, movedNodes);
+        });
+      } else {
+        setNodes((current) => applyNodeChanges(retainedChanges, current));
+      }
+
+      if (!drag && retainedChanges.some((change) => change.type !== "select")) {
+        bump();
+      }
     },
-    [bump, pushHistory],
+    [bump, deleteCanvasElements, edgesRef, pushHistory, shellRef, viewportRef],
   );
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange<CanvasFlowEdge>[]) => {
-      if (changes.some((change) => change.type === "remove")) pushHistory();
-      setEdges((current) => applyEdgeChanges(changes, current));
-      if (changes.some((change) => change.type !== "select")) bump();
+      const removedEdgeIds = changes
+        .filter((change) => change.type === "remove")
+        .map((change) => change.id);
+      if (removedEdgeIds.length) {
+        deleteCanvasElements([], removedEdgeIds);
+      }
+      const retainedChanges = changes.filter(
+        (change) => change.type !== "remove",
+      );
+      if (!retainedChanges.length) return;
+      setEdges((current) => applyEdgeChanges(retainedChanges, current));
+      if (retainedChanges.some((change) => change.type !== "select")) bump();
     },
-    [bump, pushHistory],
+    [bump, deleteCanvasElements],
   );
+
+  const beginNodeDrag = useCallback<OnNodeDrag<CanvasFlowNode>>(
+    (_event, _node, draggedNodes) => {
+      pushHistory();
+      frameDragRef.current =
+        beginFrameDragState(
+          snapshotNow(),
+          draggedNodes.map((dragged) => dragged.id),
+        ) ?? null;
+    },
+    [pushHistory, snapshotNow],
+  );
+
+  const endFrameDrag = useCallback(() => {
+    const settled = settleFrameDragState(frameDragRef.current ?? undefined);
+    frameDragRef.current = settled.state ?? null;
+    if (settled.notify) bump();
+  }, [bump]);
+
+  const finishNodeDrag = useCallback<OnNodeDrag<CanvasFlowNode>>(() => {
+    const stopped = finishFrameDragState(frameDragRef.current ?? undefined);
+    frameDragRef.current = stopped.state ?? null;
+    if (stopped.notify) bump();
+  }, [bump]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -555,23 +723,16 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
 
   const eraseNode = useCallback(
     (id: string) => {
-      pushHistory();
-      setNodes((current) => current.filter((node) => node.id !== id));
-      setEdges((current) =>
-        current.filter((edge) => edge.source !== id && edge.target !== id),
-      );
-      bump();
+      deleteCanvasElements([id]);
     },
-    [bump, pushHistory],
+    [deleteCanvasElements],
   );
 
   const eraseEdge = useCallback(
     (id: string) => {
-      pushHistory();
-      setEdges((current) => current.filter((edge) => edge.id !== id));
-      bump();
+      deleteCanvasElements([], [id]);
     },
-    [bump, pushHistory],
+    [deleteCanvasElements],
   );
 
   const updateNode = useCallback(
@@ -672,9 +833,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const deleteNode = useCallback(
     (nodeId: string) => {
       setMenu(null);
-      eraseNode(nodeId);
+      deleteCanvasElements([nodeId]);
     },
-    [eraseNode],
+    [deleteCanvasElements],
   );
 
   const alignSelected = useCallback(
@@ -683,15 +844,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       if (selected.length < 2) return;
       pushHistory();
       const aligned = alignNodes(selected, mode);
-      setNodes((current) =>
-        current.map((node) => {
-          const target = aligned.find((item) => item.id === node.id);
-          return target ? { ...node, position: target.position } : node;
-        }),
-      );
+      applyNodePositions(aligned);
       bump();
     },
-    [bump, pushHistory],
+    [applyNodePositions, bump, pushHistory],
   );
 
   const distributeSelected = useCallback(
@@ -700,22 +856,41 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       if (selected.length < 3) return;
       pushHistory();
       const distributed = distributeNodes(selected, direction);
-      setNodes((current) =>
-        current.map((node) => {
-          const target = distributed.find((item) => item.id === node.id);
-          return target ? { ...node, position: target.position } : node;
-        }),
-      );
+      applyNodePositions(distributed);
       bump();
     },
-    [bump, pushHistory],
+    [applyNodePositions, bump, pushHistory],
   );
 
   const autoLayout = useCallback(() => {
     pushHistory();
-    setNodes((current) => autoLayoutNodes(current));
+    applyNodePositions(autoLayoutNodes(nodesRef.current));
     bump();
-  }, [bump, pushHistory]);
+  }, [applyNodePositions, bump, nodesRef, pushHistory]);
+
+  const nudgeSelected = useCallback(
+    (key: string, shift: boolean): boolean => {
+      const selected = nodesRef.current.filter((node) => node.selected);
+      if (!selected.length || !key.startsWith("Arrow")) return false;
+      const step = shift ? 16 : 1;
+      const dx = key === "ArrowLeft" ? -step : key === "ArrowRight" ? step : 0;
+      const dy = key === "ArrowUp" ? -step : key === "ArrowDown" ? step : 0;
+      if (!dx && !dy) return false;
+
+      pushHistory();
+      const positioned = selected.map((node) => ({
+        ...node,
+        position: {
+          x: node.position.x + dx,
+          y: node.position.y + dy,
+        },
+      }));
+      applyNodePositions(positioned);
+      bump();
+      return true;
+    },
+    [applyNodePositions, bump, nodesRef, pushHistory],
+  );
 
   const fitView = useCallback(() => {
     void flowRef.current?.fitView({ padding: 0.2, duration: 300 });
@@ -870,6 +1045,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const onKeyDown = (event: KeyboardEvent) => {
       if (editing) return;
       if (event.key === "Escape") {
+        endFrameDrag();
         if (drawRef.current) {
           event.preventDefault();
           cancelDraw();
@@ -890,44 +1066,31 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           return;
         }
       }
-      if (event.key.startsWith("Arrow")) {
-        const selected = nodesRef.current.filter((node) => node.selected);
-        if (!selected.length) return;
+      if (event.key === "Backspace" || event.key === "Delete") {
+        const selectedNodeIds = nodesRef.current
+          .filter((node) => node.selected)
+          .map((node) => node.id);
+        const selectedEdgeIds = edgesRef.current
+          .filter((edge) => edge.selected)
+          .map((edge) => edge.id);
+        if (!selectedNodeIds.length && !selectedEdgeIds.length) return;
         event.preventDefault();
-        const step = event.shiftKey ? 16 : 1;
-        const dx =
-          event.key === "ArrowLeft"
-            ? -step
-            : event.key === "ArrowRight"
-              ? step
-              : 0;
-        const dy =
-          event.key === "ArrowUp"
-            ? -step
-            : event.key === "ArrowDown"
-              ? step
-              : 0;
-        if (!dx && !dy) return;
-        pushHistory();
-        setNodes((current) =>
-          current.map((node) =>
-            node.selected
-              ? {
-                  ...node,
-                  position: {
-                    x: node.position.x + dx,
-                    y: node.position.y + dy,
-                  },
-                }
-              : node,
-          ),
-        );
-        bump();
+        deleteCanvasElements(selectedNodeIds, selectedEdgeIds);
+        return;
       }
+      captureCanvasArrowKey(event, Boolean(editing), nudgeSelected);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editing, bump, pushHistory, cancelDraw, cancelEdit]);
+  }, [
+    editing,
+    cancelDraw,
+    cancelEdit,
+    deleteCanvasElements,
+    edgesRef,
+    endFrameDrag,
+    nudgeSelected,
+  ]);
 
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
@@ -1092,7 +1255,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           }}
           snapToGrid={activeTool === "select"}
           snapGrid={[16, 16]}
-          deleteKeyCode={editing ? null : ["Backspace", "Delete"]}
+          deleteKeyCode={null}
+          onKeyDownCapture={(event) => {
+            captureCanvasArrowKey(event, Boolean(editing), nudgeSelected);
+          }}
           panOnDrag={activeTool === "hand" ? true : [1, 2]}
           selectionOnDrag={activeTool === "select"}
           elementsSelectable={activeTool === "select"}
@@ -1166,7 +1332,8 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             event.preventDefault();
             setMenu({ x: event.clientX, y: event.clientY, nodeId: "" });
           }}
-          onNodeDragStart={pushHistory}
+          onNodeDragStart={beginNodeDrag}
+          onNodeDragStop={finishNodeDrag}
           onMoveEnd={(_, viewport) => {
             const previous = viewportRef.current;
             if (

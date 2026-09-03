@@ -117,8 +117,17 @@ export function FrameNode({ data, selected }: NodeProps<CanvasFlowNode>) {
       className={`zmd-board-frame${selected ? " is-selected" : ""}`}
       aria-label={`${labels.kindFrame}: ${model.title}`}
     >
-      <span className="zmd-board-frame-kind">{labels.kindFrame}</span>
-      <h3>{model.title}</h3>
+      <header className="zmd-board-frame-title">
+        <span className="zmd-board-frame-kind">{labels.kindFrame}</span>
+        <h3>{model.title}</h3>
+      </header>
+      {(["top", "right", "bottom", "left"] as const).map((edge) => (
+        <span
+          key={edge}
+          className={`zmd-board-frame-hit-edge is-${edge}`}
+          aria-hidden="true"
+        />
+      ))}
     </section>
   );
 }

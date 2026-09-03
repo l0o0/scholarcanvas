@@ -27,6 +27,7 @@ import {
   consumeEditFocusHold,
   handleEditBlur,
 } from "../packages/whiteboard/src/whiteboard/editFocus.ts";
+import { captureCanvasArrowKey } from "../packages/whiteboard/src/whiteboard/keyboard.ts";
 import {
   useCanvasDocumentRuntime,
   type CanvasDocumentRuntime,
@@ -47,6 +48,13 @@ const boardCss = readFileSync(
   new URL("../packages/whiteboard/src/whiteboard/board.css", import.meta.url),
   "utf8",
 );
+
+function callbackSource(name: string): string | undefined {
+  const start = appSource.indexOf(`const ${name} = useCallback`);
+  if (start < 0) return undefined;
+  const end = appSource.indexOf("\n\n  const ", start);
+  return end < 0 ? undefined : appSource.slice(start, end);
+}
 
 function academicDocument(): CanvasDocument {
   return {
@@ -329,6 +337,173 @@ test("runtime supports immediate consecutive undo and redo before React commits"
   assert.deepEqual(runtime.getSnapshot(), first);
   runtime.redo();
   assert.deepEqual(runtime.getSnapshot(), second);
+});
+
+test("frame drag records one snapshot, moves direct members incrementally, and changes once", () => {
+  const start = callbackSource("beginNodeDrag");
+  const change = callbackSource("onNodesChange");
+  const end = callbackSource("endFrameDrag");
+  const finish = callbackSource("finishNodeDrag");
+
+  assert.ok(start, "missing Frame-aware drag start");
+  assert.equal((start.match(/pushHistory\(\)/g) ?? []).length, 1);
+  assert.match(start, /draggedNodes/);
+  assert.match(start, /beginFrameDragState\(/);
+  assert.match(start, /draggedNodes\.map\(\(dragged\)\s*=>\s*dragged\.id\)/);
+
+  assert.ok(change, "missing Frame-aware node change handler");
+  assert.match(change, /updateFrameDragState\(/);
+  assert.match(change, /flowToCanvasDocument\(/);
+  assert.match(change, /change\.type === "position" && change\.position/);
+  assert.match(change, /drag\?\.phase === "ending"/);
+  assert.match(change, /if\s*\(!drag[\s\S]*bump\(\)/);
+  assert.doesNotMatch(change, /frameId\s*=.*overlap|intersect|overlap/s);
+
+  assert.ok(end, "missing shared Frame drag completion");
+  assert.equal((end.match(/bump\(\)/g) ?? []).length, 1);
+  assert.match(end, /settleFrameDragState\(/);
+  assert.ok(finish, "missing Frame-aware drag finish");
+  assert.match(finish, /finishFrameDragState\(/);
+  assert.equal((finish.match(/bump\(\)/g) ?? []).length, 1);
+  assert.match(appSource, /event\.key === "Escape"[\s\S]*endFrameDrag\(\)/);
+
+  assert.match(appSource, /onNodeDragStart=\{beginNodeDrag\}/);
+  assert.match(appSource, /onNodeDragStop=\{finishNodeDrag\}/);
+});
+
+test("all calculated node movement routes Frame positions through one transition", () => {
+  const transition = callbackSource("applyNodePositions");
+  const align = callbackSource("alignSelected");
+  const distribute = callbackSource("distributeSelected");
+  const layout = callbackSource("autoLayout");
+
+  assert.ok(transition, "missing shared canonical position transition");
+  assert.match(transition, /moveNodesInDocument\(/);
+  assert.match(transition, /snapshotNow\(\)/);
+  assert.ok(align);
+  assert.match(align, /applyNodePositions\(aligned\)/);
+  assert.ok(distribute);
+  assert.match(distribute, /applyNodePositions\(distributed\)/);
+  assert.ok(layout);
+  assert.match(layout, /applyNodePositions\(autoLayoutNodes\(/);
+  const nudge = callbackSource("nudgeSelected");
+  assert.ok(nudge);
+  assert.match(nudge, /applyNodePositions\(positioned\)/);
+});
+
+test("the app owns Arrow-key movement before React Flow handles focused nodes", () => {
+  const nudge = callbackSource("nudgeSelected");
+
+  assert.ok(nudge, "missing shared keyboard nudge transition");
+  assert.equal((nudge.match(/pushHistory\(\)/g) ?? []).length, 1);
+  assert.equal((nudge.match(/bump\(\)/g) ?? []).length, 1);
+  assert.match(nudge, /applyNodePositions\(positioned\)/);
+  assert.match(
+    appSource,
+    /onKeyDownCapture=\{\(event\)\s*=>\s*\{[\s\S]*captureCanvasArrowKey\(event, Boolean\(editing\), nudgeSelected\)/,
+  );
+  assert.doesNotMatch(appSource, /disableKeyboardA11y/);
+});
+
+class TestKeyboardEvent extends Event {
+  constructor(
+    readonly key: string,
+    readonly shiftKey = false,
+  ) {
+    super("keydown", { bubbles: true, cancelable: true });
+  }
+}
+
+test("the canvas capture boundary owns an Arrow key exactly once", () => {
+  const canvas = new EventTarget();
+  let canonicalMoves = 0;
+  let reactFlowMoves = 0;
+
+  canvas.addEventListener("keydown", (event) => {
+    captureCanvasArrowKey(event as TestKeyboardEvent, false, () => {
+      canonicalMoves += 1;
+      return true;
+    });
+  });
+  canvas.addEventListener("keydown", (event) => {
+    if (!event.cancelBubble) reactFlowMoves += 1;
+  });
+
+  const event = new TestKeyboardEvent("ArrowRight");
+  canvas.dispatchEvent(event);
+
+  assert.equal(canonicalMoves, 1);
+  assert.equal(reactFlowMoves, 0);
+  assert.equal(event.defaultPrevented, true);
+});
+
+test("the canvas capture boundary leaves editable targets alone", () => {
+  for (const editable of [
+    Object.assign(new EventTarget(), { tagName: "INPUT" }),
+    Object.assign(new EventTarget(), { isContentEditable: true }),
+  ]) {
+    let canonicalMoves = 0;
+    let downstreamMoves = 0;
+    editable.addEventListener("keydown", (event) => {
+      captureCanvasArrowKey(event as TestKeyboardEvent, false, () => {
+        canonicalMoves += 1;
+        return true;
+      });
+    });
+    editable.addEventListener("keydown", (event) => {
+      if (!event.cancelBubble) downstreamMoves += 1;
+    });
+
+    const event = new TestKeyboardEvent("ArrowLeft");
+    editable.dispatchEvent(event);
+
+    assert.equal(canonicalMoves, 0);
+    assert.equal(downstreamMoves, 1);
+    assert.equal(event.defaultPrevented, false);
+  }
+});
+
+test("all node deletion entrances share canonical Frame deletion rules", () => {
+  const deletion = callbackSource("deleteCanvasElements");
+  const eraseNode = callbackSource("eraseNode");
+  const deleteNode = callbackSource("deleteNode");
+
+  assert.ok(deletion, "missing unified canvas deletion transition");
+  assert.match(deletion, /deleteNodeFromDocument\(/);
+  assert.equal((deletion.match(/pushHistory\(\)/g) ?? []).length, 1);
+  assert.equal((deletion.match(/bump\(\)/g) ?? []).length, 1);
+  assert.match(deletion, /settleFrameDragState\(/);
+
+  assert.ok(eraseNode);
+  assert.match(eraseNode, /deleteCanvasElements\(\[id\]/);
+  assert.ok(deleteNode);
+  assert.match(deleteNode, /deleteCanvasElements\(\[nodeId\]/);
+  assert.match(appSource, /onDelete=\{deleteNode\}/);
+  assert.match(appSource, /onClick=\{\(\)\s*=>\s*deleteNode\(menuNode\.id\)\}/);
+  assert.match(
+    appSource,
+    /event\.key === "Backspace" \|\| event\.key === "Delete"[\s\S]*deleteCanvasElements\(/,
+  );
+  assert.match(appSource, /deleteKeyCode=\{null\}/);
+});
+
+test("frames stay behind nodes and expose only title and border hit regions", () => {
+  assert.match(
+    boardCss,
+    /\.react-flow__node-frame\s*\{[^}]*z-index:\s*0\s*!important;[^}]*pointer-events:\s*none/s,
+  );
+  assert.match(
+    boardCss,
+    /\.react-flow__node:not\(\.react-flow__node-frame\)\s*\{[^}]*z-index:\s*1/s,
+  );
+  assert.match(
+    boardCss,
+    /\.zmd-board-frame-title,[\s\S]*\.zmd-board-frame-hit-edge\s*\{[^}]*pointer-events:\s*auto/s,
+  );
+  assert.match(
+    boardCss,
+    /\.zmd-board-frame-hit-edge\.is-(?:top|bottom)[\s\S]*\.zmd-board-frame-hit-edge\.is-(?:left|right)/,
+  );
 });
 
 test("edge arrow state survives flow, snapshot, and history round trips", () => {

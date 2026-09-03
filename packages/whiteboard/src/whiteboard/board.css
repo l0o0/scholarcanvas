@@ -20,6 +20,15 @@
   padding: 0;
 }
 
+.zmd-board-host .react-flow__node:not(.react-flow__node-frame) {
+  z-index: 1 !important;
+}
+
+.zmd-board-host .react-flow__node-frame {
+  z-index: 0 !important;
+  pointer-events: none !important;
+}
+
 .zmd-board-host .react-flow__handle {
   width: 8px;
   height: 8px;
@@ -369,6 +378,7 @@
 }
 
 .zmd-board-frame {
+  position: relative;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
@@ -377,6 +387,7 @@
   border-radius: 8px;
   background: transparent;
   color: var(--zmd-board-muted, #6b7280);
+  pointer-events: none;
 }
 
 .zmd-board-frame.is-selected {
@@ -390,6 +401,52 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.zmd-board-frame-title,
+.zmd-board-frame-hit-edge {
+  pointer-events: auto;
+}
+
+.zmd-board-frame-title {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  max-width: calc(100% - 24px);
+}
+
+.zmd-board-frame-hit-edge {
+  position: absolute;
+}
+
+.zmd-board-frame-hit-edge.is-top,
+.zmd-board-frame-hit-edge.is-bottom {
+  right: 8px;
+  left: 8px;
+  height: 8px;
+}
+
+.zmd-board-frame-hit-edge.is-top {
+  top: -4px;
+}
+
+.zmd-board-frame-hit-edge.is-bottom {
+  bottom: -4px;
+}
+
+.zmd-board-frame-hit-edge.is-left,
+.zmd-board-frame-hit-edge.is-right {
+  top: 8px;
+  bottom: 8px;
+  width: 8px;
+}
+
+.zmd-board-frame-hit-edge.is-left {
+  left: -4px;
+}
+
+.zmd-board-frame-hit-edge.is-right {
+  right: -4px;
 }
 
 .zmd-board-frame h3 {

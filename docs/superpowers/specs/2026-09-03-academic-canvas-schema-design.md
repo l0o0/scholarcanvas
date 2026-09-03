@@ -1,7 +1,7 @@
 # Academic Canvas Schema Design
 
 - Date: 2026-09-03
-- Status: Confirmed for specification review
+- Status: Confirmed
 - Scope: Academic object model, persistence, and basic rendering
 - Product state: Unreleased; experimental board formats do not require migration
 

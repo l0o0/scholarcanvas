@@ -1,6 +1,7 @@
 import type {
   AcademicAcquisition,
   ParentToWhiteboardMessage,
+  SourceResolutionResult,
   WhiteboardLabels,
 } from "./model/protocol";
 
@@ -18,6 +19,10 @@ interface AcademicMessageTarget {
     requestId: string,
     nodeId: string,
     message: string,
+  ) => void;
+  applySourceResolutionBatch: (
+    generation: number,
+    results: SourceResolutionResult[],
   ) => void;
 }
 
@@ -38,6 +43,13 @@ export function forwardAcademicParentMessage(
       data.payload.requestId,
       data.payload.nodeId,
       data.payload.message,
+    );
+    return true;
+  }
+  if (data.type === "sourceResolutionBatch") {
+    target?.applySourceResolutionBatch(
+      data.payload.generation,
+      data.payload.results,
     );
     return true;
   }

@@ -7,8 +7,12 @@ import {
 import type { CanvasConnection } from "../model/connection";
 import type { CanvasNodeStyle } from "../model/core";
 import type { CanvasDocument } from "../model/document";
-import type { BasicPickerPayload } from "../model/protocol";
+import type {
+  BasicPickerPayload,
+  SourceResolutionResult,
+} from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
+import { applyResolvedAcquisition } from "./sourceState";
 
 export interface CanvasFlowEdgeData extends Record<string, unknown> {
   connection: CanvasConnection;
@@ -296,6 +300,25 @@ export function updateFlowNodeModel(
 ): CanvasFlowNode {
   const model = update(node.data.model);
   return { ...node, type: model.kind, data: { ...node.data, model } };
+}
+
+export function applySourceResolutionResults(
+  nodes: CanvasFlowNode[],
+  generation: number,
+  results: readonly SourceResolutionResult[],
+): CanvasFlowNode[] {
+  const resolved = new Map(
+    results.flatMap((result) =>
+      result.generation === generation && result.status === "resolved"
+        ? [[result.nodeId, result.acquisition] as const]
+        : [],
+    ),
+  );
+  if (!resolved.size) return nodes;
+  return nodes.map((node) => {
+    const acquisition = resolved.get(node.id);
+    return acquisition ? applyResolvedAcquisition(node, acquisition) : node;
+  });
 }
 
 export function beginNodeEditing(

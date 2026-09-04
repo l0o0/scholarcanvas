@@ -39,3 +39,20 @@ test("registers canvases by tab and item id and isolates windows", () => {
   assert.equal(registry.findByItem(11), undefined);
   assert.equal(registry.sessionsForWindow(winA).length, 1);
 });
+
+test("unregistering a session disposes its progressive source scheduler", () => {
+  const registry = new WhiteboardSessionRegistry();
+  let disposed = 0;
+  const current = session("tab-source", {} as Window, 21);
+  current.sourceScheduler = {
+    dispose: () => {
+      disposed += 1;
+    },
+  } as WhiteboardSession["sourceScheduler"];
+  registry.register(current);
+
+  registry.unregister(current.tabID);
+  registry.unregister(current.tabID);
+
+  assert.equal(disposed, 1);
+});

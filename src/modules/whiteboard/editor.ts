@@ -8,7 +8,9 @@ import {
   WHITEBOARD_PROTOCOL_VERSION,
   isWhiteboardProtocolMessageForChannel,
   type AcademicAcquisition,
+  type AcademicSourceDescriptor,
   type ParentToWhiteboardMessage,
+  type SourceResolutionResult,
   type WhiteboardLabels,
   type WhiteboardTheme,
   type WhiteboardToParentMessage,
@@ -36,6 +38,11 @@ export interface WhiteboardHandle {
     nodeId: string,
     message: string,
   ) => void;
+  applySourceResolutionBatch: (
+    requestId: string,
+    generation: number,
+    results: SourceResolutionResult[],
+  ) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
 
@@ -55,6 +62,7 @@ type PendingCommand = Extract<
       | "focus"
       | "destroy"
       | "academicSourceAcquired"
+      | "sourceResolutionBatch"
       | "academicRequestFailed"
       | "saveState";
   }
@@ -84,6 +92,11 @@ export function createWhiteboardEditor(
       requestId: string,
       nodeId: string,
       raw: Record<string, string>,
+    ) => void;
+    onResolveAcademicSources?: (
+      requestId: string,
+      generation: number,
+      sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>,
     ) => void;
     onExportFile?: (payload: {
       requestId: string;
@@ -225,6 +238,13 @@ export function createWhiteboardEditor(
           data.payload.raw,
         );
         break;
+      case "resolveAcademicSources":
+        options.onResolveAcademicSources?.(
+          data.payload.requestId,
+          data.payload.generation,
+          data.payload.sources,
+        );
+        break;
       case "exportFile":
         options.onExportFile?.(data.payload);
         break;
@@ -310,6 +330,13 @@ export function createWhiteboardEditor(
         source: WHITEBOARD_MESSAGE_SOURCE,
         type: "academicRequestFailed",
         payload: { requestId, nodeId, message },
+      });
+    },
+    applySourceResolutionBatch(requestId, generation, results) {
+      sendOrQueue({
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        type: "sourceResolutionBatch",
+        payload: { requestId, generation, results },
       });
     },
     setSaveState(state) {

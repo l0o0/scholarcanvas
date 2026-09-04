@@ -1,5 +1,6 @@
 import type { WhiteboardHandle } from "./editor";
 import type { WhiteboardSaveCoordinator } from "./save-coordinator";
+import type { ProgressiveSourceScheduler } from "./source-scheduler";
 
 export interface WhiteboardView {
   root: HTMLElement;
@@ -14,6 +15,8 @@ export interface WhiteboardSession {
   path: string;
   title: string;
   saveCoordinator?: WhiteboardSaveCoordinator;
+  sourceScheduler?: ProgressiveSourceScheduler;
+  sourceGeneration?: number;
   editor?: WhiteboardHandle;
   view?: WhiteboardView;
   closing?: boolean;
@@ -49,6 +52,7 @@ export class WhiteboardSessionRegistry {
   unregister(tabID: string) {
     const session = this.byTab.get(tabID);
     if (!session) return;
+    session.sourceScheduler?.dispose();
     this.byTab.delete(tabID);
     this.byItem.delete(session.itemID);
     this.byWindow.get(session.win)?.delete(tabID);

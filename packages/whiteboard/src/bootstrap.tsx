@@ -34,6 +34,7 @@ function postToParent(message: {
     | "save"
     | "error"
     | "pickAcademicSource"
+    | "resolveAcademicSources"
     | "openItem"
     | "dropAcademicSources"
     | "exportFile";
@@ -180,6 +181,12 @@ function boot() {
         postToParent({
           type: "dropAcademicSources",
           payload: { requestId, nodeId, raw },
+        })
+      }
+      onResolveAcademicSources={(requestId, generation, sources) =>
+        postToParent({
+          type: "resolveAcademicSources",
+          payload: { requestId, generation, sources },
         })
       }
       onExportFile={(payload) => postToParent({ type: "exportFile", payload })}

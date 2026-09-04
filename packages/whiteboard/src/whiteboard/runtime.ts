@@ -11,9 +11,11 @@ import { createAcademicNode, type LiteratureNode } from "../model/academic";
 import { createBasicNode } from "../model/basic";
 import { parseCanvasDocument, type CanvasDocument } from "../model/document";
 import type { AcademicAcquisition } from "../model/protocol";
+import type { SourceResolutionResult } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 import {
   CanvasDocumentHistory,
+  applySourceResolutionResults,
   canvasDocumentToFlow,
   flowToCanvasDocument,
   type CanvasDocumentShell,
@@ -34,6 +36,10 @@ export interface CanvasDocumentRuntime {
   pushHistory: () => void;
   applyDocument: (value: CanvasDocument) => void;
   loadSnapshot: (value: CanvasDocument) => void;
+  applySourceResolutionBatch: (
+    generation: number,
+    results: SourceResolutionResult[],
+  ) => void;
   getRawSnapshot: () => CanvasDocument;
   getSnapshot: () => CanvasDocument;
   undo: () => void;
@@ -301,6 +307,15 @@ export function useCanvasDocumentRuntime(
     [applyDocument, history],
   );
 
+  const applySourceResolutionBatch = useCallback(
+    (generation: number, results: SourceResolutionResult[]) => {
+      setNodes((current) =>
+        applySourceResolutionResults(current, generation, results),
+      );
+    },
+    [setNodes],
+  );
+
   const undo = useCallback(() => {
     const previous = history.undo(getSnapshot());
     if (previous) applyDocument(previous);
@@ -325,6 +340,7 @@ export function useCanvasDocumentRuntime(
     pushHistory,
     applyDocument,
     loadSnapshot,
+    applySourceResolutionBatch,
     getRawSnapshot,
     getSnapshot,
     undo,

@@ -48,6 +48,10 @@ test("protocol-v2 academic acquisition is forwarded across both bridge sides", (
   assert.match(editor, /type: "academicRequestFailed"/);
   assert.match(editor, /case "pickAcademicSource"/);
   assert.match(editor, /case "dropAcademicSources"/);
+  assert.match(bootstrap, /onResolveAcademicSources/);
+  assert.match(editor, /case "resolveAcademicSources"/);
+  assert.match(editor, /applySourceResolutionBatch/);
+  assert.match(editor, /type: "sourceResolutionBatch"/);
 });
 
 test("academic bridge dispatch invokes the correlated runtime methods", () => {
@@ -62,6 +66,8 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
       calls.push(["resolve", ...args]),
     rejectAcademicRequest: (...args: unknown[]) =>
       calls.push(["reject", ...args]),
+    applySourceResolutionBatch: (...args: unknown[]) =>
+      calls.push(["resolution", ...args]),
   };
   const acquired: ParentToWhiteboardMessage = {
     source: WHITEBOARD_MESSAGE_SOURCE,
@@ -81,12 +87,33 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
       message: "Cancelled",
     },
   };
+  const resolution: ParentToWhiteboardMessage = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "sourceResolutionBatch",
+    payload: {
+      requestId: "resolution-1",
+      generation: 4,
+      results: [
+        {
+          nodeId: "node-3",
+          generation: 4,
+          status: "unavailable",
+          code: "item-missing",
+          message: "Missing",
+        },
+      ],
+    },
+  };
 
   assert.equal(forwardAcademicParentMessage(runtime, acquired), true);
   assert.equal(forwardAcademicParentMessage(runtime, rejected), true);
+  assert.equal(forwardAcademicParentMessage(runtime, resolution), true);
   assert.deepEqual(calls, [
     ["resolve", "pick-1", "node-1", acquisition],
     ["reject", "pick-2", "node-2", "Cancelled"],
+    ["resolution", 4, resolution.payload.results],
   ]);
 });
 

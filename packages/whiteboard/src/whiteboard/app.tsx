@@ -41,6 +41,8 @@ import {
 } from "../model/document";
 import type {
   AcademicAcquisition,
+  AcademicSourceDescriptor,
+  SourceResolutionResult,
   WhiteboardLabels,
   WhiteboardTheme,
 } from "../model/protocol";
@@ -102,6 +104,14 @@ import {
   useCanvasDocumentRuntime,
   type AcademicAcquisitionRuntime,
 } from "./runtime";
+import {
+  createSourceResolutionStates,
+  prioritizedSourceRequests,
+  sourceResolutionRequestId,
+  updateSourceResolutionStates,
+  type SourceRequestPriority,
+  type SourceResolutionRequest,
+} from "./sourceState";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
   canvas: "Canvas",
@@ -220,6 +230,11 @@ export interface WhiteboardAppProps {
     nodeId: string,
     raw: Record<string, string>,
   ) => void;
+  onResolveAcademicSources?: (
+    requestId: string,
+    generation: number,
+    sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>,
+  ) => void;
   onExportFile: (payload: {
     requestId: string;
     format: "png" | "svg" | "md";
@@ -246,12 +261,22 @@ export interface WhiteboardRuntime {
     nodeId: string,
     message: string,
   ) => void;
+  applySourceResolutionBatch: (
+    generation: number,
+    results: SourceResolutionResult[],
+  ) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
 
 function newId(kind: string) {
   return `${kind}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 6)}`;
 }
+
+const SOURCE_PRIORITY_ORDER: Record<SourceRequestPriority, number> = {
+  selected: 0,
+  visible: 1,
+  idle: 2,
+};
 
 interface ContextMenuState {
   x: number;
@@ -340,6 +365,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     CanvasFlowNode,
     CanvasFlowEdge
   > | null>(null);
+  const sourceGenerationRef = useRef(1);
+  const sourceGenerationAnnouncedRef = useRef(0);
+  const sourceRequestSequenceRef = useRef(0);
+  const sourcePrioritiesRef = useRef(new Map<string, SourceRequestPriority>());
+  const sourceStatesRef = useRef(createSourceResolutionStates(initial.nodes));
+  const cancelIdleResolutionRef = useRef<(() => void) | null>(null);
+  const [sourceCycle, setSourceCycle] = useState(1);
   const propsRef = useRef(props);
   propsRef.current = props;
   const academicAcquisitionRef = useRef<AcademicAcquisitionRuntime | null>(
@@ -368,7 +400,8 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     changed: bump,
     pushHistory,
     applyDocument,
-    loadSnapshot,
+    loadSnapshot: loadDocumentSnapshot,
+    applySourceResolutionBatch: applyDocumentSourceResolutionBatch,
     getRawSnapshot: workingSnapshot,
     getSnapshot: snapshotNow,
     undo,
@@ -417,6 +450,119 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const frameDragRef = useRef<FrameDragState | null>(null);
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
+
+  const cancelIdleResolution = useCallback(() => {
+    cancelIdleResolutionRef.current?.();
+    cancelIdleResolutionRef.current = null;
+  }, []);
+
+  const requestSources = useCallback(
+    (
+      priority: SourceRequestPriority,
+      sources: readonly SourceResolutionRequest[],
+      generation = sourceGenerationRef.current,
+    ) => {
+      if (generation !== sourceGenerationRef.current) return;
+      const requested = sources.filter(({ nodeId }) => {
+        const previous = sourcePrioritiesRef.current.get(nodeId);
+        if (
+          previous &&
+          SOURCE_PRIORITY_ORDER[previous] <= SOURCE_PRIORITY_ORDER[priority]
+        ) {
+          return false;
+        }
+        sourcePrioritiesRef.current.set(nodeId, priority);
+        return true;
+      });
+      const generationWasAnnounced =
+        sourceGenerationAnnouncedRef.current === generation;
+      if (!requested.length && generationWasAnnounced) return;
+      sourceStatesRef.current = updateSourceResolutionStates(
+        sourceStatesRef.current,
+        requested.map(({ nodeId }) => ({ nodeId, status: "loading" })),
+      );
+      const sequence = sourceRequestSequenceRef.current++;
+      sourceGenerationAnnouncedRef.current = generation;
+      propsRef.current.onResolveAcademicSources?.(
+        sourceResolutionRequestId(priority, generation, sequence),
+        generation,
+        requested,
+      );
+    },
+    [],
+  );
+
+  const currentSourceRequests = useCallback(
+    () =>
+      prioritizedSourceRequests(nodesRef.current, viewportRef.current, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      }),
+    [nodesRef, viewportRef],
+  );
+
+  const scheduleSourceResolution = useCallback(() => {
+    cancelIdleResolution();
+    const generation = sourceGenerationRef.current;
+    const requests = currentSourceRequests();
+    requestSources("selected", requests.selected, generation);
+    requestSources("visible", requests.visible, generation);
+
+    const runIdle = () => {
+      cancelIdleResolutionRef.current = null;
+      if (generation !== sourceGenerationRef.current) return;
+      requestSources("idle", currentSourceRequests().idle, generation);
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(runIdle);
+      cancelIdleResolutionRef.current = () => window.cancelIdleCallback(idleId);
+    } else {
+      const timeoutId = window.setTimeout(runIdle, 0);
+      cancelIdleResolutionRef.current = () => window.clearTimeout(timeoutId);
+    }
+  }, [cancelIdleResolution, currentSourceRequests, requestSources]);
+
+  const requestVisibleSources = useCallback(() => {
+    const requests = currentSourceRequests();
+    requestSources("selected", requests.selected);
+    requestSources("visible", requests.visible);
+  }, [currentSourceRequests, requestSources]);
+
+  const loadSnapshot = useCallback(
+    (value: CanvasDocument) => {
+      cancelIdleResolution();
+      sourceGenerationRef.current += 1;
+      sourcePrioritiesRef.current.clear();
+      sourceStatesRef.current = createSourceResolutionStates(value.nodes);
+      loadDocumentSnapshot(value);
+      setSourceCycle(sourceGenerationRef.current);
+    },
+    [cancelIdleResolution, loadDocumentSnapshot],
+  );
+
+  const applySourceResolutionBatch = useCallback(
+    (generation: number, results: SourceResolutionResult[]) => {
+      if (generation !== sourceGenerationRef.current) return;
+      const current = results.filter(
+        (result) => result.generation === generation,
+      );
+      if (!current.length) return;
+      sourceStatesRef.current = updateSourceResolutionStates(
+        sourceStatesRef.current,
+        current.map((result) =>
+          result.status === "resolved"
+            ? { nodeId: result.nodeId, status: "resolved" as const }
+            : {
+                nodeId: result.nodeId,
+                status: "unavailable" as const,
+                message: result.message,
+              },
+        ),
+      );
+      applyDocumentSourceResolutionBatch(generation, current);
+    },
+    [applyDocumentSourceResolutionBatch],
+  );
 
   const applyNodePositions = useCallback(
     (positioned: readonly CanvasFlowNode[]) => {
@@ -1177,13 +1323,30 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       rejectAcademicRequest(requestId, nodeId, message) {
         academicAcquisition.reject(requestId, nodeId, message);
       },
+      applySourceResolutionBatch,
       setSaveState(state) {
         setSaveState(state);
       },
     };
     runtimeRef.current = runtime;
     propsRef.current.onReady(runtime);
-  }, [academicAcquisition, loadSnapshot, redo, snapshotNow, undo]);
+  }, [
+    academicAcquisition,
+    applySourceResolutionBatch,
+    loadSnapshot,
+    redo,
+    snapshotNow,
+    undo,
+  ]);
+
+  useEffect(() => {
+    scheduleSourceResolution();
+    return cancelIdleResolution;
+  }, [cancelIdleResolution, scheduleSourceResolution, sourceCycle]);
+
+  useEffect(() => {
+    requestSources("selected", currentSourceRequests().selected);
+  }, [currentSourceRequests, nodes, requestSources]);
 
   useEffect(() => {
     setTheme(props.theme);
@@ -1371,6 +1534,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               return;
             }
             viewportRef.current = viewport;
+            requestVisibleSources();
             bump();
           }}
           proOptions={{ hideAttribution: true }}

@@ -10,6 +10,11 @@ import { whiteboardRegistry, type WhiteboardSession } from "./session-registry";
 import { WHITEBOARD_TAB_TYPE } from "./tabHooks";
 import { isWhiteboardAttachment } from "./detect";
 import { createZoteroSourceGateway } from "./source-gateway";
+import { ProgressiveSourceScheduler } from "./source-scheduler";
+import {
+  sourceCacheKey,
+  sourceRequestPriority,
+} from "../../../packages/whiteboard/src/whiteboard/sourceState";
 
 const AUTOSAVE_MS = 800;
 
@@ -463,6 +468,26 @@ function mountWhiteboardUI(
   container.appendChild(root);
 
   session.view = { root, host };
+  const gateway = createZoteroSourceGateway();
+  let resolutionBatchSequence = 0;
+  session.sourceScheduler = new ProgressiveSourceScheduler({
+    run: (job) => gateway.resolve(job.nodeId, job.generation, job.descriptor),
+    emit: (results) => {
+      const generations = new Map<number, typeof results>();
+      for (const result of results) {
+        const batch = generations.get(result.generation) ?? [];
+        batch.push(result);
+        generations.set(result.generation, batch);
+      }
+      for (const [generation, batch] of generations) {
+        session.editor?.applySourceResolutionBatch(
+          `source-result-${generation}-${resolutionBatchSequence++}`,
+          generation,
+          batch,
+        );
+      }
+    },
+  });
   session.saveCoordinator = new WhiteboardSaveCoordinator({
     getSnapshot: async () => {
       if (!session.editor) throw new Error("Canvas editor is unavailable");
@@ -608,6 +633,34 @@ function mountWhiteboardUI(
     },
     onDropAcademicSources(requestId, nodeId, raw) {
       void handleDropAcademicSources(session, requestId, nodeId, raw);
+    },
+    onResolveAcademicSources(requestId, generation, sources) {
+      const scheduler = session.sourceScheduler;
+      if (!scheduler) return;
+      if (
+        session.sourceGeneration !== undefined &&
+        generation < session.sourceGeneration
+      ) {
+        return;
+      }
+      if (session.sourceGeneration !== generation) {
+        if (session.sourceGeneration !== undefined) {
+          scheduler.cancelGeneration(session.sourceGeneration);
+        }
+        session.sourceGeneration = generation;
+      }
+      const priority = sourceRequestPriority(requestId);
+      for (const { nodeId, source } of sources) {
+        const cacheKey = sourceCacheKey(source);
+        scheduler.promote(cacheKey, priority);
+        scheduler.enqueue({
+          nodeId,
+          generation,
+          priority,
+          descriptor: source,
+          cacheKey,
+        });
+      }
     },
     onExportFile(payload) {
       void handleExportFile(session, payload);
@@ -758,6 +811,8 @@ export async function closeWhiteboardSession(tabID: string): Promise<boolean> {
   }
   session.closing = true;
   session.unbindTheme?.();
+  session.sourceScheduler?.dispose();
+  session.sourceScheduler = undefined;
   session.editor?.destroy();
   whiteboardRegistry.unregister(tabID);
   return true;

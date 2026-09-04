@@ -42,7 +42,7 @@ import {
 } from "../packages/whiteboard/src/whiteboard/runtime.ts";
 import * as runtimeModule from "../packages/whiteboard/src/whiteboard/runtime.ts";
 import {
-  applyConfirmedNoteRefresh,
+  createNoteRefreshRuntime,
   requestConfirmedNoteRefresh,
 } from "../packages/whiteboard/src/whiteboard/noteRefresh.ts";
 import { applyResolvedAcquisition } from "../packages/whiteboard/src/whiteboard/sourceState.ts";
@@ -444,7 +444,7 @@ test("confirmed Note refresh posts one correlated source request", () => {
 });
 
 test("confirmed Note refresh overwrites content and title in one undoable revision", () => {
-  const before: CanvasDocument = {
+  let live: CanvasDocument = {
     ...EMPTY,
     nodes: [
       {
@@ -463,20 +463,32 @@ test("confirmed Note refresh overwrites content and title in one undoable revisi
   const history = new CanvasDocumentHistory((revision) =>
     changes.push(revision),
   );
-  const afterConfirmedRefresh = applyConfirmedNoteRefresh(
-    before,
-    "source-note",
-    {
+  const refresh = createNoteRefreshRuntime({
+    getWorkingDocument: () => live,
+    getHistoryDocument: () => live,
+    applyDocument: (document) => {
+      live = document;
+    },
+    commitHistory: (document) => history.commit(document),
+    confirm: () => true,
+    request: () => undefined,
+    onError: () => assert.fail("unexpected refresh error"),
+    createRequestId: () => "refresh-1",
+  });
+  const [node] = canvasDocumentToFlow(live).nodes;
+
+  assert.equal(refresh.request(node, noteActionLabels), "refresh-1");
+  assert.equal(
+    refresh.resolve("refresh-1", "source-note", {
       kind: "note",
       source: { library: { type: "user" }, noteKey: "NOTE1234" },
       sourceSnapshot: { title: "Current title" },
       content: "Current Zotero text",
-    },
+    }),
+    true,
   );
-  assert.ok(afterConfirmedRefresh);
-  history.commit(before);
 
-  const refreshed = afterConfirmedRefresh.nodes[0];
+  const refreshed = live.nodes[0];
   assert.equal(
     refreshed.kind === "note" && refreshed.content,
     "Current Zotero text",
@@ -485,7 +497,7 @@ test("confirmed Note refresh overwrites content and title in one undoable revisi
     title: "Current title",
   });
   assert.deepEqual(changes, [1]);
-  const afterUndo = history.undo(afterConfirmedRefresh);
+  const afterUndo = history.undo(live);
   assert.equal(
     afterUndo?.nodes[0].kind === "note" && afterUndo.nodes[0].content,
     "Local edit",
@@ -493,8 +505,8 @@ test("confirmed Note refresh overwrites content and title in one undoable revisi
   assert.deepEqual(changes, [1, 2]);
 });
 
-test("failed or mismatched Note refresh preserves the complete document", () => {
-  const before: CanvasDocument = {
+test("reversed same-Note refresh replies apply only the latest confirmed request", () => {
+  let live: CanvasDocument = {
     ...EMPTY,
     nodes: [
       {
@@ -508,18 +520,209 @@ test("failed or mismatched Note refresh preserves the complete document", () => 
       },
     ],
   };
+  const changes: number[] = [];
+  const history = new CanvasDocumentHistory((revision) =>
+    changes.push(revision),
+  );
+  const requestIds = ["refresh-old", "refresh-new"];
+  const refresh = createNoteRefreshRuntime({
+    getWorkingDocument: () => live,
+    getHistoryDocument: () => live,
+    applyDocument: (document) => {
+      live = document;
+    },
+    commitHistory: (document) => history.commit(document),
+    confirm: () => true,
+    request: () => undefined,
+    onError: () => assert.fail("unexpected refresh error"),
+    createRequestId: () => requestIds.shift()!,
+  });
+  const [node] = canvasDocumentToFlow(live).nodes;
+
+  assert.equal(refresh.request(node, noteActionLabels), "refresh-old");
+  assert.equal(refresh.request(node, noteActionLabels), "refresh-new");
   assert.equal(
-    applyConfirmedNoteRefresh(before, "source-note", {
+    refresh.resolve("refresh-new", "source-note", {
+      kind: "note",
+      source: { library: { type: "user" }, noteKey: "NOTE1234" },
+      content: "Newer Zotero text",
+    }),
+    true,
+  );
+  assert.equal(
+    refresh.resolve("refresh-old", "source-note", {
+      kind: "note",
+      source: { library: { type: "user" }, noteKey: "NOTE1234" },
+      content: "Older Zotero text",
+    }),
+    false,
+  );
+
+  assert.equal(
+    live.nodes[0].kind === "note" && live.nodes[0].content,
+    "Newer Zotero text",
+  );
+  assert.deepEqual(changes, [1]);
+  const previous = history.undo(live);
+  assert.equal(
+    previous?.nodes[0].kind === "note" && previous.nodes[0].content,
+    "Local edit",
+  );
+});
+
+test("Note refresh preserves a pending acquisition until its later reply resolves", () => {
+  const initial: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "source-note",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Local edit",
+        source: { library: { type: "user" }, noteKey: "NOTE1234" },
+      },
+    ],
+  };
+  let { nodes, edges } = canvasDocumentToFlow(initial);
+  const history = new CanvasDocumentHistory(() => undefined);
+  let acquisition: ReturnType<typeof createAcademicAcquisitionRuntime>;
+  const liveDocument = () =>
+    flowToCanvasDocument(nodes, edges, { x: 0, y: 0, zoom: 1 });
+  const canonicalDocument = () =>
+    runtimeModule.omitAcademicPlaceholders(
+      liveDocument(),
+      acquisition.pendingNodeIds(),
+    );
+  acquisition = createAcademicAcquisitionRuntime({
+    getNodes: () => nodes,
+    setNodes: (next) => {
+      nodes = next;
+    },
+    getEdges: () => edges,
+    setEdges: (next) => {
+      edges = next;
+    },
+    pushHistory: () => history.push(canonicalDocument()),
+    changed: () => history.changed(),
+    onError: () => assert.fail("unexpected acquisition error"),
+    onPickAcademicSource: () => assert.fail("unexpected picker"),
+    onDropAcademicSources: () => undefined,
+  });
+  const refresh = createNoteRefreshRuntime({
+    getWorkingDocument: liveDocument,
+    getHistoryDocument: canonicalDocument,
+    applyDocument: (document) => {
+      const flow = canvasDocumentToFlow(document);
+      nodes = flow.nodes;
+      edges = flow.edges;
+    },
+    commitHistory: (document) => history.commit(document),
+    confirm: () => true,
+    request: () => undefined,
+    onError: () => assert.fail("unexpected refresh error"),
+    createRequestId: () => "refresh-1",
+  });
+
+  acquisition.dropLiterature(
+    "drop-1",
+    "literature-pending",
+    { x: 320, y: 0 },
+    { text: "11" },
+  );
+  const note = nodes.find((node) => node.id === "source-note")!;
+  refresh.request(note, noteActionLabels);
+  assert.equal(
+    refresh.resolve("refresh-1", "source-note", {
+      kind: "note",
+      source: { library: { type: "user" }, noteKey: "NOTE1234" },
+      content: "Current Zotero text",
+    }),
+    true,
+  );
+  assert.equal(
+    nodes.some((node) => node.id === "literature-pending"),
+    true,
+  );
+
+  acquisition.resolve("drop-1", "literature-pending", {
+    kind: "literature",
+    source: { library: { type: "user" }, itemKey: "ITEM1234" },
+    snapshot: { title: "Later Literature" },
+  });
+  assert.equal(
+    nodes.find((node) => node.id === "literature-pending")?.data.model.kind,
+    "literature",
+  );
+  assert.equal(
+    nodes.find((node) => node.id === "source-note")?.data.model.kind ===
+      "note" &&
+      nodes.find((node) => node.id === "source-note")?.data.model.content,
+    "Current Zotero text",
+  );
+});
+
+test("the app binds Note refresh mutation to live state and history to canonical state", () => {
+  assert.match(
+    appSource,
+    /createNoteRefreshRuntime\(\{[\s\S]*getWorkingDocument: workingSnapshot,[\s\S]*getHistoryDocument: snapshotNow,/,
+  );
+  assert.doesNotMatch(
+    callbackSource("applyNoteRefresh") ?? "",
+    /snapshotNow\(\)/,
+  );
+});
+
+test("failed or mismatched Note refresh preserves the complete document", () => {
+  let live: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "source-note",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Local edit",
+        source: { library: { type: "user" }, noteKey: "NOTE1234" },
+      },
+    ],
+  };
+  const changes: number[] = [];
+  const requests = ["refresh-mismatch", "refresh-failure"];
+  const refresh = createNoteRefreshRuntime({
+    getWorkingDocument: () => live,
+    getHistoryDocument: () => live,
+    applyDocument: (document) => {
+      live = document;
+    },
+    commitHistory: () => assert.fail("failure must not commit history"),
+    confirm: () => true,
+    request: () => undefined,
+    onError: () => undefined,
+    createRequestId: () => requests.shift()!,
+  });
+  const [node] = canvasDocumentToFlow(live).nodes;
+  refresh.request(node, noteActionLabels);
+  assert.equal(
+    refresh.resolve("refresh-mismatch", "source-note", {
       kind: "note",
       source: { library: { type: "user" }, noteKey: "OTHER123" },
       content: "Wrong source",
     }),
-    undefined,
+    false,
+  );
+  refresh.request(node, noteActionLabels);
+  assert.equal(
+    refresh.reject("refresh-failure", "source-note", "Missing"),
+    true,
   );
   assert.equal(
-    before.nodes[0].kind === "note" && before.nodes[0].content,
+    live.nodes[0].kind === "note" && live.nodes[0].content,
     "Local edit",
   );
+  assert.deepEqual(changes, []);
 });
 
 test("a rejected Literature acquisition removes only its placeholder", () => {

@@ -109,3 +109,72 @@ declared before Task 5.
   save revision.
 - Background source updates remain outside undo/save history.
 - No hard-coded CJK text was added to the isolated whiteboard package.
+
+## Review Fixes
+
+The initial Task 5 review identified two race conditions:
+
+1. request IDs were correlated independently, so two confirmed refreshes for
+   one Note could both apply when replies arrived newest-first;
+2. refresh mutated `snapshotNow()`, whose persistence transform omits pending
+   academic placeholders, then applied that stripped snapshot back to live
+   state.
+
+### Review RED
+
+Added production-path tests around the same `createNoteRefreshRuntime()` used
+by `WhiteboardApp`:
+
+- two confirmed refreshes for one Note, reversed replies, newest content wins,
+  stale reply returns without a second commit;
+- a live Literature acquisition placeholder survives a Note refresh and its
+  later acquisition reply still resolves;
+- successful refresh, mismatched response, and host failure now exercise the
+  runtime callback rather than manually composing the immutable helper and
+  history;
+- static app wiring proves live `workingSnapshot` is the mutation source and
+  canonical `snapshotNow` is only the pre-refresh history source.
+
+```text
+pnpm exec tsx --test test/whiteboard-app-state.test.ts
+```
+
+RED result: exit 1, 42 passed and 4 failed because the production Note refresh
+runtime with node-scoped ownership and split snapshots did not exist.
+
+### Review GREEN
+
+`createNoteRefreshRuntime()` now owns both a request table and a latest-request
+index per node. Confirming a replacement refresh invalidates the older request.
+Resolution verifies request ID, node ID, and the complete native Note source
+key before mutating. Stale or mismatched replies commit nothing.
+
+The runtime receives separate bindings for the live working document and the
+canonical history document. It updates the live document, preserving pending
+placeholders, while committing only the canonical pre-refresh snapshot for
+undo/save history.
+
+Focused verification:
+
+```text
+pnpm exec tsx --test test/whiteboard-app-state.test.ts test/whiteboard-localization.test.ts test/whiteboard-save-integration.test.ts test/whiteboard-source-gateway.test.ts test/whiteboard-bootstrap.test.ts
+```
+
+Result: exit 0, 78 passed, 0 failed.
+
+Full unit verification:
+
+```text
+pnpm run test:unit
+```
+
+Result: exit 0, 515 passed, 0 failed.
+
+Final static verification:
+
+```text
+pnpm exec tsc --noEmit
+git diff --check
+```
+
+Result: both exited 0.

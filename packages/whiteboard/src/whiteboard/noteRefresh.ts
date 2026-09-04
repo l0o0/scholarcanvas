@@ -8,6 +8,37 @@ type NoteRefreshLabels = Pick<
   WhiteboardLabels,
   "noteOverwriteTitle" | "noteOverwriteBody"
 >;
+type NoteRefreshRuntimeLabels = NoteRefreshLabels &
+  Pick<WhiteboardLabels, "sourceMissing">;
+
+export interface NoteRefreshRuntimeBindings {
+  getWorkingDocument: () => CanvasDocument;
+  getHistoryDocument: () => CanvasDocument;
+  applyDocument: (document: CanvasDocument) => void;
+  commitHistory: (document: CanvasDocument) => void;
+  confirm: (warning: string) => boolean;
+  request: (
+    requestId: string,
+    nodeId: string,
+    source: NoteAcquisition["source"],
+  ) => void;
+  onError: (message: string) => void;
+  createRequestId: () => string;
+}
+
+export interface NoteRefreshRuntime {
+  request(
+    node: CanvasFlowNode,
+    labels: NoteRefreshRuntimeLabels,
+  ): string | undefined;
+  resolve(
+    requestId: string,
+    nodeId: string,
+    acquisition: NoteAcquisition,
+  ): boolean;
+  reject(requestId: string, nodeId: string, message: string): boolean;
+  clear(): void;
+}
 
 export function requestConfirmedNoteRefresh(
   node: CanvasFlowNode,
@@ -60,4 +91,86 @@ export function applyConfirmedNoteRefresh(
   const nodes = document.nodes.slice();
   nodes[index] = refreshed;
   return { ...document, nodes };
+}
+
+export function createNoteRefreshRuntime(
+  bindings: NoteRefreshRuntimeBindings,
+): NoteRefreshRuntime {
+  const pending = new Map<
+    string,
+    { nodeId: string; sourceKey: string; invalidSourceMessage: string }
+  >();
+  const latestByNode = new Map<string, string>();
+
+  const invalidate = (requestId: string, nodeId: string): void => {
+    pending.delete(requestId);
+    if (latestByNode.get(nodeId) === requestId) latestByNode.delete(nodeId);
+  };
+
+  return {
+    request(node, labels) {
+      return requestConfirmedNoteRefresh(
+        node,
+        labels,
+        bindings.confirm,
+        (requestId, nodeId, source) => {
+          const superseded = latestByNode.get(nodeId);
+          if (superseded) pending.delete(superseded);
+          latestByNode.set(nodeId, requestId);
+          pending.set(requestId, {
+            nodeId,
+            sourceKey: sourceCacheKey({ kind: "note", source }),
+            invalidSourceMessage: labels.sourceMissing,
+          });
+          bindings.request(requestId, nodeId, source);
+        },
+        bindings.createRequestId,
+      );
+    },
+    resolve(requestId, nodeId, acquisition) {
+      const expected = pending.get(requestId);
+      if (
+        !expected ||
+        expected.nodeId !== nodeId ||
+        latestByNode.get(nodeId) !== requestId
+      ) {
+        return false;
+      }
+      invalidate(requestId, nodeId);
+      const acquisitionKey = sourceCacheKey({
+        kind: "note",
+        source: acquisition.source,
+      });
+      if (expected.sourceKey !== acquisitionKey) {
+        bindings.onError(expected.invalidSourceMessage);
+        return false;
+      }
+      const working = bindings.getWorkingDocument();
+      const refreshed = applyConfirmedNoteRefresh(working, nodeId, acquisition);
+      if (!refreshed) {
+        bindings.onError(expected.invalidSourceMessage);
+        return false;
+      }
+      bindings.commitHistory(bindings.getHistoryDocument());
+      bindings.applyDocument(refreshed);
+      return true;
+    },
+    reject(requestId, nodeId, message) {
+      const expected = pending.get(requestId);
+      if (
+        !expected ||
+        expected.nodeId !== nodeId ||
+        latestByNode.get(nodeId) !== requestId
+      ) {
+        return false;
+      }
+      invalidate(requestId, nodeId);
+      bindings.onError(message);
+      return true;
+    },
+    clear() {
+      pending.clear();
+      latestByNode.clear();
+    },
+  };
 }

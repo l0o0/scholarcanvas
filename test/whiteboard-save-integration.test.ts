@@ -90,6 +90,14 @@ test("new Zotero acquisition uses the academic gateway without Attachment paths"
   assert.doesNotMatch(tab, /editor\.rejectPick/);
 });
 
+test("generic Zotero acquisition accepts Notes and refreshes them through the source gateway", () => {
+  assert.match(tab, /candidate\.isRegularItem\(\) \|\| candidate\.isNote\(\)/);
+  assert.match(tab, /gateway\.acquireItem\(item\)/);
+  assert.match(tab, /gateway\.refreshNote\(source\)/);
+  assert.match(tab, /applyNoteRefresh/);
+  assert.doesNotMatch(tab, /gateway\.acquireItem\([^)]*isAttachment/);
+});
+
 test("generic Zotero drops parse every encoded item id once", () => {
   assert.deepEqual(
     parseDroppedItemIDs({

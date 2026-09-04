@@ -24,6 +24,11 @@ interface AcademicMessageTarget {
     generation: number,
     results: SourceResolutionResult[],
   ) => void;
+  applyNoteRefresh: (
+    requestId: string,
+    nodeId: string,
+    acquisition: Extract<AcademicAcquisition, { kind: "note" }>,
+  ) => void;
 }
 
 export function forwardAcademicParentMessage(
@@ -50,6 +55,14 @@ export function forwardAcademicParentMessage(
     target?.applySourceResolutionBatch(
       data.payload.generation,
       data.payload.results,
+    );
+    return true;
+  }
+  if (data.type === "noteRefreshed") {
+    target?.applyNoteRefresh(
+      data.payload.requestId,
+      data.payload.nodeId,
+      data.payload.acquisition,
     );
     return true;
   }

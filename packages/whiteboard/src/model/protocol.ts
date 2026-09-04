@@ -60,6 +60,17 @@ export interface WhiteboardLabels {
   kindFrame: string;
   annotationColor: string;
   annotations: { one: string; other: string };
+  sourceStatus: string;
+  sourceAvailable: string;
+  sourceLoading: string;
+  sourceMissing: string;
+  openSource: string;
+  refreshSource: string;
+  refreshNote: string;
+  noteOverwriteTitle: string;
+  noteOverwriteBody: string;
+  confirm: string;
+  cancel: string;
   eraser: string;
   undo: string;
   redo: string;

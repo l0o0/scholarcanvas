@@ -56,6 +56,17 @@ const hostKeys = [
   "whiteboard-kind-frame",
   "whiteboard-annotation-color",
   "whiteboard-annotations",
+  "whiteboard-source-status",
+  "whiteboard-source-available",
+  "whiteboard-source-loading",
+  "whiteboard-source-missing",
+  "whiteboard-open-source",
+  "whiteboard-refresh-source",
+  "whiteboard-refresh-note",
+  "whiteboard-note-overwrite-title",
+  "whiteboard-note-overwrite-body",
+  "whiteboard-confirm",
+  "whiteboard-cancel",
   "whiteboard-shortcut-question",
   "whiteboard-shortcut-claim",
   "whiteboard-shortcut-frame",
@@ -101,6 +112,17 @@ test("host wires every academic label into the whiteboard protocol", () => {
     ["kindClaim", "whiteboard-kind-claim"],
     ["kindFrame", "whiteboard-kind-frame"],
     ["annotationColor", "whiteboard-annotation-color"],
+    ["sourceStatus", "whiteboard-source-status"],
+    ["sourceAvailable", "whiteboard-source-available"],
+    ["sourceLoading", "whiteboard-source-loading"],
+    ["sourceMissing", "whiteboard-source-missing"],
+    ["openSource", "whiteboard-open-source"],
+    ["refreshSource", "whiteboard-refresh-source"],
+    ["refreshNote", "whiteboard-refresh-note"],
+    ["noteOverwriteTitle", "whiteboard-note-overwrite-title"],
+    ["noteOverwriteBody", "whiteboard-note-overwrite-body"],
+    ["confirm", "whiteboard-confirm"],
+    ["cancel", "whiteboard-cancel"],
     ["shortcutQuestion", "whiteboard-shortcut-question"],
     ["shortcutClaim", "whiteboard-shortcut-claim"],
     ["shortcutFrame", "whiteboard-shortcut-frame"],
@@ -130,7 +152,7 @@ test("annotation labels use Fluent plural selection", () => {
   }
 });
 
-test("host picker protocol excludes local academic notes", () => {
+test("host picker protocol keeps the Note toolbar local while accepting Zotero Notes generically", () => {
   const protocol = readFileSync(
     "packages/whiteboard/src/model/protocol.ts",
     "utf8",
@@ -139,7 +161,8 @@ test("host picker protocol excludes local academic notes", () => {
   const tab = readFileSync("src/modules/whiteboard/tab.ts", "utf8");
   assert.doesNotMatch(protocol, /"item" \| "pdf" \| "note" \| "attachment"/);
   assert.doesNotMatch(editor, /"item" \| "pdf" \| "note" \| "attachment"/);
-  assert.doesNotMatch(tab, /if \(kind === "note"\)/);
+  assert.match(tab, /item\.isRegularItem\(\) \|\| item\.isNote\(\)/);
+  assert.doesNotMatch(protocol, /kind: "literature" \| "note"/);
 });
 
 test("isolated whiteboard package contains no hard-coded CJK text", () => {

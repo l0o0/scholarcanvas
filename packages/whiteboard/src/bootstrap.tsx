@@ -37,6 +37,7 @@ function postToParent(message: {
     | "resolveAcademicSources"
     | "openItem"
     | "dropAcademicSources"
+    | "refreshZoteroNote"
     | "exportFile";
   payload?: unknown;
 }) {
@@ -187,6 +188,12 @@ function boot() {
         postToParent({
           type: "resolveAcademicSources",
           payload: { requestId, generation, priority, sources },
+        })
+      }
+      onRefreshZoteroNote={(requestId, nodeId, source) =>
+        postToParent({
+          type: "refreshZoteroNote",
+          payload: { requestId, nodeId, source },
         })
       }
       onExportFile={(payload) => postToParent({ type: "exportFile", payload })}

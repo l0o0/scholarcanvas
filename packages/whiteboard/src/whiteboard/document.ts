@@ -420,6 +420,11 @@ export class CanvasDocumentHistory {
     this.future = [];
   }
 
+  commit(document: CanvasDocument) {
+    this.push(document);
+    this.changed();
+  }
+
   replace() {
     this.history = [];
     this.future = [];

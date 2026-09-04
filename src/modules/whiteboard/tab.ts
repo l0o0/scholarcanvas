@@ -3,7 +3,11 @@ import { getString } from "../../utils/locale";
 import { ensureDOMGlobals } from "../../utils/dom";
 import { createWhiteboardEditor } from "./editor";
 import { readCanvasFile, writeCanvasFile } from "./file-io";
-import { parseCanvasDocument, type CanvasDocument } from "./snapshot";
+import {
+  parseCanvasDocument,
+  type CanvasDocument,
+  type NoteSource,
+} from "./snapshot";
 import { whiteboardChannel } from "./protocol";
 import { WhiteboardSaveCoordinator } from "./save-coordinator";
 import { whiteboardRegistry, type WhiteboardSession } from "./session-registry";
@@ -165,7 +169,7 @@ async function handlePickAcademicSource(
   const editor = session.editor;
   if (!editor) return;
   try {
-    const itemIDs = pickZoteroItem(session.win, { onlyRegularItems: true });
+    const itemIDs = pickZoteroItem(session.win);
     if (!itemIDs) {
       editor.rejectAcademicRequest(
         requestId,
@@ -176,8 +180,8 @@ async function handlePickAcademicSource(
     }
     const item = Zotero.Items.get(itemIDs[0]);
     if (!item) throw new Error("Item not found");
-    if (kind !== "literature" || !item.isRegularItem()) {
-      throw new Error("Selected item is not a regular item");
+    if (kind !== "literature" || !(item.isRegularItem() || item.isNote())) {
+      throw new Error("Select a regular Zotero item or Note");
     }
     const gateway = createZoteroSourceGateway();
     const acquisition = gateway.acquireItem(item);
@@ -276,9 +280,11 @@ async function handleDropAcademicSources(
     const items = itemIDs
       .map((itemID) => Zotero.Items.get(itemID))
       .filter((item): item is Zotero.Item => !!item);
-    const item = items.find((candidate) => candidate.isRegularItem());
+    const item = items.find(
+      (candidate) => candidate.isRegularItem() || candidate.isNote(),
+    );
     for (const unsupported of items.filter(
-      (candidate) => !candidate.isRegularItem(),
+      (candidate) => !(candidate.isRegularItem() || candidate.isNote()),
     )) {
       toast(
         unsupported.isAttachment()
@@ -286,10 +292,31 @@ async function handleDropAcademicSources(
           : "This Zotero item type cannot be added to the canvas.",
       );
     }
-    if (!item) throw new Error("Drop a regular Zotero item to add Literature");
+    if (!item) throw new Error("Drop a regular Zotero item or Note");
     const gateway = createZoteroSourceGateway();
     const acquisition = gateway.acquireItem(item);
     editor.resolveAcademicAcquisition(requestId, nodeId, acquisition);
+  } catch (error) {
+    editor.rejectAcademicRequest(
+      requestId,
+      nodeId,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+async function handleRefreshZoteroNote(
+  session: WhiteboardSession,
+  requestId: string,
+  nodeId: string,
+  source: NoteSource,
+) {
+  const editor = session.editor;
+  if (!editor) return;
+  try {
+    const gateway = createZoteroSourceGateway();
+    const acquisition = await gateway.refreshNote(source);
+    editor.applyNoteRefresh(requestId, nodeId, acquisition);
   } catch (error) {
     editor.rejectAcademicRequest(
       requestId,
@@ -542,6 +569,17 @@ function mountWhiteboardUI(
         one: getString("whiteboard-annotations", { args: { count: 1 } }),
         other: getString("whiteboard-annotations", { args: { count: 2 } }),
       },
+      sourceStatus: getString("whiteboard-source-status"),
+      sourceAvailable: getString("whiteboard-source-available"),
+      sourceLoading: getString("whiteboard-source-loading"),
+      sourceMissing: getString("whiteboard-source-missing"),
+      openSource: getString("whiteboard-open-source"),
+      refreshSource: getString("whiteboard-refresh-source"),
+      refreshNote: getString("whiteboard-refresh-note"),
+      noteOverwriteTitle: getString("whiteboard-note-overwrite-title"),
+      noteOverwriteBody: getString("whiteboard-note-overwrite-body"),
+      confirm: getString("whiteboard-confirm"),
+      cancel: getString("whiteboard-cancel"),
       eraser: getString("whiteboard-eraser"),
       undo: getString("whiteboard-undo"),
       redo: getString("whiteboard-redo"),
@@ -657,6 +695,9 @@ function mountWhiteboardUI(
           cacheKey,
         });
       }
+    },
+    onRefreshZoteroNote(requestId, nodeId, source) {
+      void handleRefreshZoteroNote(session, requestId, nodeId, source);
     },
     onExportFile(payload) {
       void handleExportFile(session, payload);

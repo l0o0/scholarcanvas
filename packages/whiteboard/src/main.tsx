@@ -22,6 +22,9 @@ createRoot(root).render(
       onDropAcademicSources={(requestId, nodeId) => {
         console.info("dropAcademicSources", { requestId, nodeId });
       }}
+      onRefreshZoteroNote={(requestId, nodeId, source) => {
+        console.info("refreshZoteroNote", { requestId, nodeId, source });
+      }}
       onExportFile={(payload) => console.info("exportFile", payload.format)}
     />
   </StrictMode>,

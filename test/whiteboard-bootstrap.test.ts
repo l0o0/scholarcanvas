@@ -61,6 +61,9 @@ test("protocol-v2 academic acquisition is forwarded across both bridge sides", (
   assert.match(editor, /data\.payload\.priority/);
   assert.match(editor, /applySourceResolutionBatch/);
   assert.match(editor, /type: "sourceResolutionBatch"/);
+  assert.match(bootstrap, /type: "refreshZoteroNote"/);
+  assert.match(editor, /case "refreshZoteroNote"/);
+  assert.match(editor, /type: "noteRefreshed"/);
 });
 
 test("academic bridge dispatch invokes the correlated runtime methods", () => {
@@ -77,6 +80,8 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
       calls.push(["reject", ...args]),
     applySourceResolutionBatch: (...args: unknown[]) =>
       calls.push(["resolution", ...args]),
+    applyNoteRefresh: (...args: unknown[]) =>
+      calls.push(["note-refresh", ...args]),
   };
   const acquired: ParentToWhiteboardMessage = {
     source: WHITEBOARD_MESSAGE_SOURCE,
@@ -115,14 +120,31 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
       ],
     },
   };
+  const noteRefresh: ParentToWhiteboardMessage = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "noteRefreshed",
+    payload: {
+      requestId: "refresh-1",
+      nodeId: "node-4",
+      acquisition: {
+        kind: "note",
+        source: { library: { type: "user" }, noteKey: "NOTE1234" },
+        content: "Current Zotero text",
+      },
+    },
+  };
 
   assert.equal(forwardAcademicParentMessage(runtime, acquired), true);
   assert.equal(forwardAcademicParentMessage(runtime, rejected), true);
   assert.equal(forwardAcademicParentMessage(runtime, resolution), true);
+  assert.equal(forwardAcademicParentMessage(runtime, noteRefresh), true);
   assert.deepEqual(calls, [
     ["resolve", "pick-1", "node-1", acquisition],
     ["reject", "pick-2", "node-2", "Cancelled"],
     ["resolution", 4, resolution.payload.results],
+    ["note-refresh", "refresh-1", "node-4", noteRefresh.payload.acquisition],
   ]);
 });
 

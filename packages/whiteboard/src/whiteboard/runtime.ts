@@ -166,19 +166,30 @@ export function resolveAcademicPlaceholder(
   nodeId: string,
   acquisition: AcademicAcquisition | LiteratureNode,
 ): CanvasFlowNode[] | undefined {
-  if (acquisition.kind !== "literature") return undefined;
+  if (acquisition.kind !== "literature" && acquisition.kind !== "note") {
+    return undefined;
+  }
   const placeholder = nodes.find((node) => node.id === nodeId);
   if (!placeholder) return undefined;
-  const literature =
+  const academic =
     "id" in acquisition
       ? acquisition
-      : createAcademicNode("literature", placeholder.position, nodeId, {
-          source: acquisition.source,
-          snapshot: acquisition.snapshot,
-        });
+      : acquisition.kind === "literature"
+        ? createAcademicNode("literature", placeholder.position, nodeId, {
+            source: acquisition.source,
+            snapshot: acquisition.snapshot,
+          })
+        : {
+            ...createAcademicNode("note", placeholder.position, nodeId),
+            source: acquisition.source,
+            ...(acquisition.sourceSnapshot
+              ? { sourceSnapshot: acquisition.sourceSnapshot }
+              : {}),
+            content: acquisition.content,
+          };
   const replacement = canvasDocumentToFlow({
     version: 2,
-    nodes: [literature],
+    nodes: [academic],
     connections: [],
   }).nodes[0];
   return nodes.map((node) =>

@@ -32,6 +32,7 @@ import {
   effectiveCanvasNodeUiTextStyle,
   type CanvasNode,
   type CanvasNodeKind,
+  type NoteSource,
 } from "../model/academic";
 import { createBasicNode } from "../model/basic";
 import {
@@ -111,6 +112,10 @@ import {
   updateSourceResolutionStates,
   type SourceResolutionRequest,
 } from "./sourceState";
+import {
+  applyConfirmedNoteRefresh,
+  requestConfirmedNoteRefresh,
+} from "./noteRefresh";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
   canvas: "Canvas",
@@ -136,6 +141,18 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   kindFrame: "Frame",
   annotationColor: "Annotation color",
   annotations: { one: "annotation", other: "annotations" },
+  sourceStatus: "Source status",
+  sourceAvailable: "Available",
+  sourceLoading: "Checking…",
+  sourceMissing: "Source unavailable",
+  openSource: "Open source",
+  refreshSource: "Refresh source",
+  refreshNote: "Refresh from Zotero",
+  noteOverwriteTitle: "Replace local Note?",
+  noteOverwriteBody:
+    "Zotero's current Note will replace local content. Local changes will be lost.",
+  confirm: "Replace",
+  cancel: "Cancel",
   eraser: "Eraser",
   undo: "Undo",
   redo: "Redo",
@@ -235,6 +252,11 @@ export interface WhiteboardAppProps {
     priority: SourceResolutionPriority,
     sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>,
   ) => void;
+  onRefreshZoteroNote: (
+    requestId: string,
+    nodeId: string,
+    source: NoteSource,
+  ) => void;
   onExportFile: (payload: {
     requestId: string;
     format: "png" | "svg" | "md";
@@ -264,6 +286,11 @@ export interface WhiteboardRuntime {
   applySourceResolutionBatch: (
     generation: number,
     results: SourceResolutionResult[],
+  ) => void;
+  applyNoteRefresh: (
+    requestId: string,
+    nodeId: string,
+    acquisition: Extract<AcademicAcquisition, { kind: "note" }>,
   ) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
@@ -371,12 +398,16 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     new Map<string, SourceResolutionPriority>(),
   );
   const sourceStatesRef = useRef(createSourceResolutionStates(initial.nodes));
+  const [, renderSourceState] = useState(0);
   const cancelIdleResolutionRef = useRef<(() => void) | null>(null);
   const [sourceCycle, setSourceCycle] = useState(1);
   const propsRef = useRef(props);
   propsRef.current = props;
   const academicAcquisitionRef = useRef<AcademicAcquisitionRuntime | null>(
     null,
+  );
+  const pendingNoteRefreshesRef = useRef(
+    new Map<string, { nodeId: string; source: NoteSource }>(),
   );
   const documentRuntime = useCanvasDocumentRuntime(
     initial,
@@ -482,6 +513,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         sourceStatesRef.current,
         requested.map(({ nodeId }) => ({ nodeId, status: "loading" })),
       );
+      if (requested.length) renderSourceState((revision) => revision + 1);
       sourceGenerationAnnouncedRef.current = generation;
       propsRef.current.onResolveAcademicSources?.(
         newId("source-resolution"),
@@ -532,6 +564,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const loadSnapshot = useCallback(
     (value: CanvasDocument) => {
       cancelIdleResolution();
+      pendingNoteRefreshesRef.current.clear();
       sourceGenerationRef.current += 1;
       sourcePrioritiesRef.current.clear();
       sourceStatesRef.current = createSourceResolutionStates(value.nodes);
@@ -560,9 +593,47 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               },
         ),
       );
+      renderSourceState((revision) => revision + 1);
       applyDocumentSourceResolutionBatch(generation, current);
     },
     [applyDocumentSourceResolutionBatch],
+  );
+
+  const refreshNoteSource = useCallback(
+    (node: CanvasFlowNode) => {
+      requestConfirmedNoteRefresh(
+        node,
+        labels,
+        (warning) => window.confirm(warning),
+        (requestId, nodeId, source) => {
+          pendingNoteRefreshesRef.current.set(requestId, { nodeId, source });
+          propsRef.current.onRefreshZoteroNote(requestId, nodeId, source);
+        },
+        () => newId("note-refresh"),
+      );
+    },
+    [labels],
+  );
+
+  const applyNoteRefresh = useCallback(
+    (
+      requestId: string,
+      nodeId: string,
+      acquisition: Extract<AcademicAcquisition, { kind: "note" }>,
+    ) => {
+      const pending = pendingNoteRefreshesRef.current.get(requestId);
+      if (!pending || pending.nodeId !== nodeId) return;
+      pendingNoteRefreshesRef.current.delete(requestId);
+      const current = snapshotNow();
+      const refreshed = applyConfirmedNoteRefresh(current, nodeId, acquisition);
+      if (!refreshed) {
+        propsRef.current.onError(labels.sourceMissing);
+        return;
+      }
+      documentHistory.commit(current);
+      applyDocument(refreshed);
+    },
+    [applyDocument, documentHistory, labels.sourceMissing, snapshotNow],
   );
 
   const applyNodePositions = useCallback(
@@ -1322,9 +1393,16 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         academicAcquisition.resolve(requestId, nodeId, acquisition);
       },
       rejectAcademicRequest(requestId, nodeId, message) {
+        const refresh = pendingNoteRefreshesRef.current.get(requestId);
+        if (refresh?.nodeId === nodeId) {
+          pendingNoteRefreshesRef.current.delete(requestId);
+          propsRef.current.onError(message);
+          return;
+        }
         academicAcquisition.reject(requestId, nodeId, message);
       },
       applySourceResolutionBatch,
+      applyNoteRefresh,
       setSaveState(state) {
         setSaveState(state);
       },
@@ -1334,6 +1412,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   }, [
     academicAcquisition,
     applySourceResolutionBatch,
+    applyNoteRefresh,
     loadSnapshot,
     redo,
     snapshotNow,
@@ -1423,12 +1502,22 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           labels={labels}
           node={
             selectedNodes.length === 1 &&
-            isLibraryKind(selectedNodes[0].data.model.kind)
+            (isLibraryKind(selectedNodes[0].data.model.kind) ||
+              selectedNodes[0].data.model.kind === "literature" ||
+              selectedNodes[0].data.model.kind === "quote" ||
+              selectedNodes[0].data.model.kind === "note")
               ? selectedNodes[0]
               : null
           }
+          sourceState={
+            selectedNodes.length === 1
+              ? sourceStatesRef.current.get(selectedNodes[0].id)
+              : undefined
+          }
           onEdit={startEdit}
           onOpen={openNode}
+          onRefreshSource={refreshNoteSource}
+          onViewAnnotations={() => undefined}
           onCopy={copyNode}
           onDelete={deleteNode}
         />

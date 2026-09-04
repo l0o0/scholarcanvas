@@ -44,6 +44,17 @@ whiteboard-annotations =
         [one] 条批注
        *[other] 条批注
     }
+whiteboard-source-status = 来源状态
+whiteboard-source-available = 可用
+whiteboard-source-loading = 正在检查…
+whiteboard-source-missing = 来源不可用
+whiteboard-open-source = 打开来源
+whiteboard-refresh-source = 刷新来源
+whiteboard-refresh-note = 从 Zotero 刷新
+whiteboard-note-overwrite-title = 替换本地笔记？
+whiteboard-note-overwrite-body = 将使用 Zotero 中的当前笔记替换本地内容。本地修改将会丢失。
+whiteboard-confirm = 替换
+whiteboard-cancel = 取消
 whiteboard-eraser = 橡皮擦
 whiteboard-edit-text = 编辑文字
 whiteboard-copy = 复制

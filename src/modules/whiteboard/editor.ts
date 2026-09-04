@@ -17,6 +17,7 @@ import {
   type WhiteboardToParentMessage,
 } from "./protocol";
 import type { CanvasDocument } from "./snapshot";
+import type { NoteSource } from "./snapshot";
 
 export interface WhiteboardHandle {
   ready: Promise<void>;
@@ -44,6 +45,11 @@ export interface WhiteboardHandle {
     generation: number,
     results: SourceResolutionResult[],
   ) => void;
+  applyNoteRefresh: (
+    requestId: string,
+    nodeId: string,
+    acquisition: Extract<AcademicAcquisition, { kind: "note" }>,
+  ) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
 
@@ -64,6 +70,7 @@ type PendingCommand = Extract<
       | "destroy"
       | "academicSourceAcquired"
       | "sourceResolutionBatch"
+      | "noteRefreshed"
       | "academicRequestFailed"
       | "saveState";
   }
@@ -99,6 +106,11 @@ export function createWhiteboardEditor(
       generation: number,
       priority: SourceResolutionPriority,
       sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>,
+    ) => void;
+    onRefreshZoteroNote?: (
+      requestId: string,
+      nodeId: string,
+      source: NoteSource,
     ) => void;
     onExportFile?: (payload: {
       requestId: string;
@@ -248,6 +260,13 @@ export function createWhiteboardEditor(
           data.payload.sources,
         );
         break;
+      case "refreshZoteroNote":
+        options.onRefreshZoteroNote?.(
+          data.payload.requestId,
+          data.payload.nodeId,
+          data.payload.source,
+        );
+        break;
       case "exportFile":
         options.onExportFile?.(data.payload);
         break;
@@ -340,6 +359,13 @@ export function createWhiteboardEditor(
         source: WHITEBOARD_MESSAGE_SOURCE,
         type: "sourceResolutionBatch",
         payload: { requestId, generation, results },
+      });
+    },
+    applyNoteRefresh(requestId, nodeId, acquisition) {
+      sendOrQueue({
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        type: "noteRefreshed",
+        payload: { requestId, nodeId, acquisition },
       });
     },
     setSaveState(state) {

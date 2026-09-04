@@ -44,6 +44,17 @@ whiteboard-annotations =
         [one] annotation
        *[other] annotations
     }
+whiteboard-source-status = Source status
+whiteboard-source-available = Available
+whiteboard-source-loading = Checking…
+whiteboard-source-missing = Source unavailable
+whiteboard-open-source = Open source
+whiteboard-refresh-source = Refresh source
+whiteboard-refresh-note = Refresh from Zotero
+whiteboard-note-overwrite-title = Replace local Note?
+whiteboard-note-overwrite-body = Zotero's current Note will replace local content. Local changes will be lost.
+whiteboard-confirm = Replace
+whiteboard-cancel = Cancel
 whiteboard-eraser = Eraser
 whiteboard-edit-text = Edit text
 whiteboard-copy = Copy

@@ -4,6 +4,7 @@ import test from "node:test";
 import { MarkerType } from "@xyflow/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { PropertiesPanel } from "../packages/whiteboard/src/chrome/PropertiesPanel.tsx";
 import {
   parseCanvasDocument,
   type CanvasDocument,
@@ -40,6 +41,12 @@ import {
   type CanvasDocumentRuntime,
 } from "../packages/whiteboard/src/whiteboard/runtime.ts";
 import * as runtimeModule from "../packages/whiteboard/src/whiteboard/runtime.ts";
+import {
+  applyConfirmedNoteRefresh,
+  requestConfirmedNoteRefresh,
+} from "../packages/whiteboard/src/whiteboard/noteRefresh.ts";
+import { applyResolvedAcquisition } from "../packages/whiteboard/src/whiteboard/sourceState.ts";
+import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
 
 type Assert<T extends true> = T;
 type _RuntimeLoadsCanvasDocument = Assert<
@@ -54,6 +61,34 @@ const EMPTY: CanvasDocument = {
   connections: [],
   viewport: { x: 0, y: 0, zoom: 1 },
 };
+
+const noteActionLabels = {
+  sourceStatus: "Source status",
+  sourceAvailable: "Available",
+  sourceLoading: "Checking…",
+  sourceMissing: "Source unavailable",
+  openSource: "Open source",
+  refreshSource: "Refresh source",
+  refreshNote: "Refresh from Zotero",
+  noteOverwriteTitle: "Replace local Note?",
+  noteOverwriteBody:
+    "Zotero's current Note will replace local content. Local changes will be lost.",
+  confirm: "Replace",
+  cancel: "Cancel",
+} satisfies Pick<
+  WhiteboardLabels,
+  | "sourceStatus"
+  | "sourceAvailable"
+  | "sourceLoading"
+  | "sourceMissing"
+  | "openSource"
+  | "refreshSource"
+  | "refreshNote"
+  | "noteOverwriteTitle"
+  | "noteOverwriteBody"
+  | "confirm"
+  | "cancel"
+>;
 
 const appSource = readFileSync(
   new URL("../packages/whiteboard/src/whiteboard/app.tsx", import.meta.url),
@@ -169,6 +204,322 @@ test("a Literature acquisition replaces its placeholder with native keys", () =>
   );
   assert.deepEqual(saved.nodes[0].position, { x: 48, y: 72 });
   assert.equal(JSON.stringify(saved).includes("itemID"), false);
+});
+
+test("standalone and child Zotero Notes replace generic acquisition placeholders", () => {
+  const placeholder = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "note-pending",
+        kind: "item",
+        position: { x: 48, y: 72 },
+        width: 240,
+        height: 96,
+        data: { title: "Loading…" },
+      },
+    ],
+  }).nodes;
+  const standalone = runtimeModule.resolveAcademicPlaceholder(
+    placeholder,
+    "note-pending",
+    {
+      kind: "note",
+      source: { library: { type: "user" }, noteKey: "NOTE1234" },
+      sourceSnapshot: { title: "Standalone" },
+      content: "Standalone text",
+    },
+  );
+  const child = runtimeModule.resolveAcademicPlaceholder(
+    placeholder,
+    "note-pending",
+    {
+      kind: "note",
+      source: {
+        library: { type: "group", groupID: 5 },
+        noteKey: "NOTE5678",
+        itemKey: "ITEM1234",
+      },
+      sourceSnapshot: { title: "Child Note" },
+      content: "Child text",
+    },
+  );
+
+  assert.equal(standalone?.[0].data.model.kind, "note");
+  assert.deepEqual(standalone?.[0].data.model, {
+    id: "note-pending",
+    kind: "note",
+    position: { x: 48, y: 72 },
+    width: 260,
+    height: 152,
+    source: { library: { type: "user" }, noteKey: "NOTE1234" },
+    sourceSnapshot: { title: "Standalone" },
+    content: "Standalone text",
+  });
+  assert.equal(child?.[0].data.model.kind, "note");
+  assert.deepEqual(
+    child?.[0].data.model.kind === "note" && child[0].data.model.source,
+    {
+      library: { type: "group", groupID: 5 },
+      noteKey: "NOTE5678",
+      itemKey: "ITEM1234",
+    },
+  );
+});
+
+test("background Note resolution updates source title without overwriting local content", () => {
+  const [node] = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "note-1",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Local edit",
+        source: { library: { type: "user" }, noteKey: "NOTE1234" },
+        sourceSnapshot: { title: "Old title" },
+      },
+    ],
+  }).nodes;
+
+  const afterBackgroundResolution = applyResolvedAcquisition(node, {
+    kind: "note",
+    source: { library: { type: "user" }, noteKey: "NOTE1234" },
+    sourceSnapshot: { title: "Current title" },
+    content: "Current Zotero text",
+  }).data.model;
+
+  assert.equal(
+    afterBackgroundResolution.kind === "note" &&
+      afterBackgroundResolution.content,
+    "Local edit",
+  );
+  assert.deepEqual(
+    afterBackgroundResolution.kind === "note" &&
+      afterBackgroundResolution.sourceSnapshot,
+    { title: "Current title" },
+  );
+});
+
+test("only source-backed Notes expose refresh in properties", () => {
+  const makeNode = (source: boolean) =>
+    canvasDocumentToFlow({
+      ...EMPTY,
+      nodes: [
+        {
+          id: source ? "source-note" : "local-note",
+          kind: "note",
+          position: { x: 0, y: 0 },
+          width: 260,
+          height: 152,
+          content: "Note",
+          ...(source
+            ? {
+                source: {
+                  library: { type: "user" as const },
+                  noteKey: "NOTE1234",
+                },
+              }
+            : {}),
+        },
+      ],
+    }).nodes[0];
+  const actions = (node: ReturnType<typeof makeNode>) =>
+    renderToStaticMarkup(
+      createElement(PropertiesPanel, {
+        labels: { ...({} as WhiteboardLabels), ...noteActionLabels },
+        node,
+        sourceState: { status: "resolved" },
+        onEdit: () => undefined,
+        onOpen: () => undefined,
+        onRefreshSource: () => undefined,
+        onViewAnnotations: () => undefined,
+        onCopy: () => undefined,
+        onDelete: () => undefined,
+      }),
+    );
+
+  const localNoteActions = actions(makeNode(false));
+  const sourceNoteActions = actions(makeNode(true));
+  assert.equal(localNoteActions.includes("Refresh from Zotero"), false);
+  assert.equal(sourceNoteActions.includes("Refresh from Zotero"), true);
+  assert.equal(sourceNoteActions.includes("Source status"), true);
+  assert.equal(sourceNoteActions.includes("Available"), true);
+  const unavailable = renderToStaticMarkup(
+    createElement(PropertiesPanel, {
+      labels: { ...({} as WhiteboardLabels), ...noteActionLabels },
+      node: makeNode(true),
+      sourceState: { status: "unavailable", message: "Item missing" },
+      onEdit: () => undefined,
+      onOpen: () => undefined,
+      onRefreshSource: () => undefined,
+      onViewAnnotations: () => undefined,
+      onCopy: () => undefined,
+      onDelete: () => undefined,
+    }),
+  );
+  assert.equal(unavailable.includes("Source unavailable"), true);
+  assert.equal(unavailable.includes('title="Item missing"'), true);
+});
+
+test("cancelled Note refresh posts nothing and uses the localized warning once", () => {
+  const [node] = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "source-note",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Local edit",
+        source: { library: { type: "user" }, noteKey: "NOTE1234" },
+      },
+    ],
+  }).nodes;
+  const warnings: string[] = [];
+  const requests: unknown[] = [];
+
+  const requested = requestConfirmedNoteRefresh(
+    node,
+    noteActionLabels,
+    (warning) => {
+      warnings.push(warning);
+      return false;
+    },
+    (...args) => requests.push(args),
+    () => "refresh-1",
+  );
+
+  assert.equal(requested, undefined);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /Replace local Note\?/);
+  assert.match(warnings[0], /Local changes will be lost\./);
+  assert.deepEqual(requests, []);
+});
+
+test("confirmed Note refresh posts one correlated source request", () => {
+  const [node] = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "source-note",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Local edit",
+        source: {
+          library: { type: "group", groupID: 5 },
+          noteKey: "NOTE1234",
+          itemKey: "ITEM1234",
+        },
+      },
+    ],
+  }).nodes;
+  const requests: unknown[] = [];
+
+  const requestId = requestConfirmedNoteRefresh(
+    node,
+    noteActionLabels,
+    () => true,
+    (...args) => requests.push(args),
+    () => "refresh-1",
+  );
+
+  assert.equal(requestId, "refresh-1");
+  assert.deepEqual(requests, [
+    [
+      "refresh-1",
+      "source-note",
+      {
+        library: { type: "group", groupID: 5 },
+        noteKey: "NOTE1234",
+        itemKey: "ITEM1234",
+      },
+    ],
+  ]);
+});
+
+test("confirmed Note refresh overwrites content and title in one undoable revision", () => {
+  const before: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "source-note",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Local edit",
+        source: { library: { type: "user" }, noteKey: "NOTE1234" },
+        sourceSnapshot: { title: "Old title" },
+      },
+    ],
+  };
+  const changes: number[] = [];
+  const history = new CanvasDocumentHistory((revision) =>
+    changes.push(revision),
+  );
+  const afterConfirmedRefresh = applyConfirmedNoteRefresh(
+    before,
+    "source-note",
+    {
+      kind: "note",
+      source: { library: { type: "user" }, noteKey: "NOTE1234" },
+      sourceSnapshot: { title: "Current title" },
+      content: "Current Zotero text",
+    },
+  );
+  assert.ok(afterConfirmedRefresh);
+  history.commit(before);
+
+  const refreshed = afterConfirmedRefresh.nodes[0];
+  assert.equal(
+    refreshed.kind === "note" && refreshed.content,
+    "Current Zotero text",
+  );
+  assert.deepEqual(refreshed.kind === "note" && refreshed.sourceSnapshot, {
+    title: "Current title",
+  });
+  assert.deepEqual(changes, [1]);
+  const afterUndo = history.undo(afterConfirmedRefresh);
+  assert.equal(
+    afterUndo?.nodes[0].kind === "note" && afterUndo.nodes[0].content,
+    "Local edit",
+  );
+  assert.deepEqual(changes, [1, 2]);
+});
+
+test("failed or mismatched Note refresh preserves the complete document", () => {
+  const before: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "source-note",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Local edit",
+        source: { library: { type: "user" }, noteKey: "NOTE1234" },
+      },
+    ],
+  };
+  assert.equal(
+    applyConfirmedNoteRefresh(before, "source-note", {
+      kind: "note",
+      source: { library: { type: "user" }, noteKey: "OTHER123" },
+      content: "Wrong source",
+    }),
+    undefined,
+  );
+  assert.equal(
+    before.nodes[0].kind === "note" && before.nodes[0].content,
+    "Local edit",
+  );
 });
 
 test("a rejected Literature acquisition removes only its placeholder", () => {

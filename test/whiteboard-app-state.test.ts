@@ -35,6 +35,7 @@ import {
 import { buildCanvasSvg } from "../packages/whiteboard/src/whiteboard/export.ts";
 import { captureCanvasArrowKey } from "../packages/whiteboard/src/whiteboard/keyboard.ts";
 import {
+  createAcademicAcquisitionRuntime,
   useCanvasDocumentRuntime,
   type CanvasDocumentRuntime,
 } from "../packages/whiteboard/src/whiteboard/runtime.ts";
@@ -406,16 +407,173 @@ test("out-of-order Literature replies preserve intervening edits one undo at a t
 });
 
 test("Literature placement requests the academic picker and commits once", () => {
-  assert.match(appSource, /onPickAcademicSource/);
-  assert.match(appSource, /kind:\s*"literature"/);
-  assert.match(appSource, /createAcademicNode\(\s*"literature"/);
-  assert.match(runtimeSource, /snapshotTransformRef\.current\(/);
-  assert.match(
-    appSource,
-    /pushHistory\(\);\s*pendingPicksRef\.current\.delete/s,
+  let nodes = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "keep",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Original edit",
+      },
+    ],
+  }).nodes;
+  let edges: ReturnType<typeof canvasDocumentToFlow>["edges"] = [];
+  let pushes = 0;
+  let changes = 0;
+  const picks: unknown[] = [];
+  const history = new CanvasDocumentHistory(() => {});
+  let acquisitionRuntime: ReturnType<typeof createAcademicAcquisitionRuntime>;
+  const canonical = () =>
+    runtimeModule.omitAcademicPlaceholders(
+      flowToCanvasDocument(nodes, edges, { x: 0, y: 0, zoom: 1 }),
+      acquisitionRuntime.pendingNodeIds(),
+    );
+  acquisitionRuntime = createAcademicAcquisitionRuntime({
+    getNodes: () => nodes,
+    setNodes: (next: typeof nodes) => {
+      nodes = next;
+    },
+    getEdges: () => edges,
+    setEdges: (next: typeof edges) => {
+      edges = next;
+    },
+    pushHistory: () => {
+      pushes += 1;
+      history.push(canonical());
+    },
+    changed: () => {
+      changes += 1;
+      history.changed();
+    },
+    onError: () => assert.fail("unexpected acquisition error"),
+    onPickAcademicSource: (...args: unknown[]) => picks.push(args),
+    onDropAcademicSources: () => assert.fail("unexpected drop"),
+  });
+
+  acquisitionRuntime.placeLiterature("pick-1", "literature-pending", {
+    x: 48,
+    y: 72,
+  });
+  assert.deepEqual(picks, [["pick-1", "literature-pending", "literature"]]);
+  assert.deepEqual(
+    nodes.map((node) => node.id),
+    ["keep", "literature-pending"],
   );
-  assert.doesNotMatch(appSource, /pending\.previous/);
-  assert.match(appSource, /rejectAcademicPlaceholder/);
+
+  nodes = nodes.map((node) =>
+    node.id === "keep"
+      ? updateFlowNodeModel(node, (model) =>
+          model.kind === "note"
+            ? { ...model, content: "Intervening edit" }
+            : model,
+        )
+      : node,
+  );
+  acquisitionRuntime.resolve("wrong-request", "literature-pending", {
+    kind: "literature",
+    source: { library: { type: "user" }, itemKey: "IGNORED12" },
+    snapshot: { title: "Ignored" },
+  });
+  acquisitionRuntime.resolve("pick-1", "literature-pending", {
+    kind: "literature",
+    source: { library: { type: "user" }, itemKey: "ABCD2345" },
+    snapshot: { title: "A source-key paper" },
+  });
+
+  const saved = flowToCanvasDocument(nodes, edges, { x: 0, y: 0, zoom: 1 });
+  assert.deepEqual(
+    saved.nodes.map((node) => node.kind),
+    ["note", "literature"],
+  );
+  assert.equal(
+    saved.nodes[0].kind === "note" && saved.nodes[0].content,
+    "Intervening edit",
+  );
+  assert.equal(pushes, 1);
+  assert.equal(changes, 1);
+  const previous = history.undo(saved);
+  assert.equal(previous?.nodes.length, 1);
+  assert.equal(
+    previous?.nodes[0].kind === "note" && previous.nodes[0].content,
+    "Intervening edit",
+  );
+  assert.equal(history.undo(previous!), undefined);
+
+  acquisitionRuntime.resolve("pick-1", "literature-pending", {
+    kind: "literature",
+    source: { library: { type: "user" }, itemKey: "DUPLICATE" },
+    snapshot: { title: "Duplicate" },
+  });
+  assert.equal(pushes, 1);
+});
+
+test("correlated Literature rejection removes its placeholder and incident edges", () => {
+  const flow = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "keep",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Keep me",
+      },
+    ],
+  });
+  let nodes = flow.nodes;
+  let edges = flow.edges;
+  const errors: string[] = [];
+  const acquisitionRuntime = createAcademicAcquisitionRuntime({
+    getNodes: () => nodes,
+    setNodes: (next: typeof nodes) => {
+      nodes = next;
+    },
+    getEdges: () => edges,
+    setEdges: (next: typeof edges) => {
+      edges = next;
+    },
+    pushHistory: () => assert.fail("rejection must not push history"),
+    changed: () => assert.fail("rejection must not mark a canonical change"),
+    onError: (message: string) => errors.push(message),
+    onPickAcademicSource: () => undefined,
+    onDropAcademicSources: () => undefined,
+  });
+
+  acquisitionRuntime.placeLiterature("pick-reject", "literature-pending", {
+    x: 48,
+    y: 72,
+  });
+  edges = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: flowToCanvasDocument(nodes, [], { x: 0, y: 0, zoom: 1 }).nodes,
+    connections: [
+      {
+        id: "pending-edge",
+        kind: "basic",
+        source: "keep",
+        target: "literature-pending",
+      },
+    ],
+  }).edges;
+
+  acquisitionRuntime.reject("other", "literature-pending", "Ignored");
+  assert.equal(nodes.length, 2);
+  assert.equal(edges.length, 1);
+  acquisitionRuntime.reject(
+    "pick-reject",
+    "literature-pending",
+    "Selection cancelled",
+  );
+  assert.deepEqual(
+    nodes.map((node) => node.id),
+    ["keep"],
+  );
+  assert.deepEqual(edges, []);
+  assert.deepEqual(errors, ["Selection cancelled"]);
 });
 
 test("canonical documents adapt to React Flow and back", () => {

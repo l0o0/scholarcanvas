@@ -13,7 +13,10 @@ import {
   type WhiteboardTheme,
 } from "./model/protocol";
 import { emptyCanvasDocument, type CanvasDocument } from "./model/document";
-import { createDeferredLabels } from "./bootstrapState";
+import {
+  createDeferredLabels,
+  forwardAcademicParentMessage,
+} from "./bootstrapState";
 
 const channel = new URL(window.location.href).searchParams.get("channel") || "";
 
@@ -54,6 +57,7 @@ function applyDocumentTheme(next: WhiteboardTheme) {
 }
 
 function handleParentMessage(data: ParentToWhiteboardMessage) {
+  if (forwardAcademicParentMessage(runtime, data)) return;
   switch (data.type) {
     case "init":
       applyDocumentTheme(data.payload.theme);
@@ -84,20 +88,6 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
     case "command":
       if (data.payload.command === "undo") runtime?.undo();
       if (data.payload.command === "redo") runtime?.redo();
-      break;
-    case "academicSourceAcquired":
-      runtime?.resolveAcademicAcquisition(
-        data.payload.requestId,
-        data.payload.nodeId,
-        data.payload.acquisition,
-      );
-      break;
-    case "academicRequestFailed":
-      runtime?.rejectAcademicRequest(
-        data.payload.requestId,
-        data.payload.nodeId,
-        data.payload.message,
-      );
       break;
     case "saveState":
       runtime?.setSaveState(data.payload.state);

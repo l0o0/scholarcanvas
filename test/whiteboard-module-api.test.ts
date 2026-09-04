@@ -5,11 +5,16 @@ import { createServer } from "../packages/whiteboard/node_modules/vite/dist/node
 test("app and node modules load with label layout helpers owned by the pure document API", async (t) => {
   const server = await createServer({
     root: "packages/whiteboard",
+    configFile: false,
     appType: "custom",
     logLevel: "silent",
+    optimizeDeps: { noDiscovery: true, include: [] },
     server: { middlewareMode: true },
   });
   t.after(() => server.close());
+
+  assert.equal(server.config.optimizeDeps.noDiscovery, true);
+  assert.deepEqual(server.config.optimizeDeps.include, []);
 
   const document = await server.ssrLoadModule("/src/whiteboard/document.ts");
   const shapes = await server.ssrLoadModule("/src/nodes/shapes.tsx");

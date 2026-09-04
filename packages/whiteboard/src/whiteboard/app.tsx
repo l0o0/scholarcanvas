@@ -97,11 +97,10 @@ import {
 } from "./frame";
 import { captureCanvasArrowKey } from "./keyboard";
 import {
+  createAcademicAcquisitionRuntime,
   omitAcademicPlaceholders,
-  rejectAcademicPlaceholder,
-  rejectAcademicPlaceholderConnections,
-  resolveAcademicPlaceholder,
   useCanvasDocumentRuntime,
+  type AcademicAcquisitionRuntime,
 } from "./runtime";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
@@ -267,10 +266,6 @@ interface DrawSession {
   pointerId: number;
 }
 
-interface PendingAcademicAcquisition {
-  nodeId: string;
-}
-
 function nodeSize(node: CanvasFlowNode) {
   return {
     width:
@@ -347,7 +342,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   > | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
-  const pendingPicksRef = useRef(new Map<string, PendingAcademicAcquisition>());
+  const academicAcquisitionRef = useRef<AcademicAcquisitionRuntime | null>(
+    null,
+  );
   const documentRuntime = useCanvasDocumentRuntime(
     initial,
     (revision) => propsRef.current.onChange(revision),
@@ -355,10 +352,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     (document) =>
       omitAcademicPlaceholders(
         document,
-        Array.from(
-          pendingPicksRef.current.values(),
-          (pending) => pending.nodeId,
-        ),
+        academicAcquisitionRef.current?.pendingNodeIds() ?? [],
       ),
   );
   const {
@@ -380,6 +374,22 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     undo,
     redo,
   } = documentRuntime;
+  if (!academicAcquisitionRef.current) {
+    academicAcquisitionRef.current = createAcademicAcquisitionRuntime({
+      getNodes: () => nodesRef.current,
+      setNodes,
+      getEdges: () => edgesRef.current,
+      setEdges,
+      pushHistory,
+      changed: bump,
+      onError: (message) => propsRef.current.onError(message),
+      onPickAcademicSource: (requestId, nodeId, kind) =>
+        propsRef.current.onPickAcademicSource(requestId, nodeId, kind),
+      onDropAcademicSources: (requestId, nodeId, raw) =>
+        propsRef.current.onDropAcademicSources(requestId, nodeId, raw),
+    });
+  }
+  const academicAcquisition = academicAcquisitionRef.current;
   const [theme, setTheme] = useState<WhiteboardTheme>(props.theme);
   const [labels, setLabels] = useState<WhiteboardLabels>(
     props.labels ?? DEFAULT_LABELS,
@@ -630,20 +640,8 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         }) ?? { x: 120, y: 120 };
       const nodeId = newId(kind);
       if (kind === "literature") {
-        const placeholder = canvasDocumentToFlow({
-          version: 2,
-          nodes: [
-            {
-              ...createBasicNode("item", center, nodeId),
-              data: { title: "Loading…" },
-            },
-          ],
-          connections: [],
-        }).nodes[0];
         const requestId = `pick-${nodeId}-${Date.now().toString(36)}`;
-        pendingPicksRef.current.set(requestId, { nodeId });
-        setNodes((current) => [...current, placeholder]);
-        propsRef.current.onPickAcademicSource(requestId, nodeId, "literature");
+        academicAcquisition.placeLiterature(requestId, nodeId, center);
         return;
       }
       pushHistory();
@@ -664,7 +662,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         setEditing({ nodeId, value: flowNodeText(created) });
       }
     },
-    [bump, pushHistory],
+    [academicAcquisition, bump, pushHistory],
   );
 
   const flowPoint = useCallback((clientX: number, clientY: number) => {
@@ -1054,43 +1052,32 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     [snapshotNow],
   );
 
-  const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setActiveTool("select");
-    const position = flowRef.current?.screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY,
-    }) ?? { x: 120, y: 120 };
-    const nodeId = newId("literature");
-    const requestId = `drop-${nodeId}-${Date.now().toString(36)}`;
-    pendingPicksRef.current.set(requestId, { nodeId });
-    setNodes((current) => [
-      ...current,
-      canvasDocumentToFlow({
-        version: 2,
-        nodes: [
-          {
-            ...createBasicNode("item", position, nodeId),
-            data: { title: "Loading…" },
-          },
-        ],
-        connections: [],
-      }).nodes[0],
-    ]);
-    const raw: Record<string, string> = Object.create(null) as Record<
-      string,
-      string
-    >;
-    const types = Array.from(event.dataTransfer?.types || []);
-    for (const type of types) {
-      try {
-        raw[type] = event.dataTransfer.getData(type);
-      } catch {
-        // ignore
+  const handleDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      setActiveTool("select");
+      const position = flowRef.current?.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      }) ?? { x: 120, y: 120 };
+      const nodeId = newId("literature");
+      const requestId = `drop-${nodeId}-${Date.now().toString(36)}`;
+      const raw: Record<string, string> = Object.create(null) as Record<
+        string,
+        string
+      >;
+      const types = Array.from(event.dataTransfer?.types || []);
+      for (const type of types) {
+        try {
+          raw[type] = event.dataTransfer.getData(type);
+        } catch {
+          // ignore
+        }
       }
-    }
-    propsRef.current.onDropAcademicSources(requestId, nodeId, raw);
-  }, []);
+      academicAcquisition.dropLiterature(requestId, nodeId, position, raw);
+    },
+    [academicAcquisition],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1185,42 +1172,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       undo,
       redo,
       resolveAcademicAcquisition(requestId, nodeId, acquisition) {
-        const pending = pendingPicksRef.current.get(requestId);
-        if (!pending || pending.nodeId !== nodeId) return;
-        const placeholder = nodesRef.current.find((node) => node.id === nodeId);
-        const literature =
-          acquisition.kind === "literature" && placeholder
-            ? createAcademicNode("literature", placeholder.position, nodeId, {
-                source: acquisition.source,
-                snapshot: acquisition.snapshot,
-              })
-            : undefined;
-        const resolved = literature
-          ? resolveAcademicPlaceholder(nodesRef.current, nodeId, literature)
-          : undefined;
-        if (!resolved) {
-          pendingPicksRef.current.delete(requestId);
-          setNodes((current) => rejectAcademicPlaceholder(current, nodeId));
-          setEdges((current) =>
-            rejectAcademicPlaceholderConnections(current, nodeId),
-          );
-          propsRef.current.onError("Invalid Zotero academic acquisition.");
-          return;
-        }
-        pushHistory();
-        pendingPicksRef.current.delete(requestId);
-        setNodes(resolved);
-        bump();
+        academicAcquisition.resolve(requestId, nodeId, acquisition);
       },
       rejectAcademicRequest(requestId, nodeId, message) {
-        const pending = pendingPicksRef.current.get(requestId);
-        if (!pending || pending.nodeId !== nodeId) return;
-        pendingPicksRef.current.delete(requestId);
-        setNodes((current) => rejectAcademicPlaceholder(current, nodeId));
-        setEdges((current) =>
-          rejectAcademicPlaceholderConnections(current, nodeId),
-        );
-        propsRef.current.onError(message);
+        academicAcquisition.reject(requestId, nodeId, message);
       },
       setSaveState(state) {
         setSaveState(state);
@@ -1228,7 +1183,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     };
     runtimeRef.current = runtime;
     propsRef.current.onReady(runtime);
-  }, [bump, loadSnapshot, pushHistory, redo, snapshotNow, undo]);
+  }, [academicAcquisition, loadSnapshot, redo, snapshotNow, undo]);
 
   useEffect(() => {
     setTheme(props.theme);

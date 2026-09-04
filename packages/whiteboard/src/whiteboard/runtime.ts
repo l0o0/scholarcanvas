@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { Viewport } from "@xyflow/react";
 import { createAcademicNode, type LiteratureNode } from "../model/academic";
+import { createBasicNode } from "../model/basic";
 import { parseCanvasDocument, type CanvasDocument } from "../model/document";
 import type { AcademicAcquisition } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
@@ -37,6 +38,111 @@ export interface CanvasDocumentRuntime {
   getSnapshot: () => CanvasDocument;
   undo: () => void;
   redo: () => void;
+}
+
+export interface AcademicAcquisitionRuntimeBindings {
+  getNodes: () => CanvasFlowNode[];
+  setNodes: (nodes: CanvasFlowNode[]) => void;
+  getEdges: () => CanvasFlowEdge[];
+  setEdges: (edges: CanvasFlowEdge[]) => void;
+  pushHistory: () => void;
+  changed: () => void;
+  onError: (message: string) => void;
+  onPickAcademicSource: (
+    requestId: string,
+    nodeId: string,
+    kind: "literature",
+  ) => void;
+  onDropAcademicSources: (
+    requestId: string,
+    nodeId: string,
+    raw: Record<string, string>,
+  ) => void;
+}
+
+export interface AcademicAcquisitionRuntime {
+  placeLiterature: (
+    requestId: string,
+    nodeId: string,
+    position: { x: number; y: number },
+  ) => void;
+  dropLiterature: (
+    requestId: string,
+    nodeId: string,
+    position: { x: number; y: number },
+    raw: Record<string, string>,
+  ) => void;
+  resolve: (
+    requestId: string,
+    nodeId: string,
+    acquisition: AcademicAcquisition,
+  ) => void;
+  reject: (requestId: string, nodeId: string, message: string) => void;
+  pendingNodeIds: () => string[];
+}
+
+export function createAcademicAcquisitionRuntime(
+  bindings: AcademicAcquisitionRuntimeBindings,
+): AcademicAcquisitionRuntime {
+  const pending = new Map<string, string>();
+
+  const addPlaceholder = (
+    requestId: string,
+    nodeId: string,
+    position: { x: number; y: number },
+  ) => {
+    pending.set(requestId, nodeId);
+    const placeholder = canvasDocumentToFlow({
+      version: 2,
+      nodes: [
+        {
+          ...createBasicNode("item", position, nodeId),
+          data: { title: "Loading…" },
+        },
+      ],
+      connections: [],
+    }).nodes[0];
+    bindings.setNodes([...bindings.getNodes(), placeholder]);
+  };
+
+  const reject = (requestId: string, nodeId: string, message: string) => {
+    if (pending.get(requestId) !== nodeId) return;
+    pending.delete(requestId);
+    bindings.setNodes(rejectAcademicPlaceholder(bindings.getNodes(), nodeId));
+    bindings.setEdges(
+      rejectAcademicPlaceholderConnections(bindings.getEdges(), nodeId),
+    );
+    bindings.onError(message);
+  };
+
+  return {
+    placeLiterature(requestId, nodeId, position) {
+      addPlaceholder(requestId, nodeId, position);
+      bindings.onPickAcademicSource(requestId, nodeId, "literature");
+    },
+    dropLiterature(requestId, nodeId, position, raw) {
+      addPlaceholder(requestId, nodeId, position);
+      bindings.onDropAcademicSources(requestId, nodeId, raw);
+    },
+    resolve(requestId, nodeId, acquisition) {
+      if (pending.get(requestId) !== nodeId) return;
+      const resolved = resolveAcademicPlaceholder(
+        bindings.getNodes(),
+        nodeId,
+        acquisition,
+      );
+      if (!resolved) {
+        reject(requestId, nodeId, "Invalid Zotero academic acquisition.");
+        return;
+      }
+      bindings.pushHistory();
+      pending.delete(requestId);
+      bindings.setNodes(resolved);
+      bindings.changed();
+    },
+    reject,
+    pendingNodeIds: () => Array.from(pending.values()),
+  };
 }
 
 export function resolveAcademicPlaceholder(

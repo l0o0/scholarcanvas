@@ -12,6 +12,7 @@ import {
   isWhiteboardProtocolMessageForChannel,
   whiteboardChannel,
   type ParentToWhiteboardMessage,
+  type SourceResolutionPriority,
   type WhiteboardToParentMessage,
 } from "../src/modules/whiteboard/protocol.ts";
 
@@ -27,12 +28,23 @@ type SnapshotDocument = Extract<
 type InitDocument = NonNullable<
   Extract<ParentToWhiteboardMessage, { type: "init" }>["payload"]["snapshot"]
 >;
+type ResolvePriority = Extract<
+  WhiteboardToParentMessage,
+  { type: "resolveAcademicSources" }
+>["payload"]["priority"];
 type _PickItemHasNoNote = Assert<"note" extends PickKind ? false : true>;
 type _SnapshotUsesSchemaV2 = Assert<
   SnapshotDocument extends { version: 2; nodes: unknown[] } ? true : false
 >;
 type _InitUsesSchemaV2 = Assert<
   InitDocument extends { version: 2; connections: unknown[] } ? true : false
+>;
+type _ResolvePriorityIsTyped = Assert<
+  ResolvePriority extends SourceResolutionPriority
+    ? SourceResolutionPriority extends ResolvePriority
+      ? true
+      : false
+    : false
 >;
 
 const literatureSource = {
@@ -156,6 +168,7 @@ const v2IframeMessages = [
     payload: {
       requestId: "request-8",
       generation: 5,
+      priority: "visible",
       sources: [
         {
           nodeId: "node-8",
@@ -287,6 +300,7 @@ test("protocol source uses CanvasDocument and typed Basic picker payloads", () =
   assert.match(source, /import type \{ CanvasDocument \} from "\.\/document"/);
   assert.match(source, /type BasicPickerPayload/);
   assert.match(source, /snapshot\?: CanvasDocument \| null/);
+  assert.match(source, /priority: SourceResolutionPriority/);
   assert.doesNotMatch(source, /noteID/);
 });
 

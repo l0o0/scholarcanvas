@@ -10,6 +10,7 @@ import {
   type AcademicAcquisition,
   type AcademicSourceDescriptor,
   type ParentToWhiteboardMessage,
+  type SourceResolutionPriority,
   type SourceResolutionResult,
   type WhiteboardLabels,
   type WhiteboardTheme,
@@ -96,6 +97,7 @@ export function createWhiteboardEditor(
     onResolveAcademicSources?: (
       requestId: string,
       generation: number,
+      priority: SourceResolutionPriority,
       sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>,
     ) => void;
     onExportFile?: (payload: {
@@ -242,6 +244,7 @@ export function createWhiteboardEditor(
         options.onResolveAcademicSources?.(
           data.payload.requestId,
           data.payload.generation,
+          data.payload.priority,
           data.payload.sources,
         );
         break;

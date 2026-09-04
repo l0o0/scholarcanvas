@@ -49,7 +49,16 @@ test("protocol-v2 academic acquisition is forwarded across both bridge sides", (
   assert.match(editor, /case "pickAcademicSource"/);
   assert.match(editor, /case "dropAcademicSources"/);
   assert.match(bootstrap, /onResolveAcademicSources/);
+  assert.match(
+    bootstrap,
+    /onResolveAcademicSources=\{\(requestId, generation, priority, sources\)/,
+  );
+  assert.match(
+    bootstrap,
+    /payload: \{ requestId, generation, priority, sources \}/,
+  );
   assert.match(editor, /case "resolveAcademicSources"/);
+  assert.match(editor, /data\.payload\.priority/);
   assert.match(editor, /applySourceResolutionBatch/);
   assert.match(editor, /type: "sourceResolutionBatch"/);
 });

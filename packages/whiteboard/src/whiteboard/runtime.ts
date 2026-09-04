@@ -87,6 +87,16 @@ export interface AcademicAcquisitionRuntime {
   pendingNodeIds: () => string[];
 }
 
+export function applySourceResolutionBatch(
+  setNodes: Dispatch<SetStateAction<CanvasFlowNode[]>>,
+  generation: number,
+  results: SourceResolutionResult[],
+): void {
+  setNodes((current) =>
+    applySourceResolutionResults(current, generation, results),
+  );
+}
+
 export function createAcademicAcquisitionRuntime(
   bindings: AcademicAcquisitionRuntimeBindings,
 ): AcademicAcquisitionRuntime {
@@ -307,11 +317,9 @@ export function useCanvasDocumentRuntime(
     [applyDocument, history],
   );
 
-  const applySourceResolutionBatch = useCallback(
+  const applyDocumentSourceResolutionBatch = useCallback(
     (generation: number, results: SourceResolutionResult[]) => {
-      setNodes((current) =>
-        applySourceResolutionResults(current, generation, results),
-      );
+      applySourceResolutionBatch(setNodes, generation, results);
     },
     [setNodes],
   );
@@ -340,7 +348,7 @@ export function useCanvasDocumentRuntime(
     pushHistory,
     applyDocument,
     loadSnapshot,
-    applySourceResolutionBatch,
+    applySourceResolutionBatch: applyDocumentSourceResolutionBatch,
     getRawSnapshot,
     getSnapshot,
     undo,

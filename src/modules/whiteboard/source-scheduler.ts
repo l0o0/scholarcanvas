@@ -1,9 +1,10 @@
 import type {
   AcademicSourceDescriptor,
+  SourceResolutionPriority,
   SourceResolutionResult,
 } from "./protocol";
 
-export type SourcePriority = "selected" | "visible" | "idle";
+export type SourcePriority = SourceResolutionPriority;
 
 export interface SourceResolutionJob {
   nodeId: string;
@@ -175,7 +176,7 @@ export class ProgressiveSourceScheduler {
     }
     void lookup.then(
       (result) => this.finish(source, result),
-      () => this.finish(source),
+      (error) => this.finish(source, failedResult(job, error)),
     );
   }
 
@@ -190,7 +191,9 @@ export class ProgressiveSourceScheduler {
       (waiter) => !this.cancelledGenerations.has(waiter.generation),
     );
     if (result && activeWaiters.length) {
-      this.completed.set(source.cacheKey, result);
+      if (result.status === "resolved") {
+        this.completed.set(source.cacheKey, result);
+      }
       for (const waiter of activeWaiters) {
         this.queueCompletion(copyResultForJob(result, waiter));
       }
@@ -232,6 +235,22 @@ function copyResultForJob(
   job: SourceResolutionJob,
 ): SourceResolutionResult {
   return { ...result, nodeId: job.nodeId, generation: job.generation };
+}
+
+function failedResult(
+  job: SourceResolutionJob,
+  error: unknown,
+): SourceResolutionResult {
+  return {
+    nodeId: job.nodeId,
+    generation: job.generation,
+    status: "unavailable",
+    code: "resolution-failed",
+    message:
+      error instanceof Error && error.message
+        ? error.message
+        : "Academic source resolution failed.",
+  };
 }
 
 function scheduleMicrotask(callback: () => void) {

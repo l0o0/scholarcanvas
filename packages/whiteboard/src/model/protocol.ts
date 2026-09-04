@@ -141,6 +141,8 @@ export type AcademicSourceDescriptor =
   | { kind: "note"; source: NoteSource }
   | { kind: "quote"; source: QuoteSource };
 
+export type SourceResolutionPriority = "selected" | "visible" | "idle";
+
 export type AcademicAcquisition =
   | {
       kind: "literature";
@@ -167,7 +169,11 @@ export type SourceResolutionResult =
       generation: number;
       status: "unavailable";
       code:
-        "library-missing" | "item-missing" | "wrong-kind" | "parent-mismatch";
+        | "library-missing"
+        | "item-missing"
+        | "wrong-kind"
+        | "parent-mismatch"
+        | "resolution-failed";
       message: string;
     };
 
@@ -302,6 +308,7 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
         payload: {
           requestId: string;
           generation: number;
+          priority: SourceResolutionPriority;
           sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>;
         };
       }

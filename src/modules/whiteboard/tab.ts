@@ -11,10 +11,7 @@ import { WHITEBOARD_TAB_TYPE } from "./tabHooks";
 import { isWhiteboardAttachment } from "./detect";
 import { createZoteroSourceGateway } from "./source-gateway";
 import { ProgressiveSourceScheduler } from "./source-scheduler";
-import {
-  sourceCacheKey,
-  sourceRequestPriority,
-} from "../../../packages/whiteboard/src/whiteboard/sourceState";
+import { sourceCacheKey } from "../../../packages/whiteboard/src/whiteboard/sourceState";
 
 const AUTOSAVE_MS = 800;
 
@@ -634,7 +631,7 @@ function mountWhiteboardUI(
     onDropAcademicSources(requestId, nodeId, raw) {
       void handleDropAcademicSources(session, requestId, nodeId, raw);
     },
-    onResolveAcademicSources(requestId, generation, sources) {
+    onResolveAcademicSources(_requestId, generation, priority, sources) {
       const scheduler = session.sourceScheduler;
       if (!scheduler) return;
       if (
@@ -649,7 +646,6 @@ function mountWhiteboardUI(
         }
         session.sourceGeneration = generation;
       }
-      const priority = sourceRequestPriority(requestId);
       for (const { nodeId, source } of sources) {
         const cacheKey = sourceCacheKey(source);
         scheduler.promote(cacheKey, priority);

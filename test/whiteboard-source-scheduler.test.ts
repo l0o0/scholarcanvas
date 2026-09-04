@@ -206,7 +206,7 @@ test("promotes queued cache keys without disturbing priority FIFO", async () => 
   assert.deepEqual(started, ["blocker", "promoted"]);
 });
 
-test("a rejected lookup does not stop unrelated work", async () => {
+test("a rejected lookup fans out unavailable results and continues the queue", async () => {
   const emitted: SourceResolutionResult[] = [];
   const started: string[] = [];
   const scheduler = new ProgressiveSourceScheduler({
@@ -219,14 +219,67 @@ test("a rejected lookup does not stop unrelated work", async () => {
     emit: (results) => emitted.push(...results),
   });
 
-  scheduler.enqueue(job("broken", "selected"));
+  scheduler.enqueue(job("broken", "selected", { nodeId: "broken-a" }));
+  scheduler.enqueue(job("broken", "visible", { nodeId: "broken-b" }));
   scheduler.enqueue(job("healthy", "visible"));
   await flushMicrotasks(16);
 
   assert.deepEqual(started, ["broken", "healthy"]);
+  assert.deepEqual(emitted, [
+    {
+      nodeId: "broken-a",
+      generation: 1,
+      status: "unavailable",
+      code: "resolution-failed",
+      message: "lookup failed",
+    },
+    {
+      nodeId: "broken-b",
+      generation: 1,
+      status: "unavailable",
+      code: "resolution-failed",
+      message: "lookup failed",
+    },
+    resolved(job("healthy", "visible")),
+  ]);
+});
+
+test("unavailable and thrown failures are retried by later generations", async () => {
+  let runs = 0;
+  const emitted: SourceResolutionResult[] = [];
+  const scheduler = new ProgressiveSourceScheduler({
+    run: async (next) => {
+      runs += 1;
+      if (runs === 1) {
+        return {
+          nodeId: next.nodeId,
+          generation: next.generation,
+          status: "unavailable",
+          code: "item-missing",
+          message: "Missing",
+        };
+      }
+      if (runs === 2) throw new Error("Temporary failure");
+      return resolved(next);
+    },
+    emit: (results) => emitted.push(...results),
+  });
+
+  scheduler.enqueue(job("retry", "selected", { generation: 1 }));
+  await flushMicrotasks();
+  scheduler.enqueue(job("retry", "selected", { generation: 2 }));
+  await flushMicrotasks();
+  scheduler.enqueue(job("retry", "selected", { generation: 3 }));
+  await flushMicrotasks();
+
+  assert.equal(runs, 3);
   assert.deepEqual(
-    emitted.map(({ nodeId }) => nodeId),
-    ["healthy-node"],
+    emitted.map(({ generation, status }) => [generation, status]),
+    [
+      [1, "unavailable"],
+      [2, "unavailable"],
+      [3, "resolved"],
+    ],
   );
 });
 
@@ -323,6 +376,8 @@ test("the host session composes gateway, scheduler, and resolution bridge", () =
   assert.match(tabSource, /cancelGeneration\(/);
   assert.match(tabSource, /applySourceResolutionBatch\(/);
   assert.match(editorSource, /case "resolveAcademicSources"/);
+  assert.match(editorSource, /data\.payload\.priority/);
+  assert.doesNotMatch(tabSource, /sourceRequestPriority/);
   assert.match(editorSource, /applySourceResolutionBatch:/);
   assert.match(editorSource, /type: "sourceResolutionBatch"/);
 });

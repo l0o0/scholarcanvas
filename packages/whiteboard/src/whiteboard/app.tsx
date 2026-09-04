@@ -42,6 +42,7 @@ import {
 import type {
   AcademicAcquisition,
   AcademicSourceDescriptor,
+  SourceResolutionPriority,
   SourceResolutionResult,
   WhiteboardLabels,
   WhiteboardTheme,
@@ -107,9 +108,7 @@ import {
 import {
   createSourceResolutionStates,
   prioritizedSourceRequests,
-  sourceResolutionRequestId,
   updateSourceResolutionStates,
-  type SourceRequestPriority,
   type SourceResolutionRequest,
 } from "./sourceState";
 
@@ -233,6 +232,7 @@ export interface WhiteboardAppProps {
   onResolveAcademicSources?: (
     requestId: string,
     generation: number,
+    priority: SourceResolutionPriority,
     sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>,
   ) => void;
   onExportFile: (payload: {
@@ -272,7 +272,7 @@ function newId(kind: string) {
   return `${kind}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 6)}`;
 }
 
-const SOURCE_PRIORITY_ORDER: Record<SourceRequestPriority, number> = {
+const SOURCE_PRIORITY_ORDER: Record<SourceResolutionPriority, number> = {
   selected: 0,
   visible: 1,
   idle: 2,
@@ -367,8 +367,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   > | null>(null);
   const sourceGenerationRef = useRef(1);
   const sourceGenerationAnnouncedRef = useRef(0);
-  const sourceRequestSequenceRef = useRef(0);
-  const sourcePrioritiesRef = useRef(new Map<string, SourceRequestPriority>());
+  const sourcePrioritiesRef = useRef(
+    new Map<string, SourceResolutionPriority>(),
+  );
   const sourceStatesRef = useRef(createSourceResolutionStates(initial.nodes));
   const cancelIdleResolutionRef = useRef<(() => void) | null>(null);
   const [sourceCycle, setSourceCycle] = useState(1);
@@ -458,7 +459,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
 
   const requestSources = useCallback(
     (
-      priority: SourceRequestPriority,
+      priority: SourceResolutionPriority,
       sources: readonly SourceResolutionRequest[],
       generation = sourceGenerationRef.current,
     ) => {
@@ -481,11 +482,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         sourceStatesRef.current,
         requested.map(({ nodeId }) => ({ nodeId, status: "loading" })),
       );
-      const sequence = sourceRequestSequenceRef.current++;
       sourceGenerationAnnouncedRef.current = generation;
       propsRef.current.onResolveAcademicSources?.(
-        sourceResolutionRequestId(priority, generation, sequence),
+        newId("source-resolution"),
         generation,
+        priority,
         requested,
       );
     },

@@ -9,14 +9,13 @@ import {
   canvasDocumentToFlow,
   flowToCanvasDocument,
 } from "../packages/whiteboard/src/whiteboard/document.ts";
+import { applySourceResolutionBatch } from "../packages/whiteboard/src/whiteboard/runtime.ts";
 import {
   applyResolvedAcquisition,
   createSourceResolutionStates,
   prioritizedSourceRequests,
   sourceCacheKey,
   sourceDescriptor,
-  sourceRequestPriority,
-  sourceResolutionRequestId,
   updateSourceResolutionStates,
   visibleSourceNodeIds,
 } from "../packages/whiteboard/src/whiteboard/sourceState.ts";
@@ -130,7 +129,7 @@ test("describes only source-backed academic nodes with stable cache keys", () =>
   );
 });
 
-test("background Literature and Quote snapshots preserve all flow state and history", () => {
+test("the runtime applies background snapshots without changing history", () => {
   const flow = canvasDocumentToFlow(DOCUMENT);
   const literature = {
     ...flow.nodes[0],
@@ -140,8 +139,9 @@ test("background Literature and Quote snapshots preserve all flow state and hist
     measured: { width: 281, height: 201 },
   };
   const quote = { ...flow.nodes[1], selected: false };
-  const history = new CanvasDocumentHistory(() =>
-    assert.fail("background resolution must not emit a canonical change"),
+  const changes: number[] = [];
+  const history = new CanvasDocumentHistory((revision) =>
+    changes.push(revision),
   );
   const beforeRevision = history.revision;
   const literatureAcquisition: AcademicAcquisition = {
@@ -164,11 +164,29 @@ test("background Literature and Quote snapshots preserve all flow state and hist
     snapshot: { text: "Current excerpt", pageLabel: "4" },
   };
 
-  const nextLiterature = applyResolvedAcquisition(
-    literature,
-    literatureAcquisition,
+  let runtimeNodes = [literature, quote, ...flow.nodes.slice(2)];
+  applySourceResolutionBatch(
+    (update) => {
+      runtimeNodes =
+        typeof update === "function" ? update(runtimeNodes) : update;
+    },
+    8,
+    [
+      {
+        nodeId: "literature",
+        generation: 8,
+        status: "resolved",
+        acquisition: literatureAcquisition,
+      },
+      {
+        nodeId: "quote",
+        generation: 8,
+        status: "resolved",
+        acquisition: quoteAcquisition,
+      },
+    ],
   );
-  const nextQuote = applyResolvedAcquisition(quote, quoteAcquisition);
+  const [nextLiterature, nextQuote] = runtimeNodes;
 
   assert.deepEqual(nextLiterature.data.model.snapshot, {
     title: "Current paper",
@@ -206,6 +224,7 @@ test("background Literature and Quote snapshots preserve all flow state and hist
     },
   );
   assert.equal(history.revision, beforeRevision);
+  assert.deepEqual(changes, []);
 
   const saved = flowToCanvasDocument(
     [nextLiterature, nextQuote, ...flow.nodes.slice(2)],
@@ -373,14 +392,6 @@ test("partitions selected, visible, and idle source requests", () => {
   );
 });
 
-test("round-trips priority through opaque protocol request IDs", () => {
-  const requestId = sourceResolutionRequestId("visible", 9, 3);
-
-  assert.equal(requestId, "source-resolution:visible:9:3");
-  assert.equal(sourceRequestPriority(requestId), "visible");
-  assert.equal(sourceRequestPriority("caller-defined-request"), "idle");
-});
-
 test("the app advances generations and defers remaining source requests", () => {
   assert.match(appSource, /sourceGenerationRef\.current \+= 1/);
   assert.match(appSource, /sourceGenerationAnnouncedRef/);
@@ -388,4 +399,5 @@ test("the app advances generations and defers remaining source requests", () => 
   assert.match(appSource, /requestIdleCallback/);
   assert.match(appSource, /setTimeout\([^,]+, 0\)/s);
   assert.match(appSource, /applySourceResolutionBatch/);
+  assert.doesNotMatch(appSource, /sourceResolutionRequestId/);
 });

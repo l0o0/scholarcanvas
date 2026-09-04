@@ -2,6 +2,7 @@ import type { CanvasNode } from "../model/academic";
 import type {
   AcademicAcquisition,
   AcademicSourceDescriptor,
+  SourceResolutionPriority,
 } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 
@@ -13,28 +14,9 @@ export type SourceResolutionStateUpdate =
   | { nodeId: string; status: "idle" | "loading" | "resolved" }
   | { nodeId: string; status: "unavailable"; message: string };
 
-export type SourceRequestPriority = "selected" | "visible" | "idle";
-
 export interface SourceResolutionRequest {
   nodeId: string;
   source: AcademicSourceDescriptor;
-}
-
-export function sourceResolutionRequestId(
-  priority: SourceRequestPriority,
-  generation: number,
-  sequence: number,
-): string {
-  return `source-resolution:${priority}:${generation}:${sequence}`;
-}
-
-export function sourceRequestPriority(
-  requestId: string,
-): SourceRequestPriority {
-  const priority = /^source-resolution:(selected|visible|idle):/.exec(
-    requestId,
-  )?.[1];
-  return priority === "selected" || priority === "visible" ? priority : "idle";
 }
 
 export function sourceDescriptor(
@@ -146,17 +128,18 @@ export function prioritizedSourceRequests(
   nodes: readonly CanvasFlowNode[],
   viewport: { x: number; y: number; zoom: number },
   size: { width: number; height: number },
-): Record<SourceRequestPriority, SourceResolutionRequest[]> {
+): Record<SourceResolutionPriority, SourceResolutionRequest[]> {
   const visible = new Set(visibleSourceNodeIds(nodes, viewport, size));
-  const requests: Record<SourceRequestPriority, SourceResolutionRequest[]> = {
-    selected: [],
-    visible: [],
-    idle: [],
-  };
+  const requests: Record<SourceResolutionPriority, SourceResolutionRequest[]> =
+    {
+      selected: [],
+      visible: [],
+      idle: [],
+    };
   for (const node of nodes) {
     const source = sourceDescriptor(node.data.model);
     if (!source) continue;
-    const priority = node.selected
+    const priority: SourceResolutionPriority = node.selected
       ? "selected"
       : visible.has(node.id)
         ? "visible"

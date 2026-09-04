@@ -183,10 +183,10 @@ function boot() {
           payload: { requestId, nodeId, raw },
         })
       }
-      onResolveAcademicSources={(requestId, generation, sources) =>
+      onResolveAcademicSources={(requestId, generation, priority, sources) =>
         postToParent({
           type: "resolveAcademicSources",
-          payload: { requestId, generation, sources },
+          payload: { requestId, generation, priority, sources },
         })
       }
       onExportFile={(payload) => postToParent({ type: "exportFile", payload })}

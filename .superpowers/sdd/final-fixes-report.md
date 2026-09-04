@@ -186,3 +186,30 @@ Baseline: `eaf193052bc35bb151c214c105580cc44fd109c0`
 - The generated `packages/whiteboard/dist` directory was removed after build
   verification; no distribution artifact is included. Per the task boundary, no
   real Zotero instance was run; the parent controller owns the targeted smoke.
+
+## Background Note history overlay follow-up
+
+- Review verification found that live background Note resolution already used
+  the safe Note branch of `applyResolvedAcquisitionToCanvasNode`, which updates
+  only `sourceSnapshot` and deliberately ignores acquisition `content`. The
+  history overlay nevertheless excluded Note results in two separate filters,
+  so undo restored a stale source title.
+- RED: after a geometry edit and background title update, the new real runtime /
+  `CanvasDocumentHistory` test observed `Old target title` after undo instead of
+  `Current target title`.
+- GREEN: all accepted resolved acquisitions now pass through the same
+  source-identity-guarded history overlay. Undo restores the old geometry while
+  retaining the current Note title and local content. A second title update while
+  the redo stack exists is retained by redo. Another Note receiving a result with
+  a mismatched source remains unchanged in live, undo, and redo documents, and
+  neither remote body is copied into canonical content.
+- Confirmed Note refresh remains on its separate historical path: its existing
+  behavior test still verifies one dirty revision, remote-content replacement,
+  and undo restoration of the prior local content.
+
+Verification:
+
+- Focused Note/source/history suite: 97/97 passed.
+- `pnpm test:unit`: 599/599 passed.
+- Whiteboard package and root `tsc --noEmit`: passed.
+- `pnpm lint:check` and `git diff --check`: passed.

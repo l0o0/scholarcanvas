@@ -217,11 +217,7 @@ export function sourceOwnedResolutionResults(
 ): SourceResolutionResult[] {
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   return results.filter((result) => {
-    if (
-      result.generation !== generation ||
-      result.status !== "resolved" ||
-      result.acquisition.kind === "note"
-    ) {
+    if (result.generation !== generation || result.status !== "resolved") {
       return false;
     }
     const node = nodesById.get(result.nodeId);
@@ -238,9 +234,7 @@ export function applySourceOwnedResolutionResults(
 ): CanvasDocument {
   const resolved = new Map(
     results.flatMap((result) =>
-      result.generation === generation &&
-      result.status === "resolved" &&
-      result.acquisition.kind !== "note"
+      result.generation === generation && result.status === "resolved"
         ? [[result.nodeId, result.acquisition] as const]
         : [],
     ),

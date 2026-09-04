@@ -995,6 +995,143 @@ test("background source snapshots rebase both undo and redo while preserving geo
   assert.deepEqual(revisions, [1, 2]);
 });
 
+test("background Note titles rebase undo and redo without rebasing local content", () => {
+  const targetSource = {
+    library: { type: "user" as const },
+    noteKey: "TARGET-NOTE",
+  };
+  const otherSource = {
+    library: { type: "group" as const, groupID: 7 },
+    itemKey: "OTHER-ITEM",
+    noteKey: "OTHER-NOTE",
+  };
+  const initial: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "target-note",
+        kind: "note",
+        position: { x: 10, y: 20 },
+        width: 260,
+        height: 152,
+        source: targetSource,
+        sourceSnapshot: { title: "Old target title" },
+        content: "Local target content",
+      },
+      {
+        id: "other-note",
+        kind: "note",
+        position: { x: 310, y: 20 },
+        width: 260,
+        height: 152,
+        source: otherSource,
+        sourceSnapshot: { title: "Old other title" },
+        content: "Local other content",
+      },
+    ],
+  };
+  const edited: CanvasDocument = {
+    ...initial,
+    nodes: initial.nodes.map((node) => ({
+      ...node,
+      position: { x: node.position.x + 70, y: 90 },
+    })),
+  };
+  const targetResult = {
+    nodeId: "target-note",
+    generation: 12,
+    status: "resolved" as const,
+    acquisition: {
+      kind: "note" as const,
+      source: targetSource,
+      sourceSnapshot: { title: "Current target title" },
+      content: "Remote content must not replace the local copy",
+    },
+  };
+  const mismatchedResult = {
+    nodeId: "other-note",
+    generation: 12,
+    status: "resolved" as const,
+    acquisition: {
+      kind: "note" as const,
+      source: targetSource,
+      sourceSnapshot: { title: "Cross-source title" },
+      content: "Cross-source content",
+    },
+  };
+  const revisions: number[] = [];
+  let runtime: CanvasDocumentRuntime | undefined;
+
+  function Harness() {
+    runtime = useCanvasDocumentRuntime(
+      initial,
+      (revision) => revisions.push(revision),
+      () => {},
+    );
+    return null;
+  }
+
+  renderToStaticMarkup(createElement(Harness));
+  assert.ok(runtime);
+  runtime.pushHistory();
+  runtime.applyDocument(edited);
+  runtime.applySourceResolutionBatch(12, [targetResult, mismatchedResult]);
+  assert.deepEqual(revisions, []);
+
+  runtime.undo();
+  let snapshot = runtime.getSnapshot();
+  assert.deepEqual(snapshot.nodes[0].position, { x: 10, y: 20 });
+  assert.deepEqual(
+    snapshot.nodes[0].kind === "note" && snapshot.nodes[0].sourceSnapshot,
+    { title: "Current target title" },
+  );
+  assert.equal(
+    snapshot.nodes[0].kind === "note" && snapshot.nodes[0].content,
+    "Local target content",
+  );
+  assert.deepEqual(
+    snapshot.nodes[1].kind === "note" && snapshot.nodes[1].sourceSnapshot,
+    { title: "Old other title" },
+  );
+  assert.equal(
+    snapshot.nodes[1].kind === "note" && snapshot.nodes[1].content,
+    "Local other content",
+  );
+
+  runtime.applySourceResolutionBatch(12, [
+    {
+      ...targetResult,
+      acquisition: {
+        ...targetResult.acquisition,
+        sourceSnapshot: { title: "Newest target title" },
+        content: "A second remote body that must stay ignored",
+      },
+    },
+    mismatchedResult,
+  ]);
+  runtime.redo();
+  snapshot = runtime.getSnapshot();
+  assert.deepEqual(snapshot.nodes[0].position, { x: 80, y: 90 });
+  assert.deepEqual(
+    snapshot.nodes[0].kind === "note" && snapshot.nodes[0].sourceSnapshot,
+    { title: "Newest target title" },
+  );
+  assert.equal(
+    snapshot.nodes[0].kind === "note" && snapshot.nodes[0].content,
+    "Local target content",
+  );
+  assert.deepEqual(snapshot.nodes[1].position, { x: 380, y: 90 });
+  assert.deepEqual(
+    snapshot.nodes[1].kind === "note" && snapshot.nodes[1].sourceSnapshot,
+    { title: "Old other title" },
+  );
+  assert.equal(
+    snapshot.nodes[1].kind === "note" && snapshot.nodes[1].content,
+    "Local other content",
+  );
+  assert.deepEqual(revisions, [1, 2]);
+});
+
 test("an explicit multi-source refresh dirties once without adding an undo entry", () => {
   const literatureSource = {
     library: { type: "user" as const },

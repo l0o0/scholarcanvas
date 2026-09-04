@@ -8,10 +8,18 @@
  */
 
 import type { AttachmentNodeData, ItemNodeData, PdfNodeData } from "./basic";
+import type {
+  LiteratureSnapshot,
+  LiteratureSource,
+  NoteSource,
+  NoteSourceSnapshot,
+  QuoteSnapshot,
+  QuoteSource,
+} from "./academic";
 import type { CanvasDocument } from "./document";
 
 export const WHITEBOARD_MESSAGE_SOURCE = "zotero-markdown-whiteboard" as const;
-export const WHITEBOARD_PROTOCOL_VERSION = 1;
+export const WHITEBOARD_PROTOCOL_VERSION = 2;
 
 export type WhiteboardTheme = "light" | "dark";
 
@@ -128,6 +136,47 @@ export interface WhiteboardInitPayload {
   labels?: WhiteboardLabels;
 }
 
+export type AcademicSourceDescriptor =
+  | { kind: "literature"; source: LiteratureSource }
+  | { kind: "note"; source: NoteSource }
+  | { kind: "quote"; source: QuoteSource };
+
+export type AcademicAcquisition =
+  | {
+      kind: "literature";
+      source: LiteratureSource;
+      snapshot: LiteratureSnapshot;
+    }
+  | {
+      kind: "note";
+      source: NoteSource;
+      sourceSnapshot?: NoteSourceSnapshot;
+      content: string;
+    }
+  | { kind: "quote"; source: QuoteSource; snapshot: QuoteSnapshot };
+
+export type SourceResolutionResult =
+  | {
+      nodeId: string;
+      generation: number;
+      status: "resolved";
+      acquisition: AcademicAcquisition;
+    }
+  | {
+      nodeId: string;
+      generation: number;
+      status: "unavailable";
+      code:
+        "library-missing" | "item-missing" | "wrong-kind" | "parent-mismatch";
+      message: string;
+    };
+
+export interface AnnotationCandidate {
+  acquisition: Extract<AcademicAcquisition, { kind: "quote" }>;
+  attachmentTitle: string;
+  sortIndex: string;
+}
+
 export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
   (
     | { type: "init"; payload: WhiteboardInitPayload }
@@ -151,6 +200,42 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
     | {
         type: "pickFailed";
         payload: { requestId: string; message: string };
+      }
+    | {
+        type: "academicSourceAcquired";
+        payload: {
+          requestId: string;
+          nodeId: string;
+          acquisition: AcademicAcquisition;
+        };
+      }
+    | {
+        type: "sourceResolutionBatch";
+        payload: {
+          requestId: string;
+          generation: number;
+          results: SourceResolutionResult[];
+        };
+      }
+    | {
+        type: "annotationsListed";
+        payload: {
+          requestId: string;
+          source: LiteratureSource;
+          candidates: AnnotationCandidate[];
+        };
+      }
+    | {
+        type: "noteRefreshed";
+        payload: {
+          requestId: string;
+          nodeId: string;
+          acquisition: Extract<AcademicAcquisition, { kind: "note" }>;
+        };
+      }
+    | {
+        type: "academicRequestFailed";
+        payload: { requestId: string; nodeId: string; message: string };
       }
     | {
         type: "saveState";
@@ -197,6 +282,42 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
         };
       }
     | {
+        type: "pickAcademicSource";
+        payload: {
+          requestId: string;
+          nodeId: string;
+          kind: "literature";
+        };
+      }
+    | {
+        type: "dropAcademicSources";
+        payload: {
+          requestId: string;
+          nodeId: string;
+          raw: Record<string, string>;
+        };
+      }
+    | {
+        type: "resolveAcademicSources";
+        payload: {
+          requestId: string;
+          generation: number;
+          sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>;
+        };
+      }
+    | {
+        type: "listLiteratureAnnotations";
+        payload: { requestId: string; source: LiteratureSource };
+      }
+    | {
+        type: "refreshZoteroNote";
+        payload: { requestId: string; nodeId: string; source: NoteSource };
+      }
+    | {
+        type: "openAcademicSource";
+        payload: { requestId: string; source: AcademicSourceDescriptor };
+      }
+    | {
         type: "exportFile";
         payload: {
           requestId: string;
@@ -217,7 +338,8 @@ export function isWhiteboardProtocolMessage(
   };
   return (
     message.source === WHITEBOARD_MESSAGE_SOURCE &&
-    (message.v === undefined || message.v === WHITEBOARD_PROTOCOL_VERSION) &&
+    typeof message.channel === "string" &&
+    message.v === WHITEBOARD_PROTOCOL_VERSION &&
     typeof message.type === "string"
   );
 }
@@ -226,10 +348,7 @@ export function isWhiteboardProtocolMessageForChannel(
   data: unknown,
   channel: string,
 ): data is WhiteboardToParentMessage {
-  return (
-    isWhiteboardProtocolMessage(data) &&
-    (data.channel === undefined || data.channel === channel)
-  );
+  return isWhiteboardProtocolMessage(data) && data.channel === channel;
 }
 
 export function whiteboardChannel(tabID: string, canvasId: string) {

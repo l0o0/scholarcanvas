@@ -7,6 +7,7 @@ import {
 } from "../src/modules/markdown/editor-protocol.ts";
 import {
   WHITEBOARD_MESSAGE_SOURCE,
+  WHITEBOARD_PROTOCOL_VERSION,
   isWhiteboardProtocolMessage,
   isWhiteboardProtocolMessageForChannel,
   whiteboardChannel,
@@ -34,6 +35,161 @@ type _InitUsesSchemaV2 = Assert<
   InitDocument extends { version: 2; connections: unknown[] } ? true : false
 >;
 
+const literatureSource = {
+  library: { type: "user" },
+  itemKey: "ITEM1234",
+} as const;
+const noteSource = { library: { type: "user" }, noteKey: "NOTE1234" } as const;
+const quoteSource = {
+  ...literatureSource,
+  attachmentKey: "ATTACH123",
+  annotationKey: "ANNOT1234",
+} as const;
+
+const v2ParentMessages = [
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "academicSourceAcquired",
+    payload: {
+      requestId: "request-1",
+      nodeId: "node-1",
+      acquisition: {
+        kind: "literature",
+        source: literatureSource,
+        snapshot: { title: "Paper" },
+      },
+    },
+  },
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "sourceResolutionBatch",
+    payload: {
+      requestId: "request-2",
+      generation: 4,
+      results: [
+        {
+          nodeId: "node-2",
+          generation: 4,
+          status: "resolved",
+          acquisition: {
+            kind: "quote",
+            source: quoteSource,
+            snapshot: { text: "Quoted text" },
+          },
+        },
+      ],
+    },
+  },
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "annotationsListed",
+    payload: {
+      requestId: "request-3",
+      source: literatureSource,
+      candidates: [
+        {
+          acquisition: {
+            kind: "quote",
+            source: quoteSource,
+            snapshot: { text: "Quoted text" },
+          },
+          attachmentTitle: "Paper.pdf",
+          sortIndex: "0001",
+        },
+      ],
+    },
+  },
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "noteRefreshed",
+    payload: {
+      requestId: "request-4",
+      nodeId: "node-4",
+      acquisition: {
+        kind: "note",
+        source: noteSource,
+        content: "Current Zotero text",
+      },
+    },
+  },
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "academicRequestFailed",
+    payload: {
+      requestId: "request-5",
+      nodeId: "node-5",
+      message: "Not available",
+    },
+  },
+] satisfies ParentToWhiteboardMessage[];
+
+const v2IframeMessages = [
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "pickAcademicSource",
+    payload: { requestId: "request-6", nodeId: "node-6", kind: "literature" },
+  },
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "dropAcademicSources",
+    payload: { requestId: "request-7", nodeId: "node-7", raw: { ids: "1,2" } },
+  },
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "resolveAcademicSources",
+    payload: {
+      requestId: "request-8",
+      generation: 5,
+      sources: [
+        {
+          nodeId: "node-8",
+          source: { kind: "literature", source: literatureSource },
+        },
+      ],
+    },
+  },
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "listLiteratureAnnotations",
+    payload: { requestId: "request-9", source: literatureSource },
+  },
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "refreshZoteroNote",
+    payload: { requestId: "request-10", nodeId: "node-10", source: noteSource },
+  },
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
+    type: "openAcademicSource",
+    payload: {
+      requestId: "request-11",
+      source: { kind: "quote", source: quoteSource },
+    },
+  },
+] satisfies WhiteboardToParentMessage[];
+
 test("whiteboard channel is tab plus canvas id", () => {
   assert.equal(whiteboardChannel("tab-9", "canvas-a"), "tab-9:canvas-a");
 });
@@ -42,6 +198,7 @@ test("accepts whiteboard messages only from the matching session channel", () =>
   const message = {
     source: WHITEBOARD_MESSAGE_SOURCE,
     channel: "tab-9:canvas-a",
+    v: WHITEBOARD_PROTOCOL_VERSION,
     type: "change",
     payload: { rev: 3 },
   };
@@ -53,6 +210,60 @@ test("accepts whiteboard messages only from the matching session channel", () =>
     isWhiteboardProtocolMessageForChannel(message, "tab-1:canvas-b"),
     false,
   );
+});
+
+test("protocol v2 accepts only exact versions and session channels", () => {
+  assert.equal(WHITEBOARD_PROTOCOL_VERSION, 2);
+  assert.equal(
+    isWhiteboardProtocolMessage({
+      source: WHITEBOARD_MESSAGE_SOURCE,
+      channel: "tab:canvas",
+      v: 1,
+      type: "ready",
+    }),
+    false,
+  );
+  assert.equal(
+    isWhiteboardProtocolMessage({
+      source: WHITEBOARD_MESSAGE_SOURCE,
+      channel: "tab:canvas",
+      type: "ready",
+    }),
+    false,
+  );
+  assert.equal(
+    isWhiteboardProtocolMessageForChannel(
+      {
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        v: WHITEBOARD_PROTOCOL_VERSION,
+        type: "ready",
+      },
+      "tab:canvas",
+    ),
+    false,
+  );
+  assert.equal(
+    isWhiteboardProtocolMessage({
+      source: WHITEBOARD_MESSAGE_SOURCE,
+      v: WHITEBOARD_PROTOCOL_VERSION,
+      type: "ready",
+    }),
+    false,
+  );
+  assert.equal(
+    isWhiteboardProtocolMessageForChannel(
+      {
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        channel: "other:canvas",
+        v: WHITEBOARD_PROTOCOL_VERSION,
+        type: "ready",
+      },
+      "tab:canvas",
+    ),
+    false,
+  );
+  assert.equal(v2ParentMessages.length, 5);
+  assert.equal(v2IframeMessages.length, 6);
 });
 
 test("rejects markdown editor messages as whiteboard traffic", () => {
@@ -77,4 +288,16 @@ test("protocol source uses CanvasDocument and typed Basic picker payloads", () =
   assert.match(source, /type BasicPickerPayload/);
   assert.match(source, /snapshot\?: CanvasDocument \| null/);
   assert.doesNotMatch(source, /noteID/);
+});
+
+test("tab refocus sends a versioned protocol message", () => {
+  const hooks = readFileSync(
+    new URL("../src/modules/whiteboard/tabHooks.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(hooks, /WHITEBOARD_PROTOCOL_VERSION/);
+  assert.match(
+    hooks,
+    /channel: `\$\{tab\.id\}:\$\{tab\.data\?\.canvasId \?\? ""\}`,[\s\S]*v: WHITEBOARD_PROTOCOL_VERSION,[\s\S]*type: "focus"/,
+  );
 });

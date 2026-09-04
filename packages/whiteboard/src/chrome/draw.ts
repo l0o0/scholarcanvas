@@ -44,7 +44,9 @@ export function isDrawTool(tool: CanvasTool): tool is DrawKind {
   return DRAW_KINDS.has(tool as DrawKind);
 }
 
-export function isStampTool(tool: CanvasTool): tool is StampKind {
+export function isStampTool(
+  tool: CanvasTool | CanvasNodeKind,
+): tool is StampKind {
   return STAMP_KINDS.has(tool as StampKind);
 }
 

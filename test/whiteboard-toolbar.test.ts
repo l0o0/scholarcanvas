@@ -4,6 +4,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TopIsland } from "../packages/whiteboard/src/chrome/TopIsland.tsx";
+import { libraryTools } from "../packages/whiteboard/src/chrome/tools.ts";
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
 
 const css = readFileSync(
@@ -99,4 +100,42 @@ test("toolbar exposes one local academic creation group only", () => {
     assert.ok(academicGroup.includes(`title="${title}"`));
   }
   assert.doesNotMatch(markup, /kindLiterature|kindQuote/);
+});
+
+test("toolbar exposes Literature as its only library acquisition tool", () => {
+  const renderedToolbar = renderToStaticMarkup(
+    createElement(TopIsland, {
+      ...{
+        labels: new Proxy({} as WhiteboardLabels, {
+          get: (_target, property) =>
+            property === "addItem"
+              ? "Add literature"
+              : property === "addPdf"
+                ? "Add PDF"
+                : property === "addFile"
+                  ? "Add file"
+                  : String(property),
+        }),
+      },
+      activeTool: "select",
+      onSelectTool: () => {},
+      saveState: "saved",
+      selectedNodeCount: 0,
+      selectedEdgeCount: 0,
+      onUndo: () => {},
+      onRedo: () => {},
+      onSave: () => {},
+      onFitView: () => {},
+      onAutoLayout: () => {},
+      onAlign: () => {},
+      onDistribute: () => {},
+      onEdgeColor: () => {},
+      onEdgeDash: () => {},
+      onEdgeArrow: () => {},
+      onOpenShortcuts: () => {},
+    }),
+  );
+  assert.deepEqual(libraryTools(), ["literature"]);
+  assert.match(renderedToolbar, /Add literature/);
+  assert.doesNotMatch(renderedToolbar, /Add PDF|Add file/);
 });

@@ -13,7 +13,6 @@ import {
   IconDistributeV,
   IconEllipse,
   IconEraser,
-  IconFile,
   IconFitView,
   IconFrame,
   IconHand,
@@ -22,7 +21,6 @@ import {
   IconLine,
   IconMore,
   IconNote,
-  IconPdf,
   IconQuestion,
   IconRect,
   IconRedo,
@@ -79,11 +77,7 @@ export function TopIsland(props: {
       { tool: "select", title: labels.select, icon: <IconSelect /> },
       { tool: "hand", title: labels.hand, icon: <IconHand /> },
     ],
-    [
-      { tool: "item", title: labels.addItem, icon: <IconItem /> },
-      { tool: "pdf", title: labels.addPdf, icon: <IconPdf /> },
-      { tool: "attachment", title: labels.addFile, icon: <IconFile /> },
-    ],
+    [{ tool: "literature", title: labels.addItem, icon: <IconItem /> }],
     [
       { tool: "note", title: labels.addNote, icon: <IconNote /> },
       {

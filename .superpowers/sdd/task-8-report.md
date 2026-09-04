@@ -435,3 +435,64 @@ All failures were observed before their corresponding production changes.
 - Scope: no Task 9 document or report was modified.
 - Independent re-review found no remaining Critical or Important issues after
   the broader undefined-shape and forged-prototype regressions were fixed.
+
+## Bridge regression follow-up: immutable ingress snapshots
+
+This follow-up removes the validation-to-consumption race on both sides of the
+whiteboard bridge. Each listener now reads the live `MessageEvent` source and
+data exactly once, creates a stable deep snapshot, validates that snapshot, and
+passes only the same snapshot to the consumer. Supported Zotero/Firefox realms
+use the platform `structuredClone`; the descriptor-based fallback preserves
+cycles, null-prototype records, sparse arrays, and explicit `undefined` without
+JSON coercion. Accessors, symbols, exotic values, and any clone or reflection
+failure are rejected inertly.
+
+Runtime callbacks deliberately execute outside the clone/validation exception
+boundary. Hostile ingress remains false/inert, while a valid handler exception
+continues into the bridge's existing runtime reporting path instead of being
+misclassified as malformed protocol data. Canonical shape comparison also now
+treats explicit `undefined` consistently in extension records and arrays.
+
+### Immutable-ingress RED evidence
+
+- The focused RED run failed 3 of 3 targeted cases. The iframe dispatcher read
+  a stateful event getter twice and delivered `init` after validating `focus`;
+  the production host listener validated `ready` but consumed a later
+  `openItem`; and a canonical extension containing explicit `undefined` was
+  rejected.
+- The hostile host case used a nonthrowing stateful Proxy whose visible type
+  and payload changed across reads, demonstrating a genuine TOCTOU rather than
+  relying on an exception during validation.
+
+### Immutable-ingress GREEN evidence
+
+- Focused protocol, bootstrap, academic document, and source gateway suites:
+  66 passed, 0 failed.
+- Full `pnpm run test:unit`: 590 passed, 0 failed across 24 suites.
+- `pnpm exec tsc --noEmit`: passed.
+- `pnpm run lint:check`: Prettier and ESLint passed.
+- `pnpm run whiteboard:build`: package typecheck and Vite production build
+  passed.
+- `pnpm run build`: Zotero plugin production build and root typecheck passed.
+- `git diff --check`: passed after discarding generator-only i18n ordering
+  churn.
+- The focused suite proves one live-data read, platform clone use, fallback
+  fidelity for explicit `undefined`, same-snapshot delivery, inert stateful
+  Proxies, and propagation of valid runtime handler exceptions.
+
+### Immutable-ingress self-review
+
+- Snapshot ownership: neither host nor iframe consumer reads `event.data`
+  after ingress. The formerly exported boolean guards also snapshot internally
+  and no longer claim an unsound live-data type refinement.
+- Clone safety: a descriptor-only preflight prevents platform cloning from
+  normalizing accessors into apparently valid data. Platform cloning rejects
+  Proxy objects; the fallback independently builds a detached graph before
+  validation, so stateful traps cannot change the consumed value.
+- Error boundary: only event reads, reflection, cloning, and validation become
+  inert failures. Consumer callbacks are invoked afterward and retain their
+  normal error behavior.
+- Canonical compatibility: explicit `undefined` values compare symmetrically
+  in extension objects and array positions and are preserved by the fallback;
+  no JSON stringify/parse path was introduced.
+- Scope: no Task 9 document or report was modified.

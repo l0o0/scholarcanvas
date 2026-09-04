@@ -306,7 +306,7 @@ test("both bridge listeners validate their envelope before allowing a null Zoter
   assert.match(bootstrap, /window\.parent/);
   assert.match(
     editor,
-    /isWhiteboardToParentMessageEvent\(event, iframe\.contentWindow, channel\)/,
+    /readWhiteboardToParentMessageEvent\(\s*event,\s*iframe\.contentWindow,\s*channel,?\s*\)/,
   );
   assert.match(bootstrap, /reactRoot\?\.unmount\(\)/);
 });
@@ -377,6 +377,121 @@ test("iframe ingress accepts validated null-source parent messages and rejects f
   );
   assert.equal(accepted.length, 2);
   assert.deepEqual(accepted[1], init);
+
+  const focus: ParentToWhiteboardMessage = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-1:canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "focus",
+  };
+  let liveDataReads = 0;
+  assert.equal(
+    dispatchWhiteboardParentMessageEvent(
+      {
+        source: null,
+        get data() {
+          liveDataReads += 1;
+          return liveDataReads === 1 ? focus : init;
+        },
+      },
+      parent,
+      "tab-1:canvas-1",
+      (message) => accepted.push(message),
+    ),
+    true,
+  );
+  assert.equal(liveDataReads, 1, "ingress must snapshot event.data once");
+  assert.equal(
+    accepted.at(-1)?.type,
+    "focus",
+    "validated focus must not mutate into init before dispatch",
+  );
+
+  const nativeStructuredClone = globalThis.structuredClone;
+  assert.equal(typeof nativeStructuredClone, "function");
+  let structuredCloneCalls = 0;
+  globalThis.structuredClone = ((value: unknown) => {
+    structuredCloneCalls += 1;
+    return nativeStructuredClone(value);
+  }) as typeof structuredClone;
+  try {
+    assert.equal(
+      dispatchWhiteboardParentMessageEvent(
+        { source: null, data: focus },
+        parent,
+        "tab-1:canvas-1",
+        (message) => accepted.push(message),
+      ),
+      true,
+    );
+  } finally {
+    globalThis.structuredClone = nativeStructuredClone;
+  }
+  assert.equal(
+    structuredCloneCalls,
+    1,
+    "supported Zotero/Firefox realms must use the platform structured clone",
+  );
+
+  const cloneDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "structuredClone",
+  );
+  assert.ok(cloneDescriptor);
+  Object.defineProperty(globalThis, "structuredClone", {
+    configurable: true,
+    value: undefined,
+    writable: true,
+  });
+  const fallbackInit: ParentToWhiteboardMessage = {
+    ...init,
+    payload: {
+      theme: "dark",
+      snapshot: {
+        version: 2,
+        nodes: [],
+        connections: [],
+        extensions: { values: [undefined] },
+      },
+    },
+  };
+  try {
+    assert.equal(
+      dispatchWhiteboardParentMessageEvent(
+        { source: null, data: fallbackInit },
+        parent,
+        "tab-1:canvas-1",
+        (message) => accepted.push(message),
+      ),
+      true,
+    );
+  } finally {
+    Object.defineProperty(globalThis, "structuredClone", cloneDescriptor);
+  }
+  const fallbackAccepted = accepted.at(-1);
+  assert.notEqual(fallbackAccepted, fallbackInit);
+  assert.equal(fallbackAccepted?.type, "init");
+  assert.equal(
+    fallbackAccepted?.type === "init" &&
+      (fallbackAccepted.payload.snapshot?.extensions?.values as unknown[])[0],
+    undefined,
+    "fallback cloning must preserve explicit undefined array positions",
+  );
+
+  const handlerFailure = new Error("valid runtime handler failure");
+  assert.throws(
+    () =>
+      dispatchWhiteboardParentMessageEvent(
+        { source: null, data: focus },
+        parent,
+        "tab-1:canvas-1",
+        () => {
+          throw handlerFailure;
+        },
+      ),
+    handlerFailure,
+    "valid handler failures must escape the validation boundary",
+  );
   messageRealm.close();
 });
 
@@ -606,10 +721,12 @@ test("production editor accepts strictly validated null-source Zotero messages",
   const parent = window.document.createElement("div");
   window.document.body.append(parent);
   const resolved: string[] = [];
+  const opened: unknown[] = [];
   const handle = createWhiteboardEditor(parent as unknown as HTMLElement, {
     win: window as unknown as globalThis.Window,
     channel: "tab-1:canvas-1",
     onResolveAcademicSources: (requestId) => resolved.push(requestId),
+    onOpenItem: (payload) => opened.push(payload),
   });
   const iframe = parent.querySelector("iframe")!;
   const posted: unknown[] = [];
@@ -672,15 +789,32 @@ test("production editor accepts strictly validated null-source Zotero messages",
   assert.deepEqual(resolved, ["resolve-null"]);
 
   let typeReads = 0;
-  const statefulHostileMessage = new Proxy(resolve, {
+  const mutableReady = { ...ready, payload: { itemID: 77 } };
+  const statefulHostileMessage = new Proxy(mutableReady, {
     get(target, key, receiver) {
-      if (key === "type" && ++typeReads > 2) {
-        throw new Error("stateful post-validation getter");
-      }
+      if (key === "type") return ++typeReads <= 2 ? "ready" : "openItem";
       return Reflect.get(target, key, receiver);
+    },
+    getOwnPropertyDescriptor(target, key) {
+      if (key === "payload" && typeReads <= 2) return undefined;
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+    has(target, key) {
+      if (key === "payload" && typeReads <= 2) return false;
+      return Reflect.has(target, key);
+    },
+    ownKeys(target) {
+      return Reflect.ownKeys(target).filter(
+        (key) => key !== "payload" || typeReads > 2,
+      );
     },
   });
   assert.doesNotThrow(() => dispatch(statefulHostileMessage, null));
+  assert.deepEqual(
+    opened,
+    [],
+    "validated ready must not mutate into openItem before consumption",
+  );
   assert.deepEqual(resolved, ["resolve-null"]);
 
   for (const data of [

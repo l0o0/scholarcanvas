@@ -1060,6 +1060,28 @@ test("null-source init requires complete labels and a canonical canvas document"
     isParentToWhiteboardMessageForChannel(extraCanvasKey, "tab-9:canvas-a"),
     false,
   );
+
+  const explicitUndefinedExtensions = {
+    ...init,
+    payload: {
+      ...init.payload,
+      snapshot: {
+        ...emptyDocument,
+        extensions: {
+          omittedByJsonObjects: undefined,
+          arrayPosition: [undefined],
+        },
+      },
+    },
+  };
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(
+      explicitUndefinedExtensions,
+      "tab-9:canvas-a",
+    ),
+    true,
+    "canonical extension undefined values must compare consistently",
+  );
 });
 
 test("closed validators exhaust finite codes, commands, states, and numeric ranges", () => {

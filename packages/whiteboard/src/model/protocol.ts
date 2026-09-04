@@ -1049,6 +1049,7 @@ function hasSameDataShape(left: unknown, right: unknown): boolean {
 
 function hasSameDataShapeUnchecked(left: unknown, right: unknown): boolean {
   if (left === null || right === null) return left === right;
+  if (left === undefined || right === undefined) return left === right;
   if (typeof left !== typeof right) return false;
   if (
     typeof left === "string" ||
@@ -1614,6 +1615,94 @@ function rejectUnhandledProtocolType(_type: never): false {
 
 type WhiteboardMessageEvent = Pick<MessageEvent, "data" | "source">;
 
+interface SnapshottedWhiteboardMessageEvent {
+  data: unknown;
+  source: MessageEventSource | null;
+}
+
+function snapshotWhiteboardMessageEvent(
+  event: WhiteboardMessageEvent,
+): SnapshottedWhiteboardMessageEvent | undefined {
+  try {
+    const source = event.source;
+    const liveData = event.data;
+    if (!hasOnlyOwnCloneSafeData(liveData)) return undefined;
+    const platformClone = globalThis.structuredClone;
+    const data =
+      typeof platformClone === "function"
+        ? platformClone.call(globalThis, liveData)
+        : cloneOwnProtocolData(liveData);
+    return { data, source };
+  } catch {
+    return undefined;
+  }
+}
+
+function hasOnlyOwnCloneSafeData(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    typeof value === "number" ||
+    typeof value === "bigint"
+  ) {
+    return true;
+  }
+  if (typeof value !== "object") return false;
+  if (seen.has(value)) return true;
+  seen.add(value);
+  if (!Array.isArray(value) && !isPlainRecord(value)) return false;
+  try {
+    for (const key of Reflect.ownKeys(value)) {
+      if (Array.isArray(value) && key === "length") continue;
+      if (typeof key !== "string") return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor)) return false;
+      if (!hasOnlyOwnCloneSafeData(descriptor.value, seen)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cloneOwnProtocolData(
+  value: unknown,
+  seen = new WeakMap<object, unknown>(),
+): unknown {
+  if (value === null || typeof value !== "object") return value;
+  const prior = seen.get(value);
+  if (prior !== undefined) return prior;
+  const array = Array.isArray(value);
+  const clone = array
+    ? new Array(
+        (Object.getOwnPropertyDescriptor(value, "length")?.value as number) ??
+          0,
+      )
+    : Object.create(
+        Object.getPrototypeOf(value) === null ? null : Object.prototype,
+      );
+  seen.set(value, clone);
+  for (const key of Reflect.ownKeys(value)) {
+    if (array && key === "length") continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !("value" in descriptor)) {
+      throw new TypeError("Protocol data must contain only own data fields.");
+    }
+    Object.defineProperty(clone, key, {
+      configurable: true,
+      enumerable: descriptor.enumerable,
+      value: cloneOwnProtocolData(descriptor.value, seen),
+      writable: true,
+    });
+  }
+  return clone;
+}
+
 function isExpectedPeerSource(
   source: MessageEventSource | null,
   peer: MessageEventSource | null,
@@ -1628,24 +1717,48 @@ export function isWhiteboardToParentMessageEvent(
   event: WhiteboardMessageEvent,
   peer: MessageEventSource | null,
   channel: string,
-): event is WhiteboardMessageEvent & { data: WhiteboardToParentMessage } {
-  return safelyValidate(
-    () =>
-      isWhiteboardToParentMessageForChannel(event.data, channel) &&
-      isExpectedPeerSource(event.source, peer),
-  );
+): boolean {
+  return readWhiteboardToParentMessageEvent(event, peer, channel) !== undefined;
 }
 
 export function isParentToWhiteboardMessageEvent(
   event: WhiteboardMessageEvent,
   peer: MessageEventSource | null,
   channel: string,
-): event is WhiteboardMessageEvent & { data: ParentToWhiteboardMessage } {
-  return safelyValidate(
-    () =>
-      isParentToWhiteboardMessageForChannel(event.data, channel) &&
-      isExpectedPeerSource(event.source, peer),
-  );
+): boolean {
+  return readParentToWhiteboardMessageEvent(event, peer, channel) !== undefined;
+}
+
+export function readWhiteboardToParentMessageEvent(
+  event: WhiteboardMessageEvent,
+  peer: MessageEventSource | null,
+  channel: string,
+): WhiteboardToParentMessage | undefined {
+  const snapshot = snapshotWhiteboardMessageEvent(event);
+  if (
+    !snapshot ||
+    !isWhiteboardToParentMessageForChannel(snapshot.data, channel) ||
+    !isExpectedPeerSource(snapshot.source, peer)
+  ) {
+    return undefined;
+  }
+  return snapshot.data;
+}
+
+export function readParentToWhiteboardMessageEvent(
+  event: WhiteboardMessageEvent,
+  peer: MessageEventSource | null,
+  channel: string,
+): ParentToWhiteboardMessage | undefined {
+  const snapshot = snapshotWhiteboardMessageEvent(event);
+  if (
+    !snapshot ||
+    !isParentToWhiteboardMessageForChannel(snapshot.data, channel) ||
+    !isExpectedPeerSource(snapshot.source, peer)
+  ) {
+    return undefined;
+  }
+  return snapshot.data;
 }
 
 export function dispatchWhiteboardParentMessageEvent(
@@ -1654,11 +1767,10 @@ export function dispatchWhiteboardParentMessageEvent(
   channel: string,
   accept: (message: ParentToWhiteboardMessage) => void,
 ): boolean {
-  return safelyValidate(() => {
-    if (!isParentToWhiteboardMessageEvent(event, peer, channel)) return false;
-    accept(event.data);
-    return true;
-  });
+  const message = readParentToWhiteboardMessageEvent(event, peer, channel);
+  if (!message) return false;
+  accept(message);
+  return true;
 }
 
 export function whiteboardChannel(tabID: string, canvasId: string) {

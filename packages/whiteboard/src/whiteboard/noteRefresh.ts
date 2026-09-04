@@ -22,7 +22,7 @@ export interface NoteRefreshRuntimeBindings {
     nodeId: string,
     source: NoteAcquisition["source"],
   ) => void;
-  onError: (message: string) => void;
+  onError: (message: string, nodeId: string) => void;
   createRequestId: () => string;
 }
 
@@ -142,13 +142,13 @@ export function createNoteRefreshRuntime(
         source: acquisition.source,
       });
       if (expected.sourceKey !== acquisitionKey) {
-        bindings.onError(expected.invalidSourceMessage);
+        bindings.onError(expected.invalidSourceMessage, expected.nodeId);
         return false;
       }
       const working = bindings.getWorkingDocument();
       const refreshed = applyConfirmedNoteRefresh(working, nodeId, acquisition);
       if (!refreshed) {
-        bindings.onError(expected.invalidSourceMessage);
+        bindings.onError(expected.invalidSourceMessage, expected.nodeId);
         return false;
       }
       bindings.commitHistory(bindings.getHistoryDocument());
@@ -165,7 +165,7 @@ export function createNoteRefreshRuntime(
         return false;
       }
       invalidate(requestId, nodeId);
-      bindings.onError(message);
+      bindings.onError(message, expected.nodeId);
       return true;
     },
     clear() {

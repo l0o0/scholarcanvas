@@ -11,6 +11,7 @@ import {
   ACADEMIC_SOURCE_CARD_SIZE,
   createAcademicNode,
   type LiteratureNode,
+  type LiteratureSource,
 } from "../model/academic";
 import { createBasicNode } from "../model/basic";
 import { parseCanvasDocument, type CanvasDocument } from "../model/document";
@@ -26,12 +27,18 @@ import type { SourceResolutionResult } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 import {
   CanvasDocumentHistory,
+  applySourceOwnedResolutionResults,
   applySourceResolutionResults,
   canvasDocumentToFlow,
   flowToCanvasDocument,
+  sourceOwnedResolutionResults,
   type CanvasDocumentShell,
   type CanvasFlowEdge,
 } from "./document";
+import {
+  applyLiteratureAnnotationCountToCanvasNode,
+  applyLiteratureAnnotationCountToDocument,
+} from "./sourceState";
 
 export interface CanvasDocumentRuntime {
   nodes: CanvasFlowNode[];
@@ -50,6 +57,11 @@ export interface CanvasDocumentRuntime {
   applySourceResolutionBatch: (
     generation: number,
     results: SourceResolutionResult[],
+  ) => void;
+  applyLiteratureAnnotationCount: (
+    nodeId: string,
+    source: LiteratureSource,
+    annotationCount: number,
   ) => void;
   getRawSnapshot: () => CanvasDocument;
   getSnapshot: () => CanvasDocument;
@@ -461,9 +473,47 @@ export function useCanvasDocumentRuntime(
 
   const applyDocumentSourceResolutionBatch = useCallback(
     (generation: number, results: SourceResolutionResult[]) => {
+      const sourceOwned = sourceOwnedResolutionResults(
+        nodesRef.current,
+        generation,
+        results,
+      );
+      if (sourceOwned.length) {
+        history.rebase((document) =>
+          applySourceOwnedResolutionResults(document, generation, sourceOwned),
+        );
+      }
       applySourceResolutionBatch(setNodes, generation, results);
     },
-    [setNodes],
+    [history, setNodes],
+  );
+
+  const applyLiteratureAnnotationCount = useCallback(
+    (nodeId: string, source: LiteratureSource, annotationCount: number) => {
+      const current = nodesRef.current;
+      const next = current.map((node) => {
+        const model = applyLiteratureAnnotationCountToCanvasNode(
+          node.data.model,
+          nodeId,
+          source,
+          annotationCount,
+        );
+        return model === node.data.model
+          ? node
+          : { ...node, data: { ...node.data, model } };
+      });
+      if (next.every((node, index) => node === current[index])) return;
+      history.rebase((document) =>
+        applyLiteratureAnnotationCountToDocument(
+          document,
+          nodeId,
+          source,
+          annotationCount,
+        ),
+      );
+      setNodes(next);
+    },
+    [history, setNodes],
   );
 
   const undo = useCallback(() => {
@@ -491,6 +541,7 @@ export function useCanvasDocumentRuntime(
     applyDocument,
     loadSnapshot,
     applySourceResolutionBatch: applyDocumentSourceResolutionBatch,
+    applyLiteratureAnnotationCount,
     getRawSnapshot,
     getSnapshot,
     undo,

@@ -25,6 +25,10 @@ const create = readFileSync(
   new URL("../src/modules/whiteboard/create.ts", import.meta.url),
   "utf8",
 );
+const architecture = readFileSync(
+  new URL("../docs/architecture.md", import.meta.url),
+  "utf8",
+);
 
 test("whiteboard sessions own a save coordinator", () => {
   assert.match(session, /saveCoordinator\?: WhiteboardSaveCoordinator/);
@@ -82,6 +86,17 @@ test("collection Zotero Notes become source-backed Academic Notes without intege
   assert.match(create, /source: acquisition\.source/);
   assert.match(create, /content:/);
   assert.doesNotMatch(create, /noteID/);
+});
+
+test("architecture limits the no-local-ID promise to Academic source data", () => {
+  assert.match(
+    architecture,
+    /Academic source descriptors and\s+protocol payloads[\s\S]*never[\s\S]*local integer item IDs/,
+  );
+  assert.doesNotMatch(
+    architecture,
+    /canonical model stores[\s\S]{0,100}never Zotero objects or[\s\S]{0,50}local integer item IDs/,
+  );
 });
 
 test("new Zotero acquisition uses the academic gateway without Attachment paths", () => {

@@ -118,7 +118,9 @@ function AcademicTextNode({
           whiteSpace: "pre-wrap",
         }}
       >
-        {model.content}
+        {kind === "note" && model.content === ""
+          ? labels.emptyNote
+          : model.content}
       </p>
     </CardShell>
   );

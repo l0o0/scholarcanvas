@@ -301,7 +301,7 @@ export function buildCollectionCanvas(
         ...(acquisition.sourceSnapshot
           ? { sourceSnapshot: acquisition.sourceSnapshot }
           : {}),
-        content: acquisition.content || "Empty note",
+        content: acquisition.content,
       });
       document.connections.push({
         id: `${itemId}-e-note`,

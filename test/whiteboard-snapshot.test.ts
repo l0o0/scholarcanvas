@@ -174,6 +174,18 @@ test("collection canvas stores Zotero Notes by native key with copied content", 
     source: "col-item-0",
     target: "col-item-0-note",
   });
+
+  note.getNote = () => "";
+  note.getNoteTitle = () => "";
+  const emptyNoteDocument = buildCollectionCanvas({
+    getChildItems: () => [regular],
+  } as Zotero.Collection);
+  const emptyNote = emptyNoteDocument.nodes.find(
+    (node) => node.kind === "note",
+  );
+  assert.ok(emptyNote && emptyNote.kind === "note");
+  assert.equal(emptyNote.content, "");
+  assert.equal(JSON.stringify(emptyNoteDocument).includes("Empty note"), false);
 });
 
 test("host snapshot is a compatibility re-export rather than a schema", () => {

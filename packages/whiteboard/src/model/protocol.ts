@@ -7,7 +7,6 @@
  * so the two iframes cannot accept each other's messages.
  */
 
-import type { AttachmentNodeData, ItemNodeData, PdfNodeData } from "./basic";
 import type {
   LiteratureSnapshot,
   LiteratureSource,
@@ -24,11 +23,6 @@ export const WHITEBOARD_PROTOCOL_VERSION = 2;
 export type WhiteboardTheme = "light" | "dark";
 
 export type WhiteboardCommand = "undo" | "redo";
-
-export type BasicPickerPayload =
-  | ({ kind: "item" } & ItemNodeData)
-  | ({ kind: "pdf" } & PdfNodeData)
-  | ({ kind: "attachment" } & AttachmentNodeData);
 
 export interface WhiteboardProtocolMessage {
   source: typeof WHITEBOARD_MESSAGE_SOURCE;
@@ -56,6 +50,7 @@ export interface WhiteboardLabels {
   kindLiterature: string;
   kindQuote: string;
   kindNote: string;
+  emptyNote: string;
   kindQuestion: string;
   kindClaim: string;
   kindFrame: string;
@@ -345,18 +340,6 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
     | { type: "focus" }
     | { type: "destroy" }
     | {
-        type: "itemPicked";
-        payload: {
-          requestId: string;
-          nodeId: string;
-          data: BasicPickerPayload;
-        };
-      }
-    | {
-        type: "pickFailed";
-        payload: { requestId: string; message: string };
-      }
-    | {
         type: "academicSourceAcquired";
         payload: {
           requestId: string;
@@ -467,27 +450,11 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
     | { type: "save" }
     | { type: "error"; payload: { message: string } }
     | {
-        type: "pickItem";
-        payload: {
-          requestId: string;
-          nodeId: string;
-          kind: "item" | "pdf" | "attachment";
-        };
-      }
-    | {
         type: "openItem";
         payload: {
           itemID?: number;
           attachmentID?: number;
           pdfPage?: number;
-        };
-      }
-    | {
-        type: "dropItems";
-        payload: {
-          requestId: string;
-          nodeId: string;
-          raw: Record<string, string>;
         };
       }
     | {
@@ -547,18 +514,11 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
       }
   );
 
-type ActiveWhiteboardToParentType = Exclude<
-  WhiteboardToParentMessage,
-  { type: "pickItem" | "dropItems" }
->["type"];
-type ActiveParentToWhiteboardType = Exclude<
-  ParentToWhiteboardMessage,
-  { type: "itemPicked" | "pickFailed" }
->["type"];
+type ActiveWhiteboardToParentType = WhiteboardToParentMessage["type"];
+type ActiveParentToWhiteboardType = ParentToWhiteboardMessage["type"];
 
 // These production maps make protocol growth fail typechecking until ingress
-// explicitly classifies the new message arm. Retired v1 picker/drop arms stay
-// excluded from the v2 bridge.
+// explicitly classifies the new message arm.
 const activeWhiteboardToParentTypes = {
   ready: true,
   change: true,
@@ -787,6 +747,7 @@ const whiteboardLabelStringKeys: Record<
   kindLiterature: true,
   kindQuote: true,
   kindNote: true,
+  emptyNote: true,
   kindQuestion: true,
   kindClaim: true,
   kindFrame: true,

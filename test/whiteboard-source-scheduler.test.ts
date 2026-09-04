@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { SourceResolutionResult } from "../packages/whiteboard/src/model/protocol.ts";
+import { sourceCacheKey } from "../packages/whiteboard/src/whiteboard/sourceState.ts";
 import {
   ProgressiveSourceScheduler,
   type SourceResolutionJob,
@@ -158,6 +159,77 @@ test("coalesces a cache key and fans the result out to every node", async () => 
     emitted.flat().map(({ nodeId }) => nodeId),
     ["literature-a", "literature-b"],
   );
+});
+
+test("parser-valid delimiter collisions schedule separately while identical sources coalesce", async () => {
+  const firstDescriptor = {
+    kind: "quote" as const,
+    source: {
+      library: { type: "user" as const },
+      itemKey: "PARENT",
+      attachmentKey: "PDF:SECTION",
+      annotationKey: "ANNOTATION",
+    },
+  };
+  const secondDescriptor = {
+    kind: "quote" as const,
+    source: {
+      library: { type: "user" as const },
+      itemKey: "PARENT:PDF",
+      attachmentKey: "SECTION",
+      annotationKey: "ANNOTATION",
+    },
+  };
+  const runs: SourceResolutionJob[] = [];
+  const emitted: SourceResolutionResult[] = [];
+  const scheduler = new ProgressiveSourceScheduler({
+    run: async (next) => {
+      runs.push(next);
+      if (next.descriptor.kind !== "quote") {
+        throw new Error("expected Quote descriptor");
+      }
+      return {
+        nodeId: next.nodeId,
+        generation: next.generation,
+        status: "resolved",
+        acquisition: {
+          kind: "quote",
+          source: next.descriptor.source,
+          snapshot: { text: next.nodeId },
+        },
+      };
+    },
+    emit: (results) => emitted.push(...results),
+  });
+  const firstKey = sourceCacheKey(firstDescriptor);
+  const secondKey = sourceCacheKey(secondDescriptor);
+  scheduler.enqueue(
+    job(firstKey, "visible", {
+      nodeId: "quote-a",
+      descriptor: firstDescriptor,
+    }),
+  );
+  scheduler.enqueue(
+    job(secondKey, "visible", {
+      nodeId: "quote-b",
+      descriptor: secondDescriptor,
+    }),
+  );
+  scheduler.enqueue(
+    job(firstKey, "idle", {
+      nodeId: "quote-a-copy",
+      descriptor: firstDescriptor,
+    }),
+  );
+  await flushMicrotasks(16);
+
+  assert.notEqual(firstKey, secondKey);
+  assert.equal(runs.length, 2);
+  assert.deepEqual(emitted.map(({ nodeId }) => nodeId).sort(), [
+    "quote-a",
+    "quote-a-copy",
+    "quote-b",
+  ]);
 });
 
 test("emits same-turn completions as one micro-batch", async () => {

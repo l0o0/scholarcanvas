@@ -35,6 +35,7 @@ whiteboard-add-arrow = Arrow
 whiteboard-kind-literature = Literature
 whiteboard-kind-quote = Quote
 whiteboard-kind-note = Note
+whiteboard-note-empty = Empty note
 whiteboard-kind-question = Question
 whiteboard-kind-claim = Claim
 whiteboard-kind-frame = Frame

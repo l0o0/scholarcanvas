@@ -23,8 +23,6 @@ import {
   flowToCanvasDocument,
   labelTextStyle,
   mergeEditingStyle,
-  mergePickerData,
-  parsePickerNodeData,
   toggleEditingBold,
   updateFlowNodeModel,
   verticalAlignmentStyle,
@@ -256,8 +254,8 @@ test("multi-source acquisition preserves order, duplicates, grid placement, and 
     return descriptor ? [sourceCacheKey(descriptor)] : [];
   });
   assert.deepEqual(repeatedCacheKeys, [
-    "literature:user:SAME1234",
-    "literature:user:SAME1234",
+    '["literature","user",null,"SAME1234"]',
+    '["literature","user",null,"SAME1234"]',
   ]);
   assert.equal(saved.connections.length, 0);
   assert.equal(
@@ -862,6 +860,333 @@ test("background Quote resolution stays outside save and undo history", () => {
   assert.equal(history.revision, 0);
 });
 
+test("background source snapshots rebase both undo and redo while preserving geometry", () => {
+  const initial: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "literature-1",
+        kind: "literature",
+        position: { x: 10, y: 20 },
+        width: 280,
+        height: 200,
+        source: { library: { type: "user" }, itemKey: "ITEM" },
+        snapshot: { title: "Persisted paper", annotationCount: 9 },
+      },
+      {
+        id: "quote-1",
+        kind: "quote",
+        position: { x: 330, y: 20 },
+        width: 280,
+        height: 192,
+        source: {
+          library: { type: "user" },
+          itemKey: "ITEM",
+          attachmentKey: "PDF",
+          annotationKey: "ANNOTATION",
+        },
+        snapshot: { text: "Persisted quote" },
+      },
+    ],
+  };
+  const edited: CanvasDocument = {
+    ...initial,
+    nodes: initial.nodes.map((node) =>
+      node.id === "literature-1"
+        ? { ...node, position: { x: 80, y: 90 } }
+        : { ...node, position: { x: 420, y: 90 } },
+    ),
+  };
+  const firstResults = [
+    {
+      nodeId: "literature-1",
+      generation: 7,
+      status: "resolved" as const,
+      acquisition: {
+        kind: "literature" as const,
+        source: { library: { type: "user" as const }, itemKey: "ITEM" },
+        snapshot: { title: "First current paper" },
+      },
+    },
+    {
+      nodeId: "quote-1",
+      generation: 7,
+      status: "resolved" as const,
+      acquisition: {
+        kind: "quote" as const,
+        source: {
+          library: { type: "user" as const },
+          itemKey: "ITEM",
+          attachmentKey: "PDF",
+          annotationKey: "ANNOTATION",
+        },
+        snapshot: { text: "First current quote" },
+      },
+    },
+  ];
+  let runtime: CanvasDocumentRuntime | undefined;
+  const revisions: number[] = [];
+
+  function Harness() {
+    runtime = useCanvasDocumentRuntime(
+      initial,
+      (revision) => revisions.push(revision),
+      () => {},
+    );
+    return null;
+  }
+
+  renderToStaticMarkup(createElement(Harness));
+  assert.ok(runtime);
+  runtime.pushHistory();
+  runtime.applyDocument(edited);
+  runtime.applySourceResolutionBatch(7, firstResults);
+  assert.equal(
+    runtime.getSnapshot().nodes[0].kind === "literature" &&
+      runtime.getSnapshot().nodes[0].snapshot.annotationCount,
+    9,
+  );
+  assert.deepEqual(revisions, []);
+
+  runtime.undo();
+  let snapshot = runtime.getSnapshot();
+  assert.deepEqual(snapshot.nodes[0].position, { x: 10, y: 20 });
+  assert.equal(
+    snapshot.nodes[0].kind === "literature" && snapshot.nodes[0].snapshot.title,
+    "First current paper",
+  );
+  assert.equal(
+    snapshot.nodes[0].kind === "literature" &&
+      snapshot.nodes[0].snapshot.annotationCount,
+    9,
+  );
+  assert.equal(
+    snapshot.nodes[1].kind === "quote" && snapshot.nodes[1].snapshot.text,
+    "First current quote",
+  );
+
+  runtime.applySourceResolutionBatch(7, [
+    {
+      ...firstResults[0],
+      acquisition: {
+        ...firstResults[0].acquisition,
+        snapshot: { title: "Second current paper" },
+      },
+    },
+    {
+      ...firstResults[1],
+      acquisition: {
+        ...firstResults[1].acquisition,
+        snapshot: { text: "Second current quote" },
+      },
+    },
+  ]);
+  runtime.redo();
+  snapshot = runtime.getSnapshot();
+  assert.deepEqual(snapshot.nodes[0].position, { x: 80, y: 90 });
+  assert.equal(
+    snapshot.nodes[0].kind === "literature" && snapshot.nodes[0].snapshot.title,
+    "Second current paper",
+  );
+  assert.equal(
+    snapshot.nodes[1].kind === "quote" && snapshot.nodes[1].snapshot.text,
+    "Second current quote",
+  );
+  assert.deepEqual(revisions, [1, 2]);
+});
+
+test("an explicit multi-source refresh dirties once without adding an undo entry", () => {
+  const literatureSource = {
+    library: { type: "user" as const },
+    itemKey: "ITEM",
+  };
+  const quoteSource = {
+    ...literatureSource,
+    attachmentKey: "PDF",
+    annotationKey: "ANNOTATION",
+  };
+  const initial: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "literature-1",
+        kind: "literature",
+        position: { x: 0, y: 0 },
+        width: 280,
+        height: 200,
+        source: literatureSource,
+        snapshot: { title: "Old paper", annotationCount: 4 },
+      },
+      {
+        id: "quote-1",
+        kind: "quote",
+        position: { x: 320, y: 0 },
+        width: 280,
+        height: 192,
+        source: quoteSource,
+        snapshot: { text: "Old quote" },
+      },
+    ],
+  };
+  const edited: CanvasDocument = {
+    ...initial,
+    nodes: initial.nodes.map((node) => ({
+      ...node,
+      position: { x: node.position.x, y: 64 },
+    })),
+  };
+  const revisions: number[] = [];
+  let runtime: CanvasDocumentRuntime | undefined;
+
+  function Harness() {
+    runtime = useCanvasDocumentRuntime(
+      initial,
+      (revision) => revisions.push(revision),
+      () => {},
+    );
+    return null;
+  }
+
+  renderToStaticMarkup(createElement(Harness));
+  assert.ok(runtime);
+  runtime.pushHistory();
+  runtime.applyDocument(edited);
+  const refresh = createSourceRefreshRuntime({
+    getNodes: () => runtime!.nodesRef.current,
+    applyResolutionBatch: runtime.applySourceResolutionBatch,
+    changed: runtime.changed,
+  });
+  assert.ok(refresh.request(runtime.nodesRef.current[0]));
+  assert.ok(refresh.request(runtime.nodesRef.current[1]));
+  refresh.apply(3, [
+    {
+      nodeId: "literature-1",
+      generation: 3,
+      status: "resolved",
+      acquisition: {
+        kind: "literature",
+        source: literatureSource,
+        snapshot: { title: "Current paper" },
+      },
+    },
+    {
+      nodeId: "quote-1",
+      generation: 3,
+      status: "resolved",
+      acquisition: {
+        kind: "quote",
+        source: quoteSource,
+        snapshot: { text: "Current quote" },
+      },
+    },
+  ]);
+
+  assert.deepEqual(revisions, [1]);
+  runtime.undo();
+  const undone = runtime.getSnapshot();
+  assert.deepEqual(undone.nodes[0].position, { x: 0, y: 0 });
+  assert.equal(
+    undone.nodes[0].kind === "literature" && undone.nodes[0].snapshot.title,
+    "Current paper",
+  );
+  assert.equal(
+    undone.nodes[0].kind === "literature" &&
+      undone.nodes[0].snapshot.annotationCount,
+    4,
+  );
+  assert.equal(
+    undone.nodes[1].kind === "quote" && undone.nodes[1].snapshot.text,
+    "Current quote",
+  );
+  runtime.redo();
+  assert.deepEqual(runtime.getSnapshot().nodes[0].position, { x: 0, y: 64 });
+});
+
+test("successful and partial annotation listings update only the originating Literature count", () => {
+  const source = {
+    library: { type: "user" as const },
+    itemKey: "ITEM",
+  };
+  const initial: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "origin",
+        kind: "literature",
+        position: { x: 0, y: 0 },
+        width: 280,
+        height: 200,
+        source,
+        snapshot: { title: "Paper", annotationCount: 8 },
+      },
+      {
+        id: "duplicate-placement",
+        kind: "literature",
+        position: { x: 320, y: 0 },
+        width: 280,
+        height: 200,
+        source,
+        snapshot: { title: "Paper copy", annotationCount: 8 },
+      },
+    ],
+  };
+  const revisions: number[] = [];
+  let runtime: CanvasDocumentRuntime | undefined;
+
+  function Harness() {
+    runtime = useCanvasDocumentRuntime(
+      initial,
+      (revision) => revisions.push(revision),
+      () => {},
+    );
+    return null;
+  }
+
+  renderToStaticMarkup(createElement(Harness));
+  assert.ok(runtime);
+  runtime.pushHistory();
+  runtime.applyDocument({
+    ...initial,
+    nodes: initial.nodes.map((node) =>
+      node.id === "origin" ? { ...node, position: { x: 20, y: 30 } } : node,
+    ),
+  });
+  runtime.applyLiteratureAnnotationCount("origin", source, 3);
+  let snapshot = runtime.getSnapshot();
+  assert.equal(
+    snapshot.nodes[0].kind === "literature" &&
+      snapshot.nodes[0].snapshot.annotationCount,
+    3,
+  );
+  assert.equal(
+    snapshot.nodes[1].kind === "literature" &&
+      snapshot.nodes[1].snapshot.annotationCount,
+    8,
+  );
+  assert.deepEqual(revisions, []);
+
+  runtime.undo();
+  snapshot = runtime.getSnapshot();
+  assert.deepEqual(snapshot.nodes[0].position, { x: 0, y: 0 });
+  assert.equal(
+    snapshot.nodes[0].kind === "literature" &&
+      snapshot.nodes[0].snapshot.annotationCount,
+    3,
+  );
+  runtime.redo();
+  assert.equal(
+    runtime.getSnapshot().nodes[0].kind === "literature" &&
+      runtime.getSnapshot().nodes[0].snapshot.annotationCount,
+    3,
+  );
+
+  const applyListing = callbackSource("applyAnnotationCandidates") ?? "";
+  const rejectListing = callbackSource("rejectAnnotationList") ?? "";
+  assert.match(applyListing, /applyLiteratureAnnotationCount/);
+  assert.match(applyListing, /candidates\.length/);
+  assert.doesNotMatch(rejectListing, /applyLiteratureAnnotationCount/);
+});
+
 test("only source-backed Notes expose refresh in properties", () => {
   const makeNode = (source: boolean) =>
     canvasDocumentToFlow({
@@ -1097,6 +1422,16 @@ test("Literature and Quote properties expose native source open and refresh acti
     assert.equal(markup.includes("Refresh source"), true);
     assert.equal(markup.includes("Open item"), false);
   }
+});
+
+test("context-menu open copy distinguishes source-backed and retained Basic nodes", () => {
+  const menuMarkup = appSource.slice(
+    appSource.indexOf('className="zmd-board-context-menu"'),
+    appSource.indexOf("{styleTarget && styleNode"),
+  );
+  assert.match(menuMarkup, /sourceDescriptor\(menuNode\.data\.model\)/);
+  assert.match(menuMarkup, /labels\.openSource/);
+  assert.match(menuMarkup, /labels\.openItem/);
 });
 
 test("cancelled Note refresh posts nothing and uses the localized warning once", () => {
@@ -1421,6 +1756,7 @@ test("failed or mismatched Note refresh preserves the complete document", () => 
     ],
   };
   const changes: number[] = [];
+  const errors: Array<{ message: string; nodeId: string }> = [];
   const requests = ["refresh-mismatch", "refresh-failure"];
   const refresh = createNoteRefreshRuntime({
     getWorkingDocument: () => live,
@@ -1431,7 +1767,7 @@ test("failed or mismatched Note refresh preserves the complete document", () => 
     commitHistory: () => assert.fail("failure must not commit history"),
     confirm: () => true,
     request: () => undefined,
-    onError: () => undefined,
+    onError: (message, nodeId) => errors.push({ message, nodeId }),
     createRequestId: () => requests.shift()!,
   });
   const [node] = canvasDocumentToFlow(live).nodes;
@@ -1453,7 +1789,21 @@ test("failed or mismatched Note refresh preserves the complete document", () => 
     live.nodes[0].kind === "note" && live.nodes[0].content,
     "Local edit",
   );
+  assert.deepEqual(errors, [
+    { message: noteActionLabels.sourceMissing, nodeId: "source-note" },
+    { message: "Missing", nodeId: "source-note" },
+  ]);
   assert.deepEqual(changes, []);
+});
+
+test("the app converts a defensive Note reply mismatch into a localized canvas notice", () => {
+  const binding = appSource.slice(
+    appSource.indexOf("createNoteRefreshRuntime({"),
+    appSource.indexOf("const noteRefreshRuntime ="),
+  );
+  assert.doesNotMatch(binding, /onError:\s*\(\)\s*=>\s*undefined/);
+  assert.match(binding, /code:\s*"note-refresh-failed"/);
+  assert.match(binding, /failureCode:\s*"note-refresh-failed"/);
 });
 
 test("a rejected Literature acquisition removes only its placeholder", () => {
@@ -2500,119 +2850,6 @@ test("flow model updates are immutable and keep the renderer kind synchronized",
   assert.equal(next.type, "frame");
   assert.equal(next.data.model.kind, "frame");
   assert.equal(node.data.model.kind, "literature");
-});
-
-test("picker payloads select and populate each typed canonical node kind", () => {
-  const cases = [
-    {
-      payload: {
-        kind: "item",
-        title: "Paper",
-        subtitle: "Author · 2026",
-        preview: "Abstract",
-        itemID: 41,
-        unexpected: "drop me",
-      },
-      assertModel(model: ReturnType<typeof mergePickerData>) {
-        assert.equal(model.kind, "item");
-        assert.equal(model.kind === "item" && model.data.itemID, 41);
-        assert.equal(model.kind === "item" && model.data.preview, "Abstract");
-      },
-    },
-    {
-      payload: {
-        kind: "pdf",
-        title: "Paper.pdf",
-        subtitle: "p. 8",
-        attachmentID: 42,
-        pdfPage: 8,
-        image: "data:image/png;base64,abc",
-        asset: "assets/page.png",
-        unexpected: "drop me",
-      },
-      assertModel(model: ReturnType<typeof mergePickerData>) {
-        assert.equal(model.kind, "pdf");
-        assert.equal(model.kind === "pdf" && model.data.attachmentID, 42);
-        assert.equal(model.kind === "pdf" && model.data.pdfPage, 8);
-        assert.equal(
-          model.kind === "pdf" && model.data.asset,
-          "assets/page.png",
-        );
-      },
-    },
-    {
-      payload: {
-        kind: "attachment",
-        title: "Dataset.csv",
-        subtitle: "12 KB",
-        attachmentID: 43,
-        unexpected: "drop me",
-      },
-      assertModel(model: ReturnType<typeof mergePickerData>) {
-        assert.equal(model.kind, "attachment");
-        assert.equal(
-          model.kind === "attachment" && model.data.attachmentID,
-          43,
-        );
-      },
-    },
-  ] as const;
-
-  for (const entry of cases) {
-    const parsed = parsePickerNodeData(entry.payload);
-    assert.ok(parsed);
-    assert.equal("unexpected" in parsed, false);
-    const placeholder = canvasDocumentToFlow({
-      version: 2,
-      nodes: [
-        {
-          id: "drop-1",
-          kind: "item",
-          position: { x: 10, y: 20 },
-          width: 240,
-          height: 96,
-          style: { fill: "#ffffff" },
-          extensions: { retained: true },
-          data: { title: "Pending" },
-        },
-      ],
-      connections: [],
-    }).nodes[0];
-    const next = updateFlowNodeModel(placeholder, (model) =>
-      mergePickerData(model, parsed),
-    );
-
-    assert.equal(next.type, entry.payload.kind);
-    assert.equal(next.data.model.kind, entry.payload.kind);
-    assert.deepEqual(next.data.model.position, { x: 10, y: 20 });
-    assert.deepEqual(next.data.model.style, { fill: "#ffffff" });
-    assert.deepEqual(next.data.model.extensions, { retained: true });
-    entry.assertModel(next.data.model);
-
-    const restored = flowToCanvasDocument([next], [], {
-      x: 0,
-      y: 0,
-      zoom: 1,
-    });
-    assert.equal(restored.nodes[0].kind, entry.payload.kind);
-    const reparsed = parseCanvasDocument(restored).document;
-    assert.deepEqual(reparsed, restored);
-    entry.assertModel(reparsed.nodes[0]);
-  }
-});
-
-test("picker parser rejects invalid values for known optional fields", () => {
-  for (const payload of [
-    { kind: "item", title: "Paper", itemID: Number.NaN },
-    { kind: "item", title: "Paper", itemID: Number.POSITIVE_INFINITY },
-    { kind: "item", title: "Paper", subtitle: 42 },
-    { kind: "pdf", title: "Paper.pdf", attachmentID: "42" },
-    { kind: "pdf", title: "Paper.pdf", image: { url: "bad" } },
-    { kind: "attachment", title: "File", preview: false },
-    { kind: "note", title: "Note", preview: "Local content" },
-  ]) {
-    assert.equal(parsePickerNodeData(payload), undefined);
-  }
 });
 
 test("a prevented style-bar blur cannot suppress the next real edit commit", () => {

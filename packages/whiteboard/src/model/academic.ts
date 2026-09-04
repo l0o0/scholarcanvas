@@ -37,6 +37,7 @@ function sourceLibraryIdentity(
 
 export function literatureSourceIdentity(source: LiteratureSource): string {
   return JSON.stringify([
+    "literature",
     ...sourceLibraryIdentity(source.library),
     source.itemKey,
   ]);
@@ -44,6 +45,7 @@ export function literatureSourceIdentity(source: LiteratureSource): string {
 
 export function quoteAttachmentIdentity(source: QuoteSource): string {
   return JSON.stringify([
+    "quote-attachment",
     ...sourceLibraryIdentity(source.library),
     source.itemKey,
     source.attachmentKey,
@@ -52,10 +54,20 @@ export function quoteAttachmentIdentity(source: QuoteSource): string {
 
 export function quoteSourceIdentity(source: QuoteSource): string {
   return JSON.stringify([
+    "quote",
     ...sourceLibraryIdentity(source.library),
     source.itemKey,
     source.attachmentKey,
     source.annotationKey,
+  ]);
+}
+
+export function noteSourceIdentity(source: NoteSource): string {
+  return JSON.stringify([
+    "note",
+    ...sourceLibraryIdentity(source.library),
+    source.itemKey ?? null,
+    source.noteKey,
   ]);
 }
 

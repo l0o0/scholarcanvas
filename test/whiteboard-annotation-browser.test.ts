@@ -242,7 +242,7 @@ test("uses a stable full Quote source identity for duplicates", () => {
   assert.equal(existing.kind, "quote");
   assert.deepEqual(
     existingAnnotationKeys(document),
-    new Set(['["user",null,"OTHER","OTHER-PDF","ANN1"]']),
+    new Set(['["quote","user",null,"OTHER","OTHER-PDF","ANN1"]']),
   );
   assert.notEqual(
     quoteSourceIdentity(candidates[0].acquisition.source),

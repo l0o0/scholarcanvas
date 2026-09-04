@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import type { CanvasDocument } from "../packages/whiteboard/src/model/document.ts";
+import {
+  parseCanvasDocument,
+  type CanvasDocument,
+} from "../packages/whiteboard/src/model/document.ts";
 import type { AcademicAcquisition } from "../packages/whiteboard/src/model/protocol.ts";
 import {
   applySourceResolutionResults,
@@ -118,15 +121,90 @@ test("describes only source-backed academic nodes with stable cache keys", () =>
 
   assert.equal(
     sourceCacheKey(sourceDescriptor(literature)!),
-    "literature:user:ITEMKEY",
+    '["literature","user",null,"ITEMKEY"]',
   );
   assert.equal(
     sourceCacheKey(sourceDescriptor(quote)!),
-    "quote:group:42:PARENT:PDFKEY:ANNOKEY",
+    '["quote","group",42,"PARENT","PDFKEY","ANNOKEY"]',
   );
   assert.equal(
     sourceCacheKey(sourceDescriptor(sourcedNote)!),
-    "note:user:ITEMKEY:NOTEKEY",
+    '["note","user",null,"ITEMKEY","NOTEKEY"]',
+  );
+});
+
+test("parser-valid delimiter keys stay structurally distinct in every source guard", () => {
+  const firstSource = {
+    library: { type: "user" as const },
+    itemKey: "PARENT",
+    attachmentKey: "PDF:SECTION",
+    annotationKey: "ANNOTATION",
+  };
+  const secondSource = {
+    library: { type: "user" as const },
+    itemKey: "PARENT:PDF",
+    attachmentKey: "SECTION",
+    annotationKey: "ANNOTATION",
+  };
+  const parsed = parseCanvasDocument({
+    version: 2,
+    nodes: [
+      {
+        id: "quote-a",
+        kind: "quote",
+        position: { x: 0, y: 0 },
+        width: 280,
+        height: 192,
+        source: firstSource,
+        snapshot: { text: "First source" },
+      },
+      {
+        id: "quote-b",
+        kind: "quote",
+        position: { x: 320, y: 0 },
+        width: 280,
+        height: 192,
+        source: secondSource,
+        snapshot: { text: "Second source" },
+      },
+    ],
+    connections: [],
+  });
+  assert.deepEqual(parsed.issues, []);
+
+  const [first, second] = canvasDocumentToFlow(parsed.document).nodes;
+  assert.notEqual(
+    sourceCacheKey(sourceDescriptor(first.data.model)!),
+    sourceCacheKey(sourceDescriptor(second.data.model)!),
+  );
+  const guarded = applyResolvedAcquisition(second, {
+    kind: "quote",
+    source: firstSource,
+    snapshot: { text: "Must not fan out" },
+  });
+  assert.equal(guarded, second);
+  assert.equal(
+    guarded.data.model.kind === "quote" && guarded.data.model.snapshot.text,
+    "Second source",
+  );
+
+  assert.notEqual(
+    sourceCacheKey({
+      kind: "note",
+      source: {
+        library: { type: "group", groupID: 7 },
+        itemKey: "PARENT",
+        noteKey: "CHILD:NOTE",
+      },
+    }),
+    sourceCacheKey({
+      kind: "note",
+      source: {
+        library: { type: "group", groupID: 7 },
+        itemKey: "PARENT:CHILD",
+        noteKey: "NOTE",
+      },
+    }),
   );
 });
 
@@ -237,6 +315,42 @@ test("the runtime applies background snapshots without changing history", () => 
   assert.equal(
     saved.nodes[0].kind === "literature" && saved.nodes[0].snapshot.title,
     "Current paper",
+  );
+});
+
+test("ordinary Literature resolution preserves a cached annotation count when omitted", () => {
+  const literature = canvasDocumentToFlow({
+    version: 2,
+    nodes: [
+      {
+        id: "literature-counted",
+        kind: "literature",
+        position: { x: 0, y: 0 },
+        width: 280,
+        height: 200,
+        source: { library: { type: "user" }, itemKey: "ITEMKEY" },
+        snapshot: { title: "Persisted", annotationCount: 7 },
+      },
+    ],
+    connections: [],
+  }).nodes[0];
+  const next = applyResolvedAcquisition(literature, {
+    kind: "literature",
+    source: { library: { type: "user" }, itemKey: "ITEMKEY" },
+    snapshot: { title: "Current" },
+  });
+
+  assert.deepEqual(
+    next.data.model.kind === "literature" && next.data.model.snapshot,
+    { title: "Current", annotationCount: 7 },
+  );
+  assert.equal(
+    sourceSnapshotChanged(next, {
+      kind: "literature",
+      source: { library: { type: "user" }, itemKey: "ITEMKEY" },
+      snapshot: { title: "Current" },
+    }),
+    false,
   );
 });
 

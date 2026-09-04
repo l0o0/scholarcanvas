@@ -165,6 +165,7 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   kindLiterature: "Literature",
   kindQuote: "Quote",
   kindNote: "Note",
+  emptyNote: "Empty note",
   kindQuestion: "Question",
   kindClaim: "Claim",
   kindFrame: "Frame",
@@ -663,6 +664,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     applyDocument,
     loadSnapshot: loadDocumentSnapshot,
     applySourceResolutionBatch: applyDocumentSourceResolutionBatch,
+    applyLiteratureAnnotationCount,
     getRawSnapshot: workingSnapshot,
     getSnapshot: snapshotNow,
     undo,
@@ -699,7 +701,12 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       confirm: (warning) => window.confirm(warning),
       request: (requestId, nodeId, source) =>
         propsRef.current.onRefreshZoteroNote(requestId, nodeId, source),
-      onError: () => undefined,
+      onError: (_message, nodeId) =>
+        showCanvasNotice({
+          code: "note-refresh-failed",
+          nodeId,
+          failureCode: "note-refresh-failed",
+        }),
       createRequestId: () => newId("note-refresh"),
     });
   }
@@ -956,6 +963,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         failures,
       });
       if (next === current) return;
+      const originNodeId = annotationBrowserOriginNodeIdRef.current;
+      if (originNodeId) {
+        applyLiteratureAnnotationCount(originNodeId, source, candidates.length);
+      }
       annotationBrowserRef.current = next;
       setAnnotationBrowser(next);
       if (failures.length) {
@@ -972,7 +983,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         );
       }
     },
-    [clearMatchingNotice, showCanvasNotice],
+    [applyLiteratureAnnotationCount, clearMatchingNotice, showCanvasNotice],
   );
 
   const rejectAnnotationList = useCallback(
@@ -2266,7 +2277,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                     }}
                   >
                     <IconOpen />
-                    <span>{labels.openItem}</span>
+                    <span>
+                      {sourceDescriptor(menuNode.data.model)
+                        ? labels.openSource
+                        : labels.openItem}
+                    </span>
                   </button>
                 )}
                 <button

@@ -35,6 +35,7 @@ whiteboard-add-arrow = 箭头
 whiteboard-kind-literature = 文献
 whiteboard-kind-quote = 引文
 whiteboard-kind-note = 笔记
+whiteboard-note-empty = 空笔记
 whiteboard-kind-question = 问题
 whiteboard-kind-claim = 主张
 whiteboard-kind-frame = 框架

@@ -418,17 +418,20 @@ function noteForSource(
   utilities: NoteUtilities,
 ): Extract<AcademicAcquisition, { kind: "note" }> {
   if (!item.isNote()) throw new SourceIntegrityError("wrong-kind");
+  const parent = item.parentItem;
   if (
     source.itemKey &&
-    (!item.parentItem?.isRegularItem() ||
-      item.parentItem.key !== source.itemKey)
+    (!parent?.isRegularItem() || parent.key !== source.itemKey)
   ) {
+    throw new SourceIntegrityError("parent-mismatch");
+  }
+  if (!source.itemKey && parent && !parent.isRegularItem()) {
     throw new SourceIntegrityError("parent-mismatch");
   }
   const acquired = noteAcquisition(item, source.library, utilities);
   if (acquired.source.noteKey !== source.noteKey)
     throw new SourceIntegrityError("parent-mismatch");
-  return acquired;
+  return { ...acquired, source };
 }
 
 function quoteForSource(

@@ -2,6 +2,7 @@ import {
   ACADEMIC_SOURCE_CARD_SIZE,
   createAcademicNode,
   literatureSourceIdentity,
+  noteSourceIdentity,
   quoteSourceIdentity,
   type CanvasNode,
 } from "../model/academic";
@@ -117,24 +118,33 @@ export function sourceDescriptor(
 }
 
 export function sourceCacheKey(descriptor: AcademicSourceDescriptor): string {
-  const library =
-    descriptor.source.library.type === "user"
-      ? "user"
-      : `group:${descriptor.source.library.groupID}`;
   if (descriptor.kind === "literature") {
-    return `literature:${library}:${descriptor.source.itemKey}`;
+    return literatureSourceIdentity(descriptor.source);
   }
   if (descriptor.kind === "note") {
-    return `note:${library}:${descriptor.source.itemKey ?? ""}:${descriptor.source.noteKey}`;
+    return noteSourceIdentity(descriptor.source);
   }
-  return `quote:${library}:${descriptor.source.itemKey}:${descriptor.source.attachmentKey}:${descriptor.source.annotationKey}`;
+  return quoteSourceIdentity(descriptor.source);
 }
 
 export function applyResolvedAcquisition(
   node: CanvasFlowNode,
   acquisition: AcademicAcquisition,
 ): CanvasFlowNode {
-  const descriptor = sourceDescriptor(node.data.model);
+  const resolved = applyResolvedAcquisitionToCanvasNode(
+    node.data.model,
+    acquisition,
+  );
+  return resolved === node.data.model
+    ? node
+    : { ...node, data: { ...node.data, model: resolved } };
+}
+
+export function applyResolvedAcquisitionToCanvasNode(
+  node: CanvasNode,
+  acquisition: AcademicAcquisition,
+): CanvasNode {
+  const descriptor = sourceDescriptor(node);
   const acquiredDescriptor = descriptorForAcquisition(acquisition);
   if (
     !descriptor ||
@@ -144,21 +154,65 @@ export function applyResolvedAcquisition(
     return node;
   }
 
-  const model = node.data.model;
-  let resolved: CanvasNode;
-  if (model.kind === "literature" && acquisition.kind === "literature") {
-    resolved = { ...model, snapshot: acquisition.snapshot };
-  } else if (model.kind === "quote" && acquisition.kind === "quote") {
-    resolved = { ...model, snapshot: acquisition.snapshot };
-  } else if (model.kind === "note" && acquisition.kind === "note") {
-    const { sourceSnapshot: _previousSourceSnapshot, ...withoutTitle } = model;
-    resolved = acquisition.sourceSnapshot
+  if (node.kind === "literature" && acquisition.kind === "literature") {
+    return {
+      ...node,
+      snapshot: mergeLiteratureSnapshot(node.snapshot, acquisition.snapshot),
+    };
+  }
+  if (node.kind === "quote" && acquisition.kind === "quote") {
+    return { ...node, snapshot: acquisition.snapshot };
+  }
+  if (node.kind === "note" && acquisition.kind === "note") {
+    const { sourceSnapshot: _previousSourceSnapshot, ...withoutTitle } = node;
+    return acquisition.sourceSnapshot
       ? { ...withoutTitle, sourceSnapshot: acquisition.sourceSnapshot }
       : withoutTitle;
-  } else {
+  }
+  return node;
+}
+
+export function applyLiteratureAnnotationCountToCanvasNode(
+  node: CanvasNode,
+  nodeId: string,
+  source: Extract<AcademicSourceDescriptor, { kind: "literature" }>["source"],
+  annotationCount: number,
+): CanvasNode {
+  if (
+    node.id !== nodeId ||
+    node.kind !== "literature" ||
+    literatureSourceIdentity(node.source) !==
+      literatureSourceIdentity(source) ||
+    !Number.isSafeInteger(annotationCount) ||
+    annotationCount < 0 ||
+    node.snapshot.annotationCount === annotationCount
+  ) {
     return node;
   }
-  return { ...node, data: { ...node.data, model: resolved } };
+  return {
+    ...node,
+    snapshot: { ...node.snapshot, annotationCount },
+  };
+}
+
+export function applyLiteratureAnnotationCountToDocument(
+  document: CanvasDocument,
+  nodeId: string,
+  source: Extract<AcademicSourceDescriptor, { kind: "literature" }>["source"],
+  annotationCount: number,
+): CanvasDocument {
+  let changed = false;
+  const nodes = document.nodes.map((node) => {
+    const next = applyLiteratureAnnotationCountToCanvasNode(
+      node,
+      nodeId,
+      source,
+      annotationCount,
+    );
+    if (next !== node) changed = true;
+    return next;
+  });
+  return changed ? { ...document, nodes } : document;
 }
 
 export function sourceSnapshotChanged(
@@ -176,7 +230,10 @@ export function sourceSnapshotChanged(
   }
   const model = node.data.model;
   if (model.kind === "literature" && acquisition.kind === "literature") {
-    return !literatureSnapshotsEqual(model.snapshot, acquisition.snapshot);
+    return !literatureSnapshotsEqual(
+      model.snapshot,
+      mergeLiteratureSnapshot(model.snapshot, acquisition.snapshot),
+    );
   }
   if (model.kind === "quote" && acquisition.kind === "quote") {
     return !quoteSnapshotsEqual(model.snapshot, acquisition.snapshot);
@@ -270,7 +327,7 @@ export function createSourceRefreshRuntime(
     },
     apply(generation, results) {
       const before = bindings.getNodes();
-      let changedSnapshots = 0;
+      let changedSnapshots = false;
       const explicitResults: SourceResolutionResult[] = [];
       for (const result of results) {
         if (result.generation !== generation) continue;
@@ -287,13 +344,11 @@ export function createSourceRefreshRuntime(
           sourceCacheKey(descriptor) === expected &&
           sourceSnapshotChanged(node, result.acquisition)
         ) {
-          changedSnapshots += 1;
+          changedSnapshots = true;
         }
       }
       bindings.applyResolutionBatch(generation, results);
-      for (let index = 0; index < changedSnapshots; index += 1) {
-        bindings.changed();
-      }
+      if (changedSnapshots) bindings.changed();
       return explicitResults;
     },
     clear() {
@@ -396,6 +451,16 @@ function literatureSnapshotsEqual(
     left.annotationCount === right.annotationCount &&
     stringArraysEqual(left.tags, right.tags)
   );
+}
+
+function mergeLiteratureSnapshot(
+  current: Extract<CanvasNode, { kind: "literature" }>["snapshot"],
+  incoming: Extract<AcademicAcquisition, { kind: "literature" }>["snapshot"],
+): Extract<CanvasNode, { kind: "literature" }>["snapshot"] {
+  return incoming.annotationCount === undefined &&
+    current.annotationCount !== undefined
+    ? { ...incoming, annotationCount: current.annotationCount }
+    : incoming;
 }
 
 function quoteSnapshotsEqual(

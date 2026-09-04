@@ -32,9 +32,9 @@ whiteboard iframe (canonical Zotero-free canvas + transient source state)
 
 - `editor-protocol.ts` and Markdown parse helpers stay pure: no Zotero or chrome DOM.
 - `src/editor/` talks only to DOM + CodeMirror. It must not call Zotero APIs.
-- The whiteboard package is also Zotero-free. Its canonical model stores
-  portable source descriptors and display snapshots, never Zotero objects or
-  local integer item IDs.
+- The whiteboard package is also Zotero-free. Academic source descriptors and
+  protocol payloads store portable native keys and display snapshots, never
+  Zotero objects or local integer item IDs.
 - The host academic source gateway is the single owner of user/group library
   mapping, native-key resolution, item-kind and parent-chain validation, Note
   conversion, annotation listing, snapshot creation, and source navigation.

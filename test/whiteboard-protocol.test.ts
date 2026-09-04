@@ -21,10 +21,6 @@ import {
 } from "../src/modules/whiteboard/protocol.ts";
 
 type Assert<T extends true> = T;
-type PickKind = Extract<
-  WhiteboardToParentMessage,
-  { type: "pickItem" }
->["payload"]["kind"];
 type SnapshotDocument = Extract<
   WhiteboardToParentMessage,
   { type: "snapshot" }
@@ -36,7 +32,6 @@ type ResolvePriority = Extract<
   WhiteboardToParentMessage,
   { type: "resolveAcademicSources" }
 >["payload"]["priority"];
-type _PickItemHasNoNote = Assert<"note" extends PickKind ? false : true>;
 type _SnapshotUsesSchemaV2 = Assert<
   SnapshotDocument extends { version: 2; nodes: unknown[] } ? true : false
 >;
@@ -190,9 +185,7 @@ const activeIframeToHostMessages = [
       text: "<svg />",
     },
   },
-] satisfies Array<
-  Exclude<WhiteboardToParentMessage, { type: "pickItem" | "dropItems" }>
->;
+] satisfies Array<WhiteboardToParentMessage>;
 
 const activeHostToIframeMessages = [
   {
@@ -361,9 +354,7 @@ const activeHostToIframeMessages = [
     type: "saveState",
     payload: { state: "saving" },
   },
-] satisfies Array<
-  Exclude<ParentToWhiteboardMessage, { type: "itemPicked" | "pickFailed" }>
->;
+] satisfies Array<ParentToWhiteboardMessage>;
 
 const v2ParentMessages = [
   {
@@ -1377,7 +1368,7 @@ test("closed validators exhaust finite codes, commands, states, and numeric rang
   }
 });
 
-test("protocol source uses CanvasDocument and typed Basic picker payloads", () => {
+test("protocol source uses CanvasDocument and contains no retired v1 picker arms", () => {
   const source = readFileSync(
     new URL("../packages/whiteboard/src/model/protocol.ts", import.meta.url),
     "utf8",
@@ -1386,7 +1377,15 @@ test("protocol source uses CanvasDocument and typed Basic picker payloads", () =
     source,
     /import \{ parseCanvasDocument, type CanvasDocument \} from "\.\/document"/,
   );
-  assert.match(source, /type BasicPickerPayload/);
+  assert.doesNotMatch(source, /BasicPickerPayload/);
+  for (const retiredType of [
+    "itemPicked",
+    "pickFailed",
+    "pickItem",
+    "dropItems",
+  ]) {
+    assert.doesNotMatch(source, new RegExp(`type: "${retiredType}"`));
+  }
   assert.match(source, /snapshot\?: CanvasDocument \| null/);
   assert.match(source, /priority: SourceResolutionPriority/);
   assert.doesNotMatch(source, /noteID/);

@@ -109,3 +109,80 @@ Final stroke-label alignment verification:
 - `pnpm lint:check` and `git diff --check`: passed.
 - The final independent read-only review reported 0 Critical, 0 Important, and 0 Minor issues after checking horizontal and vertical geometry, complete-line overflow capacity, leading-line selection, 24/32px clipping, theme/stroke separation, editing, controls, and model non-persistence.
 - The final generated `packages/whiteboard/dist` was moved to `/tmp/bamboo-stroke-align-final-build.IpHTAJ/dist`; no distribution artifact remains in the worktree.
+
+## Academic source lifecycle follow-up
+
+Baseline: `eaf193052bc35bb151c214c105580cc44fd109c0`
+
+- Replaced every colon-concatenated Academic source identity with a tagged JSON
+  tuple. Literature, Note, Quote, attachment grouping, scheduler cache keys,
+  resolution guards, and annotation deduplication now use the same structural
+  identity helpers. Parser-valid keys containing delimiters cannot collide,
+  while genuinely identical descriptors still coalesce.
+- Note resolution now validates the current Zotero parent chain but returns the
+  exact requested source descriptor. A Note acquired while standalone therefore
+  remains resolvable and refreshable after it gains a regular parent; a persisted
+  child descriptor still rejects a changed parent. Defensive reply mismatches and
+  refresh failures now produce the localized canvas failure notice instead of a
+  silent no-op.
+- Literature and Quote source-owned snapshot changes are rebased across both
+  undo and redo documents without creating history entries. Background changes
+  remain non-dirty; an explicit multi-node refresh dirties once when at least one
+  accepted snapshot changed. Geometry history stays independent, and confirmed
+  Note content refresh retains its existing historical/undoable path.
+- Ordinary Literature resolution preserves a persisted `annotationCount` when
+  the gateway response omits it. An accepted annotation-list response updates
+  only its originating Literature placement to the number of valid candidates,
+  including partial responses. Rejected or stale terminal replies do not update
+  it. Count updates are non-history and non-dirty but are rebased through both
+  history directions so a later save, undo, or redo keeps the newest count.
+- Empty Zotero Notes now persist exact empty content; the renderer supplies a
+  localized display-only empty state. Retired v1 picker/drop protocol arms and
+  their unused parser/merge helpers were removed while the canonical Basic node
+  models remain. Architecture wording now limits the no-local-ID guarantee to
+  Academic descriptors/protocol payloads, and source-backed context menus use
+  the localized **Open source** label.
+
+### Academic source TDD evidence
+
+- Identity RED: two parser-valid Quote descriptors (`PARENT` + `PDF:SECTION`
+  versus `PARENT:PDF` + `SECTION`) produced the same old cache key, causing one
+  scheduler run and allowing `applyResolvedAcquisition` to update the wrong
+  node. GREEN: the scheduler runs each distinct source once, fans out only an
+  identical third placement, and the acquisition guard leaves the colliding
+  node untouched. A corresponding group-Note delimiter case is also distinct.
+- Note RED: a key-only Note that had since gained a parent was returned with a
+  parent-enriched identity, so both background resolution and confirmed refresh
+  were rejected; the runtime error binding was a no-op. GREEN: gateway-to-runtime
+  tests preserve local content during background resolution, overwrite only on
+  confirmed refresh, reject a changed persisted parent, and surface the node's
+  localized failure notice on a defensive mismatch.
+- History RED: source refresh changed only the live document; undo and an
+  already-populated redo stack restored stale Literature/Quote snapshots, and a
+  multi-result explicit refresh incremented dirty revision once per node. GREEN:
+  real `CanvasDocumentHistory` runtime tests cover edit -> background refresh ->
+  undo/redo, refresh while the redo stack exists, multiple nodes, explicit
+  refresh, geometry preservation, one dirty revision, and unchanged Note refresh
+  semantics.
+- Annotation-count RED: ordinary Literature resolution erased an existing count,
+  and accepted annotation listings had no non-history count update path. GREEN:
+  gateway/browser/runtime coverage preserves omitted counts, records all valid
+  candidates on success or partial success, ignores rejection, updates only the
+  originating placement, and retains the count through undo/redo without a dirty
+  revision.
+- Minor RED/GREEN covers exact empty Note persistence plus localized SSR display,
+  exhaustive v2 protocol unions with no retired arms, narrowed architecture
+  wording, and source-aware context-menu copy.
+
+### Academic source verification
+
+- Focused merged behavior suite: 236/236 passed.
+- `pnpm test:unit`: 598/598 passed.
+- `pnpm --filter @zotero-markdown/whiteboard exec tsc --noEmit`: passed.
+- `pnpm exec tsc --noEmit`: passed.
+- `pnpm whiteboard:build`: passed (228 modules transformed).
+- `pnpm build`: passed (plugin build plus root TypeScript).
+- `pnpm lint:check` and `git diff --check`: passed.
+- The generated `packages/whiteboard/dist` directory was removed after build
+  verification; no distribution artifact is included. Per the task boundary, no
+  real Zotero instance was run; the parent controller owns the targeted smoke.

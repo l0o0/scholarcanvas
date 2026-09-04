@@ -11,6 +11,10 @@ import {
   WHITEBOARD_PROTOCOL_VERSION,
   isParentToWhiteboardMessageForChannel,
 } from "../src/modules/whiteboard/protocol.ts";
+import type { CanvasDocument } from "../packages/whiteboard/src/model/document.ts";
+import { canvasDocumentToFlow } from "../packages/whiteboard/src/whiteboard/document.ts";
+import { applyConfirmedNoteRefresh } from "../packages/whiteboard/src/whiteboard/noteRefresh.ts";
+import { applyResolvedAcquisition } from "../packages/whiteboard/src/whiteboard/sourceState.ts";
 
 type Kind = "regular" | "note" | "annotation" | "attachment" | "other";
 
@@ -319,6 +323,100 @@ test("reports unavailable libraries and validates note parent keys", async () =>
       code: "parent-mismatch",
       message: "The Zotero item's parent has changed.",
     },
+  );
+});
+
+test("a formerly standalone Note keeps its requested identity through resolve and refresh", async () => {
+  const currentParent = item("regular", { key: "CURRENT-PARENT" });
+  const note = item("note", {
+    key: "NOTE",
+    parentItem: currentParent,
+    note: "<p>Current body</p>",
+    title: "Current title",
+  });
+  const { deps } = dependencies([note, currentParent]);
+  const gateway = createZoteroSourceGateway(deps);
+  const requestedSource = {
+    library: { type: "user" as const },
+    noteKey: "NOTE",
+  };
+  const document: CanvasDocument = {
+    version: 2,
+    nodes: [
+      {
+        id: "note-1",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        source: requestedSource,
+        sourceSnapshot: { title: "Persisted title" },
+        content: "Local body",
+      },
+    ],
+    connections: [],
+  };
+
+  const result = await gateway.resolve("note-1", 4, {
+    kind: "note",
+    source: requestedSource,
+  });
+  assert.equal(result.status, "resolved");
+  if (result.status !== "resolved" || result.acquisition.kind !== "note") {
+    assert.fail("expected a resolved Note");
+  }
+  assert.deepEqual(result.acquisition.source, requestedSource);
+  const background = applyResolvedAcquisition(
+    canvasDocumentToFlow(document).nodes[0],
+    result.acquisition,
+  );
+  assert.equal(
+    background.data.model.kind === "note" && background.data.model.content,
+    "Local body",
+  );
+  assert.deepEqual(
+    background.data.model.kind === "note" &&
+      background.data.model.sourceSnapshot,
+    { title: "Current title" },
+  );
+
+  const refreshed = await gateway.refreshNote(requestedSource);
+  assert.deepEqual(refreshed.source, requestedSource);
+  const applied = applyConfirmedNoteRefresh(document, "note-1", refreshed);
+  assert.equal(
+    applied?.nodes[0].kind === "note" && applied.nodes[0].content,
+    "Current body",
+  );
+});
+
+test("a child Note whose parent identity changed is unavailable for resolve and refresh", async () => {
+  const currentParent = item("regular", { key: "CURRENT-PARENT" });
+  const note = item("note", { key: "NOTE", parentItem: currentParent });
+  const { deps } = dependencies([note, currentParent]);
+  const gateway = createZoteroSourceGateway(deps);
+  const staleSource = {
+    library: { type: "user" as const },
+    noteKey: "NOTE",
+    itemKey: "PREVIOUS-PARENT",
+  };
+
+  assert.deepEqual(
+    await gateway.resolve("note-1", 5, {
+      kind: "note",
+      source: staleSource,
+    }),
+    {
+      nodeId: "note-1",
+      generation: 5,
+      status: "unavailable",
+      code: "parent-mismatch",
+      message: "The Zotero item's parent has changed.",
+    },
+  );
+  await assert.rejects(
+    gateway.refreshNote(staleSource),
+    (error: unknown) =>
+      error instanceof SourceGatewayError && error.code === "parent-mismatch",
   );
 });
 

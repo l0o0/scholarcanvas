@@ -885,6 +885,7 @@ function mountWhiteboardUI(
       kindLiterature: getString("whiteboard-kind-literature"),
       kindQuote: getString("whiteboard-kind-quote"),
       kindNote: getString("whiteboard-kind-note"),
+      emptyNote: getString("whiteboard-note-empty"),
       kindQuestion: getString("whiteboard-kind-question"),
       kindClaim: getString("whiteboard-kind-claim"),
       kindFrame: getString("whiteboard-kind-frame"),

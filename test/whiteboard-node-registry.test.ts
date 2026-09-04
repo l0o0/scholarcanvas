@@ -35,6 +35,7 @@ const labels = new Proxy(
     kindLiterature: "Localized source",
     kindQuote: "Localized excerpt",
     kindNote: "Localized note",
+    emptyNote: "Localized empty note",
     kindQuestion: "Localized question",
     kindClaim: "Localized claim",
     kindFrame: "Localized frame",
@@ -387,6 +388,15 @@ test("renders local academic text as plain pre-wrapped content", () => {
     assert.match(markup, /white-space:pre-wrap/);
     assert.doesNotMatch(markup, /<strong>/);
   }
+});
+
+test("an empty Academic Note renders localized display copy without changing content", () => {
+  const model = createAcademicNode("note", { x: 0, y: 0 }, "empty-note");
+  const markup = renderNode(model);
+
+  assert.match(markup, /Localized empty note/);
+  assert.equal(model.content, "");
+  assert.doesNotMatch(JSON.stringify(model), /Localized empty note/);
 });
 
 test("Academic cards render non-default canonical surface and text styles", () => {

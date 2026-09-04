@@ -50,6 +50,17 @@ test("does not register or document the legacy runtime namespace", async () => {
   assert.doesNotMatch(sources.join("\n"), /ZoteroMarkdown/);
 });
 
+test("packaged chrome pages use the Bamboo content namespace", async () => {
+  const pages = await Promise.all([
+    read("addon/content/editor/index.html"),
+    read("addon/content/whiteboard/index.html"),
+  ]);
+  const combined = pages.join("\n");
+
+  assert.match(combined, /chrome:\/\/bamboo\/content\//);
+  assert.doesNotMatch(combined, /chrome:\/\/zoteromarkdown\/content\//);
+});
+
 test("uses a versioned Bamboo XPI name in build and CI", async () => {
   const scaffold = await read("zotero-plugin.config.ts");
   const [ci, release] = await Promise.all([

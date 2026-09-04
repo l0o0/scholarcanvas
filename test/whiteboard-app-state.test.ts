@@ -1404,7 +1404,10 @@ test("frame drag records one snapshot, moves direct members incrementally, and c
   assert.ok(finish, "missing Frame-aware drag finish");
   assert.match(finish, /finishFrameDragState\(/);
   assert.equal((finish.match(/bump\(\)/g) ?? []).length, 1);
-  assert.match(appSource, /event\.key === "Escape"[\s\S]*endFrameDrag\(\)/);
+  assert.match(
+    appSource,
+    /handleGlobalCanvasKeyDown\([\s\S]*endFrameDrag,[\s\S]*cancelDraw,/,
+  );
 
   assert.match(appSource, /onNodeDragStart=\{beginNodeDrag\}/);
   assert.match(appSource, /onNodeDragStop=\{finishNodeDrag\}/);
@@ -1519,10 +1522,7 @@ test("all node deletion entrances share canonical Frame deletion rules", () => {
   assert.match(deleteNode, /deleteCanvasElements\(\[nodeId\]/);
   assert.match(appSource, /onDelete=\{deleteNode\}/);
   assert.match(appSource, /onClick=\{\(\)\s*=>\s*deleteNode\(menuNode\.id\)\}/);
-  assert.match(
-    appSource,
-    /event\.key === "Backspace" \|\| event\.key === "Delete"[\s\S]*deleteCanvasElements\(/,
-  );
+  assert.match(appSource, /deleteSelection: deleteCanvasElements/);
   assert.match(appSource, /deleteKeyCode=\{null\}/);
 });
 

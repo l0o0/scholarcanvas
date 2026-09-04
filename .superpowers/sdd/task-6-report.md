@@ -262,3 +262,90 @@ Final result: both exited 0.
 Commit subject: `fix(canvas): harden annotation browser sessions`
 
 This follow-up is a separate commit on top of `ef05527`.
+
+---
+
+## Global keyboard isolation correction
+
+A final Important review finding identified that the production App-level
+`window.keydown` listener could still interpret annotation-search keystrokes as
+canvas commands. The modal listener and canvas listener both live on `window`,
+so event propagation alone was not a sufficient ownership boundary.
+
+### RED
+
+An integrated happy-dom test was added using the real `AnnotationBrowser` and
+the same global keyboard handler used by `WhiteboardApp`:
+
+```bash
+pnpm exec tsx --test --test-name-pattern="production canvas keyboard" test/whiteboard-annotation-dialog-dom.test.ts
+```
+
+Initial result: exit 1. The test module could not import
+`handleGlobalCanvasKeyDown`, proving that production had no shared keyboard
+ownership boundary to exercise.
+
+The editable-target guard was also mutation-checked by temporarily removing it
+after expanding the test to a non-modal input. The same command exited 1 with
+`true !== false`: the `e` shortcut was prevented and consumed from that input.
+Restoring the guard returned the test to GREEN. These RED runs were performed
+before the final implementation state recorded below.
+
+### Implementation and self-review
+
+- `handleGlobalCanvasKeyDown` is now the single production policy for App-level
+  Escape, unmodified tool shortcuts, Delete/Backspace, and Arrow-key nudging.
+- The first guard rejects every canvas command while an annotation-browser
+  session is live. Therefore modal Escape owns dismissal through `onClose`, the
+  session is invalidated by the established close path, and the dialog cleanup
+  restores focus to **View annotations**.
+- The same first guard ignores input, select, textarea, and contenteditable
+  targets outside the modal. It is shared with Arrow-key capture rather than
+  duplicating a second editable-target definition.
+- The integrated test dispatches e/r/a/t, Backspace, Delete, and ArrowRight at
+  the real search input and asserts that none is prevented, no tool changes, no
+  nudge occurs, and the selected Literature is not deleted. It then dispatches
+  Escape and asserts real dialog unmount plus trigger focus restoration.
+- After the modal closes, the same production listener is exercised against an
+  ordinary canvas target: `e`, Delete, and ArrowRight still select Eraser,
+  delete the selection, and nudge respectively. A separate non-modal input
+  remains untouched.
+- Existing Frame-drag and unified-deletion tests retain their behavioral checks;
+  only their App wiring assertions were updated from the previous inline
+  key-branch location to the shared handler actions.
+
+### GREEN and verification
+
+Focused annotation and App-state suite:
+
+```bash
+pnpm exec tsx --test test/whiteboard-annotation-dialog-dom.test.ts test/whiteboard-app-state.test.ts test/whiteboard-annotation-browser.test.ts test/whiteboard-annotation-session.test.ts
+```
+
+Result: exit 0, 62 passed, 0 failed.
+
+Full unit suite:
+
+```bash
+pnpm test:unit
+```
+
+Result: exit 0, 544 passed, 0 failed.
+
+TypeScript, targeted production/new-test lint, formatting, and whitespace
+checks:
+
+```bash
+pnpm exec tsc --noEmit
+pnpm exec eslint packages/whiteboard/src/whiteboard/app.tsx packages/whiteboard/src/whiteboard/keyboard.ts test/whiteboard-annotation-dialog-dom.test.ts
+pnpm exec prettier --check .superpowers/sdd/task-6-report.md packages/whiteboard/src/whiteboard/app.tsx packages/whiteboard/src/whiteboard/keyboard.ts test/whiteboard-annotation-dialog-dom.test.ts test/whiteboard-app-state.test.ts
+git diff --check
+```
+
+Final result: all commands exited 0.
+
+### Commit
+
+Commit subject: `fix(canvas): isolate modal keyboard input`
+
+This is a separate correction commit on top of `beb6a23`.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { Window } from "happy-dom";
-import { act, createElement, useRef, useState } from "react";
+import { act, createElement, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AnnotationBrowser,
@@ -9,6 +9,7 @@ import {
 } from "../packages/whiteboard/src/chrome/AnnotationBrowser.tsx";
 import { quoteSourceIdentity } from "../packages/whiteboard/src/model/academic.ts";
 import type { AnnotationCandidate } from "../packages/whiteboard/src/model/protocol.ts";
+import { handleGlobalCanvasKeyDown } from "../packages/whiteboard/src/whiteboard/keyboard.ts";
 
 const labels: AnnotationBrowserLabels = {
   title: "Annotations",
@@ -299,5 +300,155 @@ test("checkbox interaction emits the full source identity", async (t) => {
   );
   await act(async () => checkbox?.click());
   assert.deepEqual(toggled, [[quoteSourceIdentity(source), true]]);
+  await act(async () => root.unmount());
+});
+
+test("production canvas keyboard handling leaves modal search input and dismissal intact", async (t) => {
+  const window = installDom(t);
+  const container = window.document.createElement("div");
+  window.document.body.append(container);
+  let activeTool = "select";
+  let deletions = 0;
+  let nudges = 0;
+
+  function Harness() {
+    const [open, setOpen] = useState(true);
+    const [query, setQuery] = useState("");
+    const triggerRef = useRef<HTMLButtonElement | null>(null);
+    useEffect(() => {
+      const onKeyDown = (event: KeyboardEvent) =>
+        handleGlobalCanvasKeyDown(
+          event,
+          {
+            annotationBrowserOpen: open,
+            editing: false,
+            drawing: false,
+            selectedNodeIds: ["literature-1"],
+            selectedEdgeIds: [],
+          },
+          {
+            endFrameDrag: () => undefined,
+            cancelDraw: () => undefined,
+            dismissTransientUi: () => undefined,
+            setActiveTool: (tool) => {
+              activeTool = tool;
+            },
+            deleteSelection: () => {
+              deletions += 1;
+            },
+            nudgeSelected: () => {
+              nudges += 1;
+              return true;
+            },
+          },
+        );
+      window.addEventListener("keydown", onKeyDown);
+      return () => window.removeEventListener("keydown", onKeyDown);
+    }, [open]);
+    return createElement(
+      "div",
+      null,
+      createElement("button", { ref: triggerRef, id: "trigger" }, "View"),
+      createElement(
+        "main",
+        null,
+        "Selected Literature",
+        createElement("input", { id: "outside-input", "aria-label": "Title" }),
+      ),
+      open
+        ? createElement(AnnotationBrowser, {
+            labels,
+            state: { status: "ready", candidates: [candidate], failures: [] },
+            query,
+            selectedKeys: new Set(),
+            existingKeys: new Set(),
+            returnFocusRef: triggerRef,
+            onQueryChange: setQuery,
+            onToggle: () => undefined,
+            onClose: () => setOpen(false),
+            onFocusExisting: () => undefined,
+            onAddSelected: () => undefined,
+          })
+        : null,
+    );
+  }
+
+  const root = createRoot(container);
+  await act(async () => root.render(createElement(Harness)));
+  const search = window.document.querySelector<HTMLInputElement>(
+    '[aria-label="Search annotations"]',
+  );
+  assert.ok(search);
+
+  for (const key of ["e", "r", "a", "t", "Backspace", "Delete", "ArrowRight"]) {
+    const event = new window.KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    search.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, false, `${key} must remain editable`);
+  }
+  assert.equal(activeTool, "select");
+  assert.equal(deletions, 0);
+  assert.equal(nudges, 0);
+  assert.equal(
+    window.document.querySelector("main")?.textContent,
+    "Selected Literature",
+  );
+
+  await act(async () =>
+    search.dispatchEvent(
+      new window.KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  assert.equal(window.document.querySelector('[role="dialog"]'), null);
+  assert.equal(window.document.activeElement?.id, "trigger");
+
+  const outsideInput =
+    window.document.querySelector<HTMLInputElement>("#outside-input");
+  for (const key of ["e", "Backspace", "Delete", "ArrowRight"]) {
+    const editableEvent = new window.KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    outsideInput?.dispatchEvent(editableEvent);
+    assert.equal(editableEvent.defaultPrevented, false);
+  }
+  assert.equal(activeTool, "select");
+  assert.equal(deletions, 0);
+  assert.equal(nudges, 0);
+
+  const shortcut = new window.KeyboardEvent("keydown", {
+    key: "e",
+    bubbles: true,
+    cancelable: true,
+  });
+  window.document.querySelector("main")?.dispatchEvent(shortcut);
+  assert.equal(shortcut.defaultPrevented, true);
+  assert.equal(activeTool, "eraser");
+
+  const deletion = new window.KeyboardEvent("keydown", {
+    key: "Delete",
+    bubbles: true,
+    cancelable: true,
+  });
+  window.document.querySelector("main")?.dispatchEvent(deletion);
+  assert.equal(deletion.defaultPrevented, true);
+  assert.equal(deletions, 1);
+
+  const arrow = new window.KeyboardEvent("keydown", {
+    key: "ArrowRight",
+    bubbles: true,
+    cancelable: true,
+  });
+  window.document.querySelector("main")?.dispatchEvent(arrow);
+  assert.equal(arrow.defaultPrevented, true);
+  assert.equal(nudges, 1);
   await act(async () => root.unmount());
 });

@@ -72,7 +72,6 @@ import {
   isStampTool,
   shouldEditOnCreate,
   toolAfterDraw,
-  toolShortcut,
   type DrawFrame,
   type DrawKind,
 } from "../chrome/draw";
@@ -116,7 +115,7 @@ import {
   updateFrameDragState,
   type FrameDragState,
 } from "./frame";
-import { captureCanvasArrowKey } from "./keyboard";
+import { captureCanvasArrowKey, handleGlobalCanvasKeyDown } from "./keyboard";
 import {
   createAcademicAcquisitionRuntime,
   omitAcademicPlaceholders,
@@ -1438,49 +1437,38 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (editing) return;
-      if (event.key === "Escape") {
-        endFrameDrag();
-        if (drawRef.current) {
-          event.preventDefault();
-          cancelDraw();
-          return;
-        }
-        setMenu(null);
-        setHelpOpen(false);
-        setStyleTarget(null);
-        setActiveTool("select");
-        if (editing) cancelEdit();
-        return;
-      }
-      if (!event.metaKey && !event.ctrlKey && !event.altKey) {
-        const next = toolShortcut(event.key);
-        if (next) {
-          event.preventDefault();
-          setActiveTool(next);
-          return;
-        }
-      }
-      if (event.key === "Backspace" || event.key === "Delete") {
-        const selectedNodeIds = nodesRef.current
-          .filter((node) => node.selected)
-          .map((node) => node.id);
-        const selectedEdgeIds = edgesRef.current
-          .filter((edge) => edge.selected)
-          .map((edge) => edge.id);
-        if (!selectedNodeIds.length && !selectedEdgeIds.length) return;
-        event.preventDefault();
-        deleteCanvasElements(selectedNodeIds, selectedEdgeIds);
-        return;
-      }
-      captureCanvasArrowKey(event, Boolean(editing), nudgeSelected);
+      handleGlobalCanvasKeyDown(
+        event,
+        {
+          annotationBrowserOpen: annotationBrowserRef.current !== null,
+          editing: Boolean(editing),
+          drawing: drawRef.current !== null,
+          selectedNodeIds: nodesRef.current
+            .filter((node) => node.selected)
+            .map((node) => node.id),
+          selectedEdgeIds: edgesRef.current
+            .filter((edge) => edge.selected)
+            .map((edge) => edge.id),
+        },
+        {
+          endFrameDrag,
+          cancelDraw,
+          dismissTransientUi() {
+            setMenu(null);
+            setHelpOpen(false);
+            setStyleTarget(null);
+          },
+          setActiveTool,
+          deleteSelection: deleteCanvasElements,
+          nudgeSelected,
+        },
+      );
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     editing,
     cancelDraw,
-    cancelEdit,
     deleteCanvasElements,
     edgesRef,
     endFrameDrag,

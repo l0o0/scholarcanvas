@@ -6,6 +6,7 @@ import {
   parseDroppedItemIDs,
   resolveNativeAcademicDrop,
 } from "../src/modules/whiteboard/tab.ts";
+import * as tabModule from "../src/modules/whiteboard/tab.ts";
 
 const tab = readFileSync(
   new URL("../src/modules/whiteboard/tab.ts", import.meta.url),
@@ -141,6 +142,89 @@ test("production Zotero item drops use one canonical payload and preserve its or
     ),
     [],
     "arbitrary MIME payloads are not interpreted as Zotero item IDs",
+  );
+});
+
+test("production academic request failures log typed context and raw diagnostics", () => {
+  const reportAcademicRequestFailure = (
+    tabModule as typeof tabModule & {
+      reportAcademicRequestFailure?: (
+        detail: Record<string, string>,
+        log: (...args: unknown[]) => void,
+      ) => void;
+    }
+  ).reportAcademicRequestFailure;
+  assert.equal(typeof reportAcademicRequestFailure, "function");
+  const entries: unknown[][] = [];
+  reportAcademicRequestFailure!(
+    {
+      operation: "picker",
+      requestId: "pick-7",
+      nodeId: "node-7",
+      code: "picker-failed",
+      diagnostic: "private host exception",
+    },
+    (...args) => entries.push(args),
+  );
+  assert.deepEqual(entries, [
+    [
+      "Academic source picker failed",
+      {
+        operation: "picker",
+        requestId: "pick-7",
+        nodeId: "node-7",
+        code: "picker-failed",
+        diagnostic: "private host exception",
+      },
+    ],
+  ]);
+  const pickerPath = tab.slice(
+    tab.indexOf("async function handlePickAcademicSource"),
+    tab.indexOf("function openZoteroItem"),
+  );
+  assert.match(pickerPath, /reportAcademicRequestFailure\(\{/);
+
+  const rejected = resolveNativeAcademicDrop(
+    {
+      types: ["zotero/item"],
+      getData: () => {
+        throw new Error("native transfer exception");
+      },
+    },
+    { userLibraryID: 1, getItem: () => null, getLibrary: () => null },
+  );
+  assert.deepEqual(rejected, {
+    status: "rejected",
+    code: "drop-malformed",
+    diagnostic: "native transfer exception",
+  });
+  if (rejected.status === "rejected") {
+    reportAcademicRequestFailure!(
+      {
+        operation: "drop",
+        requestId: "drop-8",
+        code: rejected.code,
+        diagnostic: rejected.diagnostic,
+      },
+      (...args) => entries.push(args),
+    );
+  }
+  assert.deepEqual(entries.at(-1), [
+    "Academic source drop failed",
+    {
+      operation: "drop",
+      requestId: "drop-8",
+      code: "drop-malformed",
+      diagnostic: "native transfer exception",
+    },
+  ]);
+  const mountPath = tab.slice(
+    tab.indexOf("function mountWhiteboardUI"),
+    tab.indexOf("export async function openWhiteboard"),
+  );
+  assert.match(
+    mountPath,
+    /onNativeAcademicDropRejected[\s\S]*reportAcademicRequestFailure/,
   );
 });
 

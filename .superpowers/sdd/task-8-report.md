@@ -216,3 +216,77 @@ added.
 - Lifecycle: drop listeners, message/key listeners, React, timers, and pending
   correlation state are released by their owning session.
 - Scope: no Task 9 documentation was modified.
+
+## Review follow-up: accessible notices and specific failures
+
+This follow-up supersedes the earlier statement that notices are
+pointer-transparent. The notice remains a compact absolutely positioned region,
+so the rest of the canvas is unobstructed, but the region itself now accepts
+pointer input for a localized close button. The advisory text uses
+`role="status"`, `aria-live="polite"`, and `aria-atomic="true"`; the close control
+is a native button labelled by the active locale and supports click, Enter, and
+Space activation. Notices auto-expire after eight seconds. Replacing a notice
+resets that timer, while success clearing, document replacement, and unmount
+cancel it through the component effect lifecycle.
+
+Canvas notices now retain the finite failure code associated with open,
+explicit source refresh, Note refresh, and annotation list replies. The iframe
+maps library missing, item missing, wrong kind, parent mismatch, unavailable
+attachment, unavailable annotation, resolution failure, open failure, and list
+failure to distinct active Fluent strings. Partial annotation failures retain
+all distinct reasons. Action context remains visible, but raw gateway diagnostic
+text has no rendering path. The Properties panel's accessible `Selection` name
+also comes from the active locale payload instead of a hard-coded string.
+
+Picker exceptions and native/acquisition drop failures now pass through one
+host logging helper before rejection. Log records include operation, request ID,
+optional node/input index, finite code, and raw diagnostic. Native resolver
+exceptions become typed `drop-malformed` results; only the localized code crosses
+to the visible notice, while the host keeps the diagnostic. Picker cancellation
+remains silent. A mounted production-editor test exercises initial iframe load,
+reload without duplicate listeners, typed rejection logging context, and final
+listener release on destroy.
+
+### Accessible-notice RED evidence
+
+The initial focused run reported 85 tests: 77 passed and 8 failed. The failures
+showed the absent mounted notice component, pointer-transparent notice CSS,
+hard-coded Properties-panel accessible name, missing specific en/zh failure
+labels, discarded source-action failure specificity, and missing production
+diagnostic logging helper.
+
+A separate resolver-exception test then failed 1/1 because an exception escaped
+the native drop capture listener instead of becoming a typed host diagnostic.
+The listener catch and correlated logging callback were added only after that
+RED result.
+
+### Accessible-notice GREEN evidence
+
+- Focused notice/app/drop/localization/scheduler/gateway/annotation/bootstrap/
+  protocol/module suites: 144 passed, 0 failed.
+- Full `pnpm run test:unit`: 580 passed, 0 failed across 24 suites.
+- `pnpm exec tsc --noEmit`: passed.
+- `pnpm run lint:check`: Prettier and ESLint passed.
+- `git diff --check`: passed.
+
+### Accessible-notice self-review
+
+- Mounted behavior: DOM tests exercise click and keyboard dismissal, polite
+  announcement semantics, timer expiry/reset, success clearing, and unmount
+  cleanup rather than relying only on source inspection.
+- Canvas interaction: only the compact notice receives pointer events; no
+  full-canvas overlay or modal behavior was introduced.
+- Specificity/privacy: closed typed unions constrain the visible reason, all
+  active en/zh labels remain in parity, and raw host messages are absent from
+  notices and source-state tooltips.
+- Correlation: specific reasons are attached only after the existing
+  request/node/source or annotation-session checks accept a reply. Stale replies
+  remain inert.
+- Logging: picker/drop diagnostics are recorded before rejection with request
+  context. Indexed acquisition failures retain their input index in the log.
+- Lifecycle: the real editor rebinding test proves reload replaces listeners
+  instead of multiplying them and destroy detaches the active document.
+- Persistence/history: notices, timers, labels, error codes, and diagnostics
+  remain transient and do not alter Task 8's single-revision or zero-success
+  guarantees.
+- Scope: no Task 9 document was changed.

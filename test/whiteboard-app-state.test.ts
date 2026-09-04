@@ -75,6 +75,7 @@ const EMPTY: CanvasDocument = {
 };
 
 const noteActionLabels = {
+  selection: "Current selection",
   sourceStatus: "Source status",
   sourceIdle: "Not checked",
   sourceAvailable: "Available",
@@ -91,6 +92,7 @@ const noteActionLabels = {
 } satisfies Pick<
   WhiteboardLabels,
   | "sourceStatus"
+  | "selection"
   | "sourceIdle"
   | "sourceAvailable"
   | "sourceLoading"
@@ -904,6 +906,10 @@ test("only source-backed Notes expose refresh in properties", () => {
   assert.equal(sourceNoteActions.includes("Refresh from Zotero"), true);
   assert.equal(sourceNoteActions.includes("Source status"), true);
   assert.equal(sourceNoteActions.includes("Available"), true);
+  assert.equal(
+    sourceNoteActions.includes('aria-label="Current selection"'),
+    true,
+  );
   const unavailable = renderToStaticMarkup(
     createElement(PropertiesPanel, {
       labels: { ...({} as WhiteboardLabels), ...noteActionLabels },
@@ -965,9 +971,15 @@ test("source action failures are rendered inside the nonblocking canvas UI", () 
   assert.match(appSource, /aria-live="polite"/);
   assert.match(
     appSource,
-    /rejectSourceAction\(requestId, nodeId, source, _failure\)/,
+    /rejectSourceAction\(requestId, nodeId, source, failure\)/,
   );
   assert.match(canvasCss, /\.zmd-board-notice/);
+  assert.doesNotMatch(
+    canvasCss,
+    /\.zmd-board-notice\s*\{[^}]*pointer-events:\s*none/s,
+  );
+  assert.match(appSource, /CanvasNoticeRegion/);
+  assert.match(appSource, /failureCode:\s*failure\.code/);
   assert.match(
     callbackSource("applySourceResolutionBatch") ?? "",
     /showCanvasNotice/,
@@ -1039,7 +1051,8 @@ test("annotation failure correlation precedes every canvas-visible notice", () =
 test("canvas notices never render raw host diagnostic messages", () => {
   assert.doesNotMatch(appSource, /message:\s*failure\.message/);
   assert.doesNotMatch(appSource, /message:\s*failedRefresh\.message/);
-  assert.match(appSource, /noticeTimerRef/);
+  assert.doesNotMatch(appSource, /failure\.message/);
+  assert.match(appSource, /function CanvasNoticeRegion/);
   assert.match(appSource, /clearTimeout/);
 });
 

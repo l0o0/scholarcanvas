@@ -17,7 +17,9 @@ import {
   type AcademicAcquisition,
   type AcademicAcquisitionBatch,
   type AcademicAcquisitionFailure,
+  type AcademicDropFailureCode,
   type AcademicDropSourceRef,
+  type AcademicRequestFailureCode,
   type AcademicSourceDescriptor,
   type AnnotationListFailure,
 } from "./protocol";
@@ -37,6 +39,26 @@ const AUTOSAVE_MS = 800;
 
 function logAcademicDiagnostic(message: string, detail: object) {
   if (typeof ztoolkit !== "undefined") ztoolkit.log(message, detail);
+}
+
+export type AcademicRequestFailureDiagnostic = {
+  operation: "picker" | "drop";
+  requestId: string;
+  nodeId?: string;
+  index?: number;
+  code:
+    | AcademicRequestFailureCode
+    | AcademicDropFailureCode
+    | AcademicAcquisitionFailure["code"];
+  diagnostic?: string;
+};
+
+export function reportAcademicRequestFailure(
+  detail: AcademicRequestFailureDiagnostic,
+  log: (message: string, detail: object) => void = logAcademicDiagnostic,
+) {
+  const operation = detail.operation === "picker" ? "picker" : "drop";
+  log(`Academic source ${operation} failed`, detail);
 }
 
 function newCanvasId() {
@@ -295,11 +317,19 @@ async function handlePickAcademicSource(
     }
     await resolveAcademicItems(session, requestId, nodeId, itemIDs);
   } catch (error) {
+    const diagnostic = error instanceof Error ? error.message : String(error);
+    reportAcademicRequestFailure({
+      operation: "picker",
+      requestId,
+      nodeId,
+      code: "picker-failed",
+      diagnostic,
+    });
     editor.rejectAcademicRequest(
       requestId,
       nodeId,
       "picker-failed",
-      error instanceof Error ? error.message : String(error),
+      diagnostic,
     );
   }
 }
@@ -350,16 +380,32 @@ function primaryZoteroDragType(transfer: ZoteroDragTransfer) {
 }
 
 export function parseDroppedItemIDs(transfer: ZoteroDragTransfer): number[] {
-  if (primaryZoteroDragType(transfer) !== "zotero/item") return [];
+  return readDroppedItemIDs(transfer).itemIDs;
+}
+
+function readDroppedItemIDs(transfer: ZoteroDragTransfer): {
+  itemIDs: number[];
+  diagnostic?: string;
+} {
+  if (primaryZoteroDragType(transfer) !== "zotero/item") {
+    return { itemIDs: [] };
+  }
   let payload: string;
   try {
     payload = transfer.getData("zotero/item").trim();
-  } catch {
-    return [];
+  } catch (error) {
+    return {
+      itemIDs: [],
+      diagnostic: error instanceof Error ? error.message : String(error),
+    };
   }
-  if (!payload || !/^\d+(?:\s*,\s*\d+)*$/.test(payload)) return [];
+  if (!payload || !/^\d+(?:\s*,\s*\d+)*$/.test(payload)) {
+    return { itemIDs: [] };
+  }
   const ids = payload.split(",").map((value) => Number(value.trim()));
-  return ids.every((id) => Number.isSafeInteger(id) && id > 0) ? ids : [];
+  return {
+    itemIDs: ids.every((id) => Number.isSafeInteger(id) && id > 0) ? ids : [],
+  };
 }
 
 interface AcademicDropResolverDependencies {
@@ -383,31 +429,44 @@ export function resolveNativeAcademicDrop(
   if (type !== "zotero/item") {
     return { status: "rejected", code: "drop-unsupported" };
   }
-  const itemIDs = parseDroppedItemIDs(transfer);
+  const parsed = readDroppedItemIDs(transfer);
+  const itemIDs = parsed.itemIDs;
   if (!itemIDs.length) {
-    return { status: "rejected", code: "drop-malformed" };
+    return {
+      status: "rejected",
+      code: "drop-malformed",
+      ...(parsed.diagnostic ? { diagnostic: parsed.diagnostic } : {}),
+    };
   }
   const sources: AcademicDropSourceRef[] = [];
-  for (const itemID of itemIDs) {
-    const item = dependencies.getItem(itemID);
-    if (!item?.key) {
-      return { status: "rejected", code: "drop-malformed" };
+  try {
+    for (const itemID of itemIDs) {
+      const item = dependencies.getItem(itemID);
+      if (!item?.key) {
+        return { status: "rejected", code: "drop-malformed" };
+      }
+      if (item.libraryID === dependencies.userLibraryID) {
+        sources.push({ library: { type: "user" }, itemKey: item.key });
+        continue;
+      }
+      const library = dependencies.getLibrary(item.libraryID);
+      if (
+        library?.libraryType !== "group" ||
+        typeof library.groupID !== "number"
+      ) {
+        return { status: "rejected", code: "drop-unsupported" };
+      }
+      sources.push({
+        library: { type: "group", groupID: library.groupID },
+        itemKey: item.key,
+      });
     }
-    if (item.libraryID === dependencies.userLibraryID) {
-      sources.push({ library: { type: "user" }, itemKey: item.key });
-      continue;
-    }
-    const library = dependencies.getLibrary(item.libraryID);
-    if (
-      library?.libraryType !== "group" ||
-      typeof library.groupID !== "number"
-    ) {
-      return { status: "rejected", code: "drop-unsupported" };
-    }
-    sources.push({
-      library: { type: "group", groupID: library.groupID },
-      itemKey: item.key,
-    });
+  } catch (error) {
+    return {
+      status: "rejected",
+      code: "drop-malformed",
+      diagnostic: error instanceof Error ? error.message : String(error),
+    };
   }
   return { status: "accepted", sources };
 }
@@ -422,6 +481,13 @@ async function handleDropAcademicSources(
   if (!editor) return;
   try {
     if (!sources.length) {
+      reportAcademicRequestFailure({
+        operation: "drop",
+        requestId,
+        nodeId,
+        code: "acquisition-failed",
+        diagnostic: "The native source list was empty.",
+      });
       editor.rejectAcademicRequest(requestId, nodeId, "acquisition-failed");
       return;
     }
@@ -436,10 +502,13 @@ async function handleDropAcademicSources(
     const gateway = createZoteroSourceGateway();
     const result = await acquireAcademicItems(items, gateway);
     for (const failure of result.failures) {
-      ztoolkit.log("Academic source drop acquisition failed", {
+      reportAcademicRequestFailure({
+        operation: "drop",
+        requestId,
+        nodeId,
         index: failure.index,
         code: failure.code,
-        message: failure.message,
+        diagnostic: failure.message,
       });
     }
     editor.resolveAcademicAcquisitionBatch(
@@ -449,11 +518,19 @@ async function handleDropAcademicSources(
       result.failures,
     );
   } catch (error) {
+    const diagnostic = error instanceof Error ? error.message : String(error);
+    reportAcademicRequestFailure({
+      operation: "drop",
+      requestId,
+      nodeId,
+      code: "acquisition-failed",
+      diagnostic,
+    });
     editor.rejectAcademicRequest(
       requestId,
       nodeId,
       "acquisition-failed",
-      error instanceof Error ? error.message : String(error),
+      diagnostic,
     );
   }
 }
@@ -790,6 +867,7 @@ function mountWhiteboardUI(
     snapshot: initialSnapshot,
     labels: {
       canvas: getString("whiteboard-canvas"),
+      selection: getString("whiteboard-selection"),
       select: getString("whiteboard-select"),
       hand: getString("whiteboard-hand"),
       addItem: getString("whiteboard-add-item"),
@@ -832,6 +910,21 @@ function mountWhiteboardUI(
       sourceOpenFailed: getString("whiteboard-source-open-failed"),
       sourceRefreshFailed: getString("whiteboard-source-refresh-failed"),
       noteRefreshFailed: getString("whiteboard-note-refresh-failed"),
+      failureLibraryMissing: getString("whiteboard-failure-library-missing"),
+      failureItemMissing: getString("whiteboard-failure-item-missing"),
+      failureWrongKind: getString("whiteboard-failure-wrong-kind"),
+      failureParentMismatch: getString("whiteboard-failure-parent-mismatch"),
+      failureAttachmentUnavailable: getString(
+        "whiteboard-failure-attachment-unavailable",
+      ),
+      failureAnnotationUnavailable: getString(
+        "whiteboard-failure-annotation-unavailable",
+      ),
+      failureResolutionFailed: getString(
+        "whiteboard-failure-resolution-failed",
+      ),
+      failureOpenFailed: getString("whiteboard-failure-open-failed"),
+      failureListFailed: getString("whiteboard-failure-list-failed"),
       openSource: getString("whiteboard-open-source"),
       refreshSource: getString("whiteboard-refresh-source"),
       refreshNote: getString("whiteboard-refresh-note"),
@@ -942,6 +1035,14 @@ function mountWhiteboardUI(
     },
     resolveNativeAcademicDrop(dataTransfer) {
       return resolveNativeAcademicDrop(dataTransfer);
+    },
+    onNativeAcademicDropRejected(requestId, code, diagnostic) {
+      reportAcademicRequestFailure({
+        operation: "drop",
+        requestId,
+        code,
+        diagnostic,
+      });
     },
     onDropAcademicSources(requestId, nodeId, sources) {
       void handleDropAcademicSources(session, requestId, nodeId, sources);

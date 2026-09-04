@@ -48,7 +48,7 @@ export function PropertiesPanel(props: {
           : labels.sourceIdle;
 
   return (
-    <aside className="zmd-board-properties" aria-label="Selection">
+    <aside className="zmd-board-properties" aria-label={labels.selection}>
       <header className="zmd-board-properties-head">
         <span className="zmd-board-card-kind">{kindLabel}</span>
         <h2>{flowNodeText(node) || kindLabel}</h2>

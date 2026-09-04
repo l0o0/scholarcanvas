@@ -93,7 +93,11 @@ export interface WhiteboardHandle {
 
 export type NativeAcademicDropResolution =
   | { status: "ignored" }
-  | { status: "rejected"; code: AcademicDropFailureCode }
+  | {
+      status: "rejected";
+      code: AcademicDropFailureCode;
+      diagnostic?: string;
+    }
   | { status: "accepted"; sources: AcademicDropSourceRef[] };
 
 type AcademicDropEventTarget = {
@@ -110,7 +114,7 @@ type AcademicDropEventTarget = {
 };
 
 export type NativeAcademicDropEvent =
-  | { code: AcademicDropFailureCode }
+  | { code: AcademicDropFailureCode; diagnostic?: string }
   | {
       position: { x: number; y: number };
       sources: AcademicDropSourceRef[];
@@ -136,12 +140,23 @@ export function attachNativeAcademicDropListeners(
   const onDrop = (event: DragEvent) => {
     const transfer = event.dataTransfer;
     if (!transfer) return;
-    const resolved = resolve(transfer);
+    let resolved: NativeAcademicDropResolution;
+    try {
+      resolved = resolve(transfer);
+    } catch (error) {
+      event.preventDefault();
+      event.stopPropagation();
+      emit({
+        code: "drop-malformed",
+        diagnostic: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
     if (resolved.status === "ignored") return;
     event.preventDefault();
     event.stopPropagation();
     if (resolved.status === "rejected") {
-      emit({ code: resolved.code });
+      emit({ code: resolved.code, diagnostic: resolved.diagnostic });
       return;
     }
     emit({
@@ -210,6 +225,11 @@ export function createWhiteboardEditor(
     resolveNativeAcademicDrop?: (
       dataTransfer: DataTransfer,
     ) => NativeAcademicDropResolution;
+    onNativeAcademicDropRejected?: (
+      requestId: string,
+      code: AcademicDropFailureCode,
+      diagnostic?: string,
+    ) => void;
     onDropAcademicSources?: (
       requestId: string,
       nodeId: string,
@@ -430,7 +450,13 @@ export function createWhiteboardEditor(
       target,
       options.resolveNativeAcademicDrop,
       (drop) => {
+        const suffix = `${Date.now().toString(36)}-${dropSequence++}`;
         if ("code" in drop) {
+          options.onNativeAcademicDropRejected?.(
+            `drop-${suffix}`,
+            drop.code,
+            drop.diagnostic,
+          );
           sendOrQueue({
             source: WHITEBOARD_MESSAGE_SOURCE,
             type: "academicDropRejected",
@@ -438,7 +464,6 @@ export function createWhiteboardEditor(
           });
           return;
         }
-        const suffix = `${Date.now().toString(36)}-${dropSequence++}`;
         sendOrQueue({
           source: WHITEBOARD_MESSAGE_SOURCE,
           type: "academicDropStarted",

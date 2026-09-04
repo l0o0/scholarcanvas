@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { Window } from "happy-dom";
 import {
   createDeferredLabels,
   forwardAcademicParentMessage,
@@ -13,6 +14,7 @@ import {
   type ParentToWhiteboardMessage,
 } from "../packages/whiteboard/src/model/protocol.ts";
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
+import { createWhiteboardEditor } from "../src/modules/whiteboard/editor.ts";
 
 const bootstrap = readFileSync(
   new URL("../packages/whiteboard/src/bootstrap.tsx", import.meta.url),
@@ -367,4 +369,152 @@ test("host-owned iframe drop capture emits native refs and cleans up listeners",
   assert.equal(stopped, 1);
   cleanup();
   assert.deepEqual(removed.sort(), ["dragover", "drop"]);
+});
+
+test("native drop capture converts resolver exceptions into typed diagnostics", async () => {
+  const module = await import("../src/modules/whiteboard/editor.ts");
+  const listeners = new Map<string, (event: DragEvent) => void>();
+  const emitted: unknown[] = [];
+  const cleanup = module.attachNativeAcademicDropListeners(
+    {
+      addEventListener(type, listener) {
+        listeners.set(type, listener);
+      },
+      removeEventListener(type) {
+        listeners.delete(type);
+      },
+    },
+    () => {
+      throw new Error("native resolver exploded");
+    },
+    (drop) => emitted.push(drop),
+  );
+  listeners.get("drop")?.({
+    dataTransfer: { types: ["zotero/item"] },
+    preventDefault: () => undefined,
+    stopPropagation: () => undefined,
+  } as unknown as DragEvent);
+  assert.deepEqual(emitted, [
+    {
+      code: "drop-malformed",
+      diagnostic: "native resolver exploded",
+    },
+  ]);
+  cleanup();
+});
+
+test("production editor rebinds native drop ownership on iframe reload and releases it on destroy", (t) => {
+  const window = new Window({ url: "https://example.test" });
+  const globalKeys = [
+    "addon",
+    "ztoolkit",
+    "__zoteroMarkdownDOMGlobalsInjected",
+    "window",
+    "self",
+    "document",
+    "HTMLElement",
+    "HTMLDivElement",
+    "HTMLSpanElement",
+    "HTMLButtonElement",
+    "HTMLInputElement",
+    "Element",
+    "Node",
+    "Text",
+    "DocumentFragment",
+    "DOMParser",
+    "Range",
+    "Selection",
+    "NodeFilter",
+    "MutationObserver",
+    "ResizeObserver",
+    "getComputedStyle",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "getSelection",
+    "CSS",
+    "CSSStyleSheet",
+    "CustomEvent",
+    "Event",
+    "KeyboardEvent",
+    "MouseEvent",
+    "FocusEvent",
+    "InputEvent",
+  ];
+  const previous = new Map(
+    globalKeys.map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(globalThis, key),
+    ]),
+  );
+  Object.defineProperty(globalThis, "addon", {
+    configurable: true,
+    value: { data: { config: { addonRef: "bamboo" } } },
+  });
+  Object.defineProperty(globalThis, "ztoolkit", {
+    configurable: true,
+    value: { log: () => undefined },
+  });
+  t.after(() => {
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+    window.close();
+  });
+  const parent = window.document.createElement("div");
+  window.document.body.append(parent);
+  let resolveCount = 0;
+  const rejected: Array<[string, string, string | undefined]> = [];
+  const handle = createWhiteboardEditor(parent as unknown as HTMLElement, {
+    win: window as unknown as globalThis.Window,
+    channel: "tab-1:canvas-1",
+    resolveNativeAcademicDrop: () => {
+      resolveCount += 1;
+      return resolveCount === 1
+        ? {
+            status: "accepted" as const,
+            sources: [
+              { library: { type: "user" as const }, itemKey: "ITEM1234" },
+            ],
+          }
+        : {
+            status: "rejected" as const,
+            code: "drop-malformed" as const,
+            diagnostic: "native transfer exception",
+          };
+    },
+    onNativeAcademicDropRejected: (requestId, code, diagnostic) =>
+      rejected.push([requestId, code, diagnostic]),
+  });
+  const iframe = parent.querySelector("iframe")!;
+  const contentDocument = iframe.contentDocument!;
+  const dispatchDrop = () => {
+    const event = new window.Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperties(event, {
+      dataTransfer: {
+        value: { types: ["zotero/item"], dropEffect: "none" },
+      },
+      clientX: { value: 20 },
+      clientY: { value: 30 },
+    });
+    contentDocument.dispatchEvent(event);
+  };
+
+  iframe.dispatchEvent(new window.Event("load"));
+  dispatchDrop();
+  assert.equal(resolveCount, 1);
+  iframe.dispatchEvent(new window.Event("load"));
+  dispatchDrop();
+  assert.equal(resolveCount, 2, "reload must not duplicate drop listeners");
+  assert.equal(rejected.length, 1);
+  assert.match(rejected[0][0], /^drop-/);
+  assert.deepEqual(rejected[0].slice(1), [
+    "drop-malformed",
+    "native transfer exception",
+  ]);
+
+  handle.destroy();
+  dispatchDrop();
+  assert.equal(resolveCount, 2, "destroy must detach the active document");
+  assert.equal(parent.childElementCount, 0);
 });

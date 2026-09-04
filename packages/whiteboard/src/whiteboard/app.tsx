@@ -51,6 +51,7 @@ import type {
   AcademicSourceActionFailure,
   AnnotationCandidate,
   AnnotationListFailure,
+  CanvasFailureCode,
   CanvasNotice,
   IndexedAcademicAcquisition,
   SourceResolutionPriority,
@@ -146,6 +147,7 @@ import {
 
 const DEFAULT_LABELS: WhiteboardLabels = {
   canvas: "Canvas",
+  selection: "Selection",
   select: "Select (V)",
   hand: "Hand (H)",
   addItem: "Item",
@@ -181,6 +183,15 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   sourceOpenFailed: "The Zotero source could not be opened.",
   sourceRefreshFailed: "The Zotero source could not be refreshed.",
   noteRefreshFailed: "The Zotero Note could not be refreshed.",
+  failureLibraryMissing: "The Zotero library is unavailable.",
+  failureItemMissing: "The Zotero item no longer exists.",
+  failureWrongKind: "The Zotero item type no longer matches this source.",
+  failureParentMismatch: "The Zotero item's parent has changed.",
+  failureAttachmentUnavailable: "The Zotero attachment is unavailable.",
+  failureAnnotationUnavailable: "The Zotero annotation is unavailable.",
+  failureResolutionFailed: "Zotero could not resolve the current source.",
+  failureOpenFailed: "Zotero could not open the current source.",
+  failureListFailed: "Zotero could not list annotations for this source.",
   openSource: "Open source",
   refreshSource: "Refresh source",
   refreshNote: "Refresh from Zotero",
@@ -401,6 +412,15 @@ export function canvasNoticeText(
   labels: WhiteboardLabels,
   notice: CanvasNotice,
 ): string {
+  const withFailures = (
+    message: string,
+    codes: readonly CanvasFailureCode[],
+  ) => {
+    const reasons = [...new Set(codes)]
+      .map((code) => canvasFailureText(labels, code))
+      .filter((reason): reason is string => Boolean(reason));
+    return reasons.length ? `${message} ${reasons.join(" ")}` : message;
+  };
   switch (notice.code) {
     case "acquisition-summary":
       return labels.acquisitionSummary
@@ -413,16 +433,89 @@ export function canvasNoticeText(
     case "acquisition-failed":
       return labels.acquisitionFailed;
     case "source-open-failed":
-      return labels.sourceOpenFailed;
+      return withFailures(labels.sourceOpenFailed, [notice.failureCode]);
     case "source-refresh-failed":
-      return labels.sourceRefreshFailed;
+      return withFailures(labels.sourceRefreshFailed, [notice.failureCode]);
     case "note-refresh-failed":
-      return labels.noteRefreshFailed;
+      return withFailures(labels.noteRefreshFailed, [notice.failureCode]);
     case "annotations-unavailable":
-      return labels.annotationsUnavailable;
+      return withFailures(labels.annotationsUnavailable, [notice.failureCode]);
     case "annotations-partial-failure":
-      return labels.annotationsPartialFailure;
+      return withFailures(
+        labels.annotationsPartialFailure,
+        notice.failureCodes,
+      );
   }
+}
+
+export function canvasFailureText(
+  labels: WhiteboardLabels,
+  code: CanvasFailureCode,
+): string | null {
+  switch (code) {
+    case "library-missing":
+      return labels.failureLibraryMissing;
+    case "item-missing":
+      return labels.failureItemMissing;
+    case "wrong-kind":
+      return labels.failureWrongKind;
+    case "parent-mismatch":
+      return labels.failureParentMismatch;
+    case "attachment-unavailable":
+      return labels.failureAttachmentUnavailable;
+    case "annotation-unavailable":
+      return labels.failureAnnotationUnavailable;
+    case "resolution-failed":
+      return labels.failureResolutionFailed;
+    case "open-failed":
+      return labels.failureOpenFailed;
+    case "list-failed":
+      return labels.failureListFailed;
+    default:
+      return null;
+  }
+}
+
+const NOTICE_AUTO_DISMISS_MS = 8000;
+
+export function CanvasNoticeRegion(props: {
+  labels: WhiteboardLabels;
+  notice: CanvasNotice | null;
+  onDismiss: () => void;
+  autoDismissMs?: number;
+}): ReactElement | null {
+  const { labels, notice, onDismiss } = props;
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(
+      onDismiss,
+      props.autoDismissMs ?? NOTICE_AUTO_DISMISS_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [notice, onDismiss, props.autoDismissMs]);
+  if (!notice) return null;
+  return (
+    <div
+      className="zmd-board-notice"
+      data-tone={notice.code === "acquisition-summary" ? "info" : "error"}
+    >
+      <span role="status" aria-live="polite" aria-atomic="true">
+        {canvasNoticeText(labels, notice)}
+      </span>
+      <button
+        type="button"
+        aria-label={labels.close}
+        onClick={onDismiss}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          onDismiss();
+        }}
+      >
+        <span aria-hidden="true">×</span>
+      </button>
+    </div>
+  );
 }
 
 interface ContextMenuState {
@@ -525,32 +618,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const propsRef = useRef(props);
   propsRef.current = props;
   const [canvasNotice, setCanvasNotice] = useState<CanvasNotice | null>(null);
-  const noticeTimerRef = useRef<number | null>(null);
-  const clearCanvasNotice = useCallback(() => {
-    if (noticeTimerRef.current !== null) {
-      window.clearTimeout(noticeTimerRef.current);
-      noticeTimerRef.current = null;
-    }
-    setCanvasNotice(null);
-  }, []);
-  const showCanvasNotice = useCallback((notice: CanvasNotice) => {
-    if (noticeTimerRef.current !== null) {
-      window.clearTimeout(noticeTimerRef.current);
-    }
-    setCanvasNotice(notice);
-    noticeTimerRef.current = window.setTimeout(() => {
-      noticeTimerRef.current = null;
-      setCanvasNotice(null);
-    }, 6000);
-  }, []);
+  const clearCanvasNotice = useCallback(() => setCanvasNotice(null), []);
+  const showCanvasNotice = useCallback(
+    (notice: CanvasNotice) => setCanvasNotice(notice),
+    [],
+  );
   const clearMatchingNotice = useCallback(
     (matches: (notice: CanvasNotice) => boolean) => {
       setCanvasNotice((current) => {
         if (!current || !matches(current)) return current;
-        if (noticeTimerRef.current !== null) {
-          window.clearTimeout(noticeTimerRef.current);
-          noticeTimerRef.current = null;
-        }
         return null;
       });
     },
@@ -804,6 +880,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         showCanvasNotice({
           code: "source-refresh-failed",
           nodeId: failedRefresh.nodeId,
+          failureCode: failedRefresh.code,
         });
       }
     },
@@ -885,6 +962,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         showCanvasNotice({
           code: "annotations-partial-failure",
           requestId,
+          failureCodes: failures.map((failure) => failure.code),
         });
       } else {
         clearMatchingNotice(
@@ -913,7 +991,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       if (next === current) return;
       annotationBrowserRef.current = next;
       setAnnotationBrowser(next);
-      showCanvasNotice({ code: "annotations-unavailable", requestId });
+      showCanvasNotice({
+        code: "annotations-unavailable",
+        requestId,
+        failureCode: failure.code,
+      });
     },
     [showCanvasNotice],
   );
@@ -1763,16 +1845,30 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         if (
           noteRefreshRuntime.reject(requestId, nodeId, labels.noteRefreshFailed)
         ) {
-          showCanvasNotice({ code: "note-refresh-failed", nodeId });
+          showCanvasNotice({
+            code: "note-refresh-failed",
+            nodeId,
+            failureCode:
+              code === "library-missing" ||
+              code === "item-missing" ||
+              code === "wrong-kind" ||
+              code === "parent-mismatch"
+                ? code
+                : "note-refresh-failed",
+          });
           return;
         }
         academicAcquisition.reject(requestId, nodeId, code);
       },
-      rejectSourceAction(requestId, nodeId, source, _failure) {
+      rejectSourceAction(requestId, nodeId, source, failure) {
         if (!openSourceRequestsRef.current.accept(requestId, nodeId, source)) {
           return;
         }
-        showCanvasNotice({ code: "source-open-failed", nodeId });
+        showCanvasNotice({
+          code: "source-open-failed",
+          nodeId,
+          failureCode: failure.code,
+        });
       },
       acceptSourceAction(requestId, nodeId, action, source) {
         if (action !== "open") return;
@@ -1817,10 +1913,6 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
 
   useEffect(
     () => () => {
-      if (noticeTimerRef.current !== null) {
-        window.clearTimeout(noticeTimerRef.current);
-        noticeTimerRef.current = null;
-      }
       openSourceRequestsRef.current.clear();
       academicAcquisitionRef.current?.clear();
       noteRefreshRuntimeRef.current?.clear();
@@ -1901,18 +1993,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             selectedEdges[0] && toggleEdgeArrow(selectedEdges[0].id)
           }
         />
-        {canvasNotice ? (
-          <div
-            className="zmd-board-notice"
-            data-tone={
-              canvasNotice.code === "acquisition-summary" ? "info" : "error"
-            }
-            role="status"
-            aria-live="polite"
-          >
-            {canvasNoticeText(labels, canvasNotice)}
-          </div>
-        ) : null}
+        <CanvasNoticeRegion
+          labels={labels}
+          notice={canvasNotice}
+          onDismiss={clearCanvasNotice}
+        />
         <PropertiesPanel
           labels={labels}
           node={

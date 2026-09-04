@@ -38,6 +38,7 @@ export interface WhiteboardProtocolMessage {
 
 export interface WhiteboardLabels {
   canvas: string;
+  selection: string;
   select: string;
   hand: string;
   addItem: string;
@@ -72,6 +73,15 @@ export interface WhiteboardLabels {
   sourceOpenFailed: string;
   sourceRefreshFailed: string;
   noteRefreshFailed: string;
+  failureLibraryMissing: string;
+  failureItemMissing: string;
+  failureWrongKind: string;
+  failureParentMismatch: string;
+  failureAttachmentUnavailable: string;
+  failureAnnotationUnavailable: string;
+  failureResolutionFailed: string;
+  failureOpenFailed: string;
+  failureListFailed: string;
   openSource: string;
   refreshSource: string;
   refreshNote: string;
@@ -228,27 +238,18 @@ export interface AcademicAcquisitionBatch {
 }
 
 export interface AcademicSourceActionFailure {
-  code:
-    | "library-missing"
-    | "item-missing"
-    | "wrong-kind"
-    | "parent-mismatch"
-    | "open-failed";
+  code: AcademicSourceActionFailureCode;
   message: string;
 }
 
-export type CanvasNotice =
-  | {
-      code: "acquisition-summary";
-      context: { successCount: number; failureCount: number };
-    }
-  | { code: AcademicDropFailureCode }
-  | { code: "acquisition-failed" }
-  | { code: "source-open-failed"; nodeId: string }
-  | { code: "source-refresh-failed"; nodeId: string }
-  | { code: "note-refresh-failed"; nodeId: string }
-  | { code: "annotations-unavailable"; requestId: string }
-  | { code: "annotations-partial-failure"; requestId: string };
+export type AcademicIntegrityFailureCode =
+  "library-missing" | "item-missing" | "wrong-kind" | "parent-mismatch";
+
+export type AcademicSourceActionFailureCode =
+  AcademicIntegrityFailureCode | "open-failed";
+
+export type SourceResolutionFailureCode =
+  AcademicIntegrityFailureCode | "resolution-failed";
 
 export type SourceResolutionResult =
   | {
@@ -261,12 +262,7 @@ export type SourceResolutionResult =
       nodeId: string;
       generation: number;
       status: "unavailable";
-      code:
-        | "library-missing"
-        | "item-missing"
-        | "wrong-kind"
-        | "parent-mismatch"
-        | "resolution-failed";
+      code: SourceResolutionFailureCode;
       message: string;
     };
 
@@ -296,6 +292,45 @@ export interface AnnotationListResult {
   candidates: AnnotationCandidate[];
   failures: AnnotationListFailure[];
 }
+
+export type CanvasFailureCode =
+  | AcademicSourceActionFailureCode
+  | SourceResolutionFailureCode
+  | AnnotationListFailureCode
+  | "note-refresh-failed";
+
+export type CanvasNotice =
+  | {
+      code: "acquisition-summary";
+      context: { successCount: number; failureCount: number };
+    }
+  | { code: AcademicDropFailureCode }
+  | { code: "acquisition-failed" }
+  | {
+      code: "source-open-failed";
+      nodeId: string;
+      failureCode: AcademicSourceActionFailureCode;
+    }
+  | {
+      code: "source-refresh-failed";
+      nodeId: string;
+      failureCode: SourceResolutionFailureCode;
+    }
+  | {
+      code: "note-refresh-failed";
+      nodeId: string;
+      failureCode: AcademicIntegrityFailureCode | "note-refresh-failed";
+    }
+  | {
+      code: "annotations-unavailable";
+      requestId: string;
+      failureCode: AnnotationListFailureCode;
+    }
+  | {
+      code: "annotations-partial-failure";
+      requestId: string;
+      failureCodes: AnnotationListFailureCode[];
+    };
 
 export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
   (

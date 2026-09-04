@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
-import type { BoardNodeData } from "../model/snapshot";
+import {
+  canvasThemePalette,
+  effectiveCanvasNodeTextStyle,
+} from "../model/academic";
+import type { CanvasNodeStyle } from "../model/core";
 import type { WhiteboardLabels } from "../model/protocol";
+import type { WhiteboardTheme } from "../model/protocol";
+import type { CanvasFlowNode } from "../nodes";
 import { ColorPicker } from "./ColorPicker";
 import {
   IconAlignTextCenter,
@@ -24,7 +30,7 @@ const FONTS = [
   { value: '"Noto Serif SC", serif', label: "fontSerifSc" },
 ] as const;
 
-const SIZES = [12, 14, 16, 18, 24, 32, 48];
+const SIZES = [12, 13, 14, 16, 18, 24, 32, 48];
 const WEIGHTS = ["normal", "bold"] as const;
 
 type TextMenu = "format" | "color" | "align" | null;
@@ -39,24 +45,29 @@ export function isEditableControl(target: EventTarget | null): boolean {
 }
 
 export function TextStyleBar(props: {
-  data: BoardNodeData;
+  node: CanvasFlowNode;
   left: number;
   top: number;
   labels: WhiteboardLabels;
-  onChange: (patch: Partial<BoardNodeData>) => void;
+  theme: WhiteboardTheme;
+  onChange: (patch: Partial<CanvasNodeStyle>) => void;
   onHoldFocus?: () => void;
 }) {
-  const { data } = props;
+  const style = props.node.data.model.style ?? {};
+  const effective = effectiveCanvasNodeTextStyle(
+    props.node.data.model.kind,
+    style,
+  );
   const [menu, setMenu] = useState<TextMenu>(null);
-  const bold = data.fontWeight === "bold";
-  const italic = data.fontStyle === "italic";
-  const underline = data.textDecoration === "underline";
-  const strike = data.textDecoration === "line-through";
-  const align = data.textAlign || "center";
-  const valign = data.verticalAlign || "middle";
-  const fontSize = data.fontSize || 16;
-  const fontFamily = data.fontFamily || "system-ui, sans-serif";
-  const color = data.textColor || "#111827";
+  const bold = effective.fontWeight === "bold";
+  const italic = effective.fontStyle === "italic";
+  const underline = effective.textDecoration === "underline";
+  const strike = effective.textDecoration === "line-through";
+  const align = effective.textAlign;
+  const valign = effective.verticalAlign;
+  const fontSize = effective.fontSize;
+  const fontFamily = effective.fontFamily;
+  const color = style.textColor || canvasThemePalette(props.theme).text;
 
   useEffect(() => {
     if (!menu) return;
@@ -157,7 +168,7 @@ export function TextStyleBar(props: {
               title={props.labels.color}
               labels={props.labels}
               color={color}
-              opacity={data.textOpacity ?? 1}
+              opacity={effective.textOpacity}
               onChange={(next) => props.onChange({ textColor: next })}
               onOpacityChange={(next) => props.onChange({ textOpacity: next })}
               onClose={() => setMenu(null)}
@@ -181,7 +192,7 @@ export function TextStyleBar(props: {
       </label>
       <label className="zmd-board-style-group">
         <select
-          value={data.fontWeight || "normal"}
+          value={effective.fontWeight}
           onChange={(event) =>
             props.onChange({
               fontWeight: event.target.value as "normal" | "bold",

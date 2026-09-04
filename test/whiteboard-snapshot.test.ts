@@ -1,162 +1,130 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
-  createBoardNode,
-  parseBoardDocument,
+  CanvasDocumentError,
+  createAcademicConnection,
+  createAcademicNode,
+  createBasicNode,
+  emptyCanvasDocument,
+  parseCanvasDocument,
 } from "../src/modules/whiteboard/snapshot.ts";
 import {
-  ensureBoardExtension,
-  serializeBoardDocument,
-} from "../src/modules/whiteboard/file-io.ts";
+  buildCollectionCanvas,
+  zoteroNotePlainText,
+} from "../src/modules/whiteboard/create.ts";
 
-test("recovers an empty board from junk input", () => {
-  const empty = parseBoardDocument(null);
-  assert.equal(empty.engine, "xyflow");
-  assert.deepEqual(empty.nodes, []);
-  assert.deepEqual(empty.edges, []);
+test("host snapshot exports the canonical schema-v2 document", () => {
+  const document = emptyCanvasDocument();
+  assert.equal(document.version, 2);
+  assert.deepEqual(document.nodes, []);
+  assert.deepEqual(document.connections, []);
+  assert.deepEqual(document.viewport, { x: 0, y: 0, zoom: 1 });
 });
 
-test("keeps academic node kinds and drops unknown records", () => {
-  const doc = parseBoardDocument({
-    nodes: [
-      {
-        id: "n1",
-        type: "item",
-        position: { x: 10, y: 20 },
-        data: { title: "Paper", itemID: 44 },
-      },
-      { id: "bad", type: "sticky", position: { x: 0, y: 0 } },
-    ],
-    edges: [{ id: "e1", source: "n1", target: "missing" }, { id: 3 }],
-  });
-  assert.equal(doc.nodes.length, 1);
-  assert.equal(doc.nodes[0].data.kind, "item");
-  assert.equal(doc.nodes[0].data.itemID, 44);
-  assert.equal(doc.edges.length, 1);
-  assert.equal(doc.edges[0].target, "missing");
-});
-
-test("keeps line endpoints drawn on the canvas", () => {
-  const doc = parseBoardDocument({
-    nodes: [
-      {
-        id: "line-1",
-        type: "line",
-        position: { x: 8, y: 16 },
-        width: 80,
-        height: 40,
-        data: {
-          kind: "line",
-          title: "",
-          from: { x: 0, y: 0 },
-          to: { x: 80, y: 40 },
-        },
-      },
-    ],
-  });
-  assert.equal(doc.nodes.length, 1);
-  assert.deepEqual(doc.nodes[0].data.from, { x: 0, y: 0 });
-  assert.deepEqual(doc.nodes[0].data.to, { x: 80, y: 40 });
-});
-
-test("keeps stroke and fill style on a rect", () => {
-  const doc = parseBoardDocument({
-    nodes: [
-      {
-        id: "r1",
-        type: "rect",
-        position: { x: 0, y: 0 },
-        data: {
-          kind: "rect",
-          title: "",
-          stroke: "#111827",
-          fill: "#ffffff",
-          strokeWidth: 2,
-          radius: 12,
-          dashed: true,
-        },
-      },
-    ],
-  });
-  assert.equal(doc.nodes[0].data.stroke, "#111827");
-  assert.equal(doc.nodes[0].data.fill, "#ffffff");
-  assert.equal(doc.nodes[0].data.strokeWidth, 2);
-  assert.equal(doc.nodes[0].data.radius, 12);
-  assert.equal(doc.nodes[0].data.dashed, true);
-});
-
-test("preserves an explicit edge arrow opt-out while legacy edges stay implicit", () => {
-  const doc = parseBoardDocument({
-    edges: [
-      { id: "legacy", source: "a", target: "b" },
-      { id: "plain", source: "a", target: "b", arrow: false },
-    ],
-  });
-  assert.equal(doc.v, 1);
-  assert.equal(doc.edges[0].arrow, undefined);
-  assert.equal(doc.edges[1].arrow, false);
-});
-
-test("keeps text style on a shape label", () => {
-  const doc = parseBoardDocument({
-    nodes: [
-      {
-        id: "t1",
-        type: "rect",
-        position: { x: 0, y: 0 },
-        data: {
-          kind: "rect",
-          title: "Hello",
-          fontFamily: "Georgia",
-          fontSize: 24,
-          fontWeight: "bold",
-          textAlign: "center",
-          textColor: "#2563eb",
-        },
-      },
-    ],
-  });
-  assert.equal(doc.nodes[0].data.fontFamily, "Georgia");
-  assert.equal(doc.nodes[0].data.fontSize, 24);
-  assert.equal(doc.nodes[0].data.fontWeight, "bold");
-  assert.equal(doc.nodes[0].data.textAlign, "center");
-  assert.equal(doc.nodes[0].data.textColor, "#2563eb");
-});
-
-test("serializes a board as JSON Canvas with a canvas suffix", () => {
-  const json = serializeBoardDocument(
-    parseBoardDocument({
-      nodes: [
-        {
-          id: "n1",
-          type: "note",
-          position: { x: 0, y: 0 },
-          data: { title: "Hello" },
-        },
-      ],
-    }),
-  );
-  assert.match(json, /"schemaVersion": 1/);
-  assert.match(json, /"title": "Hello"/);
-  assert.equal(ensureBoardExtension("/tmp/board"), "/tmp/board.canvas");
-  assert.equal(ensureBoardExtension("/tmp/board.canvas"), "/tmp/board.canvas");
-  assert.equal(ensureBoardExtension("/tmp/board.board"), "/tmp/board.board");
-  assert.equal(
-    ensureBoardExtension("/tmp/board.zmdboard"),
-    "/tmp/board.zmdboard",
+test("host snapshot does not recover a wholly invalid document", () => {
+  assert.throws(() => parseCanvasDocument(null), CanvasDocumentError);
+  assert.throws(
+    () => parseCanvasDocument({ version: 1, nodes: [], connections: [] }),
+    /version must be 2/,
   );
 });
 
-test("createBoardNode stamps a kind-specific placeholder", () => {
-  const pdf = createBoardNode("pdf", { x: 1, y: 2 }, "pdf-1");
-  assert.equal(pdf.type, "pdf");
-  assert.equal(pdf.data.pdfPage, 1);
+test("host snapshot exposes canonical basic and academic factories", () => {
+  const item = createBasicNode("item", { x: 10, y: 20 }, "item-1");
+  const note = createAcademicNode("note", { x: 30, y: 40 }, "note-1");
+  const connection = createAcademicConnection(
+    "edge-1",
+    item.id,
+    note.id,
+    "related",
+  );
 
-  const arrow = createBoardNode("arrow", { x: 0, y: 0 }, "arrow-1");
-  assert.equal(arrow.type, "arrow");
-  assert.equal(arrow.data.kind, "arrow");
+  assert.equal(item.kind, "item");
+  assert.equal(note.kind, "note");
+  assert.equal(note.content, "");
+  assert.equal("noteID" in note, false);
+  assert.equal(connection.kind, "academic");
+});
 
-  const line = createBoardNode("line", { x: 0, y: 0 }, "line-1");
-  assert.equal(line.type, "line");
-  assert.equal(line.data.kind, "line");
+test("collection note conversion copies plain text rather than Zotero identity", () => {
+  const content = zoteroNotePlainText({
+    getNote: () => "<p>Evidence&nbsp;&amp; context</p><p>Second line</p>",
+  });
+  assert.equal(content, "Evidence & context\nSecond line");
+});
+
+test("note conversion preserves escaped angle brackets as user text", () => {
+  const content = zoteroNotePlainText({
+    getNote: () =>
+      "<p>Math: 1 &lt; 2 &gt; 0</p><p>A&amp;B<br>next&nbsp;line</p>",
+  });
+  assert.equal(content, "Math: 1 < 2 > 0\nA&B\nnext line");
+});
+
+test("invalid numeric entities cannot clear the surrounding note", () => {
+  const content = zoteroNotePlainText({
+    getNote: () => "<p>Before &#x110000; middle &#xD800; after &#x1F600;</p>",
+  });
+  assert.equal(content, "Before &#x110000; middle &#xD800; after 😀");
+});
+
+test("collection canvas stores Zotero Notes as local Academic Note content", (t) => {
+  const previous = (globalThis as { Zotero?: unknown }).Zotero;
+  const note = {
+    isNote: () => true,
+    getNote: () => "<p>Copied <strong>research note</strong></p>",
+  };
+  (globalThis as { Zotero?: unknown }).Zotero = {
+    Items: { get: (id: number) => (id === 77 ? note : undefined) },
+  };
+  t.after(() => {
+    (globalThis as { Zotero?: unknown }).Zotero = previous;
+  });
+
+  const document = buildCollectionCanvas({
+    getChildItems: () => [
+      {
+        id: 11,
+        parentItem: null,
+        isRegularItem: () => true,
+        getField: (field: string) => (field === "title" ? "Paper" : "2026"),
+        getDisplayTitle: () => "Paper",
+        getCreators: () => [],
+        getAttachments: () => [],
+        getNotes: () => [77],
+      },
+    ],
+  } as Zotero.Collection);
+
+  assert.equal(document.version, 2);
+  const academicNote = document.nodes.find((node) => node.kind === "note");
+  assert.ok(academicNote && academicNote.kind === "note");
+  assert.equal(academicNote.content, "Copied research note");
+  assert.equal("noteID" in academicNote, false);
+  assert.deepEqual(document.connections[0], {
+    id: "col-item-0-e-note",
+    kind: "basic",
+    source: "col-item-0",
+    target: "col-item-0-note",
+  });
+});
+
+test("host snapshot is a compatibility re-export rather than a schema", () => {
+  const source = readFileSync(
+    new URL("../src/modules/whiteboard/snapshot.ts", import.meta.url),
+    "utf8",
+  );
+  for (const module of ["document", "basic", "academic", "connection"]) {
+    assert.match(source, new RegExp(`/model/${module}"`));
+  }
+  assert.equal(source.match(/^export \* from/gm)?.length, 4);
+});
+
+test("the retired package schema authority is absent", () => {
+  const retiredSchema = new URL(
+    "../packages/whiteboard/src/model/snapshot.ts",
+    import.meta.url,
+  );
+  assert.equal(existsSync(retiredSchema), false);
 });

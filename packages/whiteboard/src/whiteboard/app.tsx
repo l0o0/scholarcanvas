@@ -20,67 +20,91 @@ import {
   applyEdgeChanges,
   applyNodeChanges,
   type Connection,
-  type Edge,
   type EdgeChange,
   type NodeChange,
+  type OnNodeDrag,
   type ReactFlowInstance,
-  type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./board.css";
-import type { WhiteboardLabels, WhiteboardTheme } from "../model/protocol";
 import {
-  createBoardNode,
-  demoBoard,
-  parseBoardDocument,
-  type BoardDocument,
-  type BoardNodeData,
-  type BoardNodeKind,
-} from "../model/snapshot";
-import { boardNodeTypes, type AcademicNode } from "../nodes";
+  createAcademicNode,
+  effectiveCanvasNodeUiTextStyle,
+  type CanvasNode,
+  type CanvasNodeKind,
+} from "../model/academic";
+import { createBasicNode } from "../model/basic";
+import {
+  demoCanvasDocument,
+  parseCanvasDocument,
+  type CanvasDocument,
+} from "../model/document";
+import type { WhiteboardLabels, WhiteboardTheme } from "../model/protocol";
+import { canvasNodeTypes, type CanvasFlowNode } from "../nodes";
 import { PropertiesPanel } from "../chrome/PropertiesPanel";
 import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
 import { TextStyleBar } from "../chrome/TextStyleBar";
 import { TopIsland } from "../chrome/TopIsland";
+import { WhiteboardLabelsProvider } from "../chrome/labels";
 import {
   frameFromDrag,
   isBorderHit,
   isDrawTool,
   isLibraryKind,
   isStampTool,
+  shouldEditOnCreate,
   toolAfterDraw,
   toolShortcut,
   type DrawFrame,
   type DrawKind,
 } from "../chrome/draw";
 import type { CanvasTool } from "../chrome/tools";
-import { getNodeSpec } from "../nodes";
 import {
   alignNodes,
   autoLayoutNodes,
   distributeNodes,
   type AlignMode,
 } from "./layout";
-import { buildBoardMarkdown, buildBoardSvg, svgToPngDataUrl } from "./export";
+import { buildCanvasMarkdown, buildCanvasSvg, svgToPngDataUrl } from "./export";
 import {
-  BoardDocumentHistory,
-  boardDocumentToFlow,
-  flowToBoardDocument,
+  beginNodeEditing,
+  canvasDocumentToFlow,
+  flowNodeText,
+  flowToCanvasDocument,
   labelTextStyle,
   mergeEditingStyle,
+  toggleEditingBold,
+  mergePickerData,
+  parsePickerNodeData,
+  type CanvasFlowEdge,
+  updateFlowNodeModel,
   verticalAlignmentStyle,
   withEdgeColor,
 } from "./document";
 import { armEditFocusHold, handleEditBlur } from "./editFocus";
 import { IconCopy, IconEdit, IconExport, IconOpen, IconTrash } from "./icons";
+import {
+  beginFrameDragState,
+  deleteNodeFromDocument,
+  finishFrameDragState,
+  moveNodesInDocument,
+  settleFrameDragState,
+  updateFrameDragState,
+  type FrameDragState,
+} from "./frame";
+import { captureCanvasArrowKey } from "./keyboard";
+import { useCanvasDocumentRuntime } from "./runtime";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
-  board: "Board",
+  canvas: "Canvas",
   select: "Select (V)",
   hand: "Hand (H)",
   addItem: "Item",
   addNote: "Note",
+  addQuestion: "Question",
+  addClaim: "Claim",
+  addFrame: "Frame",
   addPdf: "PDF",
   addFile: "File",
   addText: "Text",
@@ -88,6 +112,14 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   addEllipse: "Oval",
   addLine: "Line",
   addArrow: "Arrow",
+  kindLiterature: "Literature",
+  kindQuote: "Quote",
+  kindNote: "Note",
+  kindQuestion: "Question",
+  kindClaim: "Claim",
+  kindFrame: "Frame",
+  annotationColor: "Annotation color",
+  annotations: { one: "annotation", other: "annotations" },
   eraser: "Eraser",
   undo: "Undo",
   redo: "Redo",
@@ -147,6 +179,9 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   shortcutArrow: "Draw arrow",
   shortcutLine: "Draw line",
   shortcutText: "Add text",
+  shortcutQuestion: "Add question",
+  shortcutClaim: "Add claim",
+  shortcutFrame: "Add frame",
   shortcutEraser: "Erase",
   shortcutConstrain: "Constrain ratio or angle while drawing",
   shortcutCancel: "Cancel drawing or close menu",
@@ -158,7 +193,7 @@ const DEFAULT_LABELS: WhiteboardLabels = {
 export interface WhiteboardAppProps {
   theme: WhiteboardTheme;
   labels?: WhiteboardLabels;
-  initialSnapshot?: BoardDocument | Record<string, unknown> | null;
+  initialSnapshot?: CanvasDocument;
   onReady: (api: WhiteboardRuntime) => void;
   onChange: (rev: number) => void;
   onError: (message: string) => void;
@@ -166,12 +201,11 @@ export interface WhiteboardAppProps {
   onPickItem: (
     requestId: string,
     nodeId: string,
-    kind: "item" | "pdf" | "note" | "attachment",
+    kind: "item" | "pdf" | "attachment",
   ) => void;
   onOpenItem: (payload: {
     itemID?: number;
     attachmentID?: number;
-    noteID?: number;
     pdfPage?: number;
   }) => void;
   onDropItems: (
@@ -191,11 +225,11 @@ export interface WhiteboardAppProps {
 export interface WhiteboardRuntime {
   setTheme: (theme: WhiteboardTheme) => void;
   setLabels: (labels: WhiteboardLabels) => void;
-  loadSnapshot: (snapshot: BoardDocument | Record<string, unknown>) => void;
-  getSnapshot: () => BoardDocument;
+  loadSnapshot: (snapshot: CanvasDocument) => void;
+  getSnapshot: () => CanvasDocument;
   undo: () => void;
   redo: () => void;
-  resolvePick: (requestId: string, nodeId: string, data: BoardNodeData) => void;
+  resolvePick: (requestId: string, nodeId: string, data: unknown) => void;
   rejectPick: (requestId: string, message: string) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
@@ -217,7 +251,7 @@ interface DrawSession {
   pointerId: number;
 }
 
-function nodeSize(node: AcademicNode) {
+function nodeSize(node: CanvasFlowNode) {
   return {
     width:
       node.width ??
@@ -229,10 +263,10 @@ function nodeSize(node: AcademicNode) {
 }
 
 function applyDrawFrame(
-  node: AcademicNode,
+  node: CanvasFlowNode,
   frame: DrawFrame,
   kind: DrawKind,
-): AcademicNode {
+): CanvasFlowNode {
   let { position, width, height, start, end } = frame;
   if ((kind === "line" || kind === "arrow") && height < 16) {
     const pad = (16 - height) / 2;
@@ -243,24 +277,79 @@ function applyDrawFrame(
   }
   width = Math.max(width, 8);
   height = Math.max(height, 8);
+  const next = updateFlowNodeModel(node, (model) => {
+    if (model.kind !== "line" && model.kind !== "arrow") return model;
+    return { ...model, data: { ...model.data, from: start, to: end } };
+  });
   return {
-    ...node,
+    ...next,
     position,
     width,
     height,
     style: { width, height },
-    data: { ...node.data, from: start, to: end },
   };
+}
+
+function createCanvasNode(
+  kind: CanvasNodeKind,
+  position: { x: number; y: number },
+  id: string,
+): CanvasNode {
+  if (kind === "note") return createAcademicNode("note", position, id);
+  if (kind === "question") return createAcademicNode("question", position, id);
+  if (kind === "claim") return createAcademicNode("claim", position, id);
+  if (kind === "frame") return createAcademicNode("frame", position, id);
+  if (kind === "literature" || kind === "quote") {
+    throw new Error(`${kind} nodes require a Zotero source and snapshot.`);
+  }
+  return createBasicNode(kind, position, id);
+}
+
+function hasOpenTarget(node: CanvasFlowNode): boolean {
+  const model = node.data.model;
+  if (!("data" in model)) return false;
+  return (
+    ("itemID" in model.data && Boolean(model.data.itemID)) ||
+    ("attachmentID" in model.data && Boolean(model.data.attachmentID))
+  );
 }
 
 export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const initial = useMemo(
-    () => parseBoardDocument(props.initialSnapshot ?? demoBoard()),
+    () =>
+      parseCanvasDocument(props.initialSnapshot ?? demoCanvasDocument())
+        .document,
     [props.initialSnapshot],
   );
-  const seed = useMemo(() => boardDocumentToFlow(initial), [initial]);
-  const [nodes, setNodes] = useState<AcademicNode[]>(seed.nodes);
-  const [edges, setEdges] = useState<Edge[]>(seed.edges);
+  const flowRef = useRef<ReactFlowInstance<
+    CanvasFlowNode,
+    CanvasFlowEdge
+  > | null>(null);
+  const propsRef = useRef(props);
+  propsRef.current = props;
+  const documentRuntime = useCanvasDocumentRuntime(
+    initial,
+    (revision) => propsRef.current.onChange(revision),
+    (viewport) => flowRef.current?.setViewport(viewport),
+  );
+  const {
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    nodesRef,
+    edgesRef,
+    viewportRef,
+    shellRef,
+    history: documentHistory,
+    changed: bump,
+    pushHistory,
+    applyDocument,
+    loadSnapshot,
+    getSnapshot: snapshotNow,
+    undo,
+    redo,
+  } = documentRuntime;
   const [theme, setTheme] = useState<WhiteboardTheme>(props.theme);
   const [labels, setLabels] = useState<WhiteboardLabels>(
     props.labels ?? DEFAULT_LABELS,
@@ -279,83 +368,221 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const [styleTarget, setStyleTarget] = useState<string | null>(null);
   const holdEditFocusRef = useRef(false);
 
-  const viewportRef = useRef<Viewport>(
-    initial.viewport ?? { x: 0, y: 0, zoom: 1 },
-  );
-  const flowRef = useRef<ReactFlowInstance<AcademicNode> | null>(null);
-  const propsRef = useRef(props);
-  propsRef.current = props;
-  const documentHistoryRef = useRef<BoardDocumentHistory | null>(null);
-  if (!documentHistoryRef.current) {
-    documentHistoryRef.current = new BoardDocumentHistory((revision) =>
-      propsRef.current.onChange(revision),
-    );
-  }
-  const documentHistory = documentHistoryRef.current;
   const pendingPicksRef = useRef(new Map<string, string>());
   const runtimeRef = useRef<WhiteboardRuntime | null>(null);
   const drawRef = useRef<DrawSession | null>(null);
-  const preDrawRef = useRef<BoardDocument | null>(null);
+  const preDrawRef = useRef<CanvasDocument | null>(null);
+  const frameDragRef = useRef<FrameDragState | null>(null);
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
 
-  const bump = useCallback(() => {
-    documentHistory.changed();
-  }, [documentHistory]);
-
-  const nodesRef = useRef(nodes);
-  const edgesRef = useRef(edges);
-  nodesRef.current = nodes;
-  edgesRef.current = edges;
-
-  const snapshotNow = useCallback(
-    () =>
-      flowToBoardDocument(
-        nodesRef.current,
-        edgesRef.current,
-        viewportRef.current,
-      ),
-    [],
+  const applyNodePositions = useCallback(
+    (positioned: readonly CanvasFlowNode[]) => {
+      const document = moveNodesInDocument(
+        snapshotNow(),
+        positioned.map((node) => ({ id: node.id, position: node.position })),
+      );
+      const models = new Map(document.nodes.map((node) => [node.id, node]));
+      setNodes((current) =>
+        current.map((node) => {
+          const model = models.get(node.id);
+          return model
+            ? {
+                ...node,
+                position: model.position,
+                data: { ...node.data, model },
+              }
+            : node;
+        }),
+      );
+    },
+    [setNodes, snapshotNow],
   );
 
-  const pushHistory = useCallback(() => {
-    documentHistory.push(snapshotNow());
-  }, [documentHistory, snapshotNow]);
+  const deleteCanvasElements = useCallback(
+    (nodeIds: string[], edgeIds: string[] = []) => {
+      const nodeIdSet = new Set(nodeIds);
+      const edgeIdSet = new Set(edgeIds);
+      if (!nodeIdSet.size && !edgeIdSet.size) return;
 
-  const applyDocument = useCallback((doc: BoardDocument) => {
-    const next = boardDocumentToFlow(parseBoardDocument(doc));
-    setNodes(next.nodes);
-    setEdges(next.edges);
-    viewportRef.current = doc.viewport ?? { x: 0, y: 0, zoom: 1 };
-    flowRef.current?.setViewport(viewportRef.current);
-  }, []);
+      let document = snapshotNow();
+      const existingNodeIds = new Set(document.nodes.map((node) => node.id));
+      const existingEdgeIds = new Set(
+        document.connections.map((connection) => connection.id),
+      );
+      if (
+        !nodeIds.some((id) => existingNodeIds.has(id)) &&
+        !edgeIds.some((id) => existingEdgeIds.has(id))
+      ) {
+        return;
+      }
+
+      const settledDrag = settleFrameDragState(
+        frameDragRef.current ?? undefined,
+      );
+      frameDragRef.current = settledDrag.state ?? null;
+      pushHistory();
+      for (const nodeId of nodeIdSet) {
+        document = deleteNodeFromDocument(document, nodeId);
+      }
+      if (edgeIdSet.size) {
+        document = {
+          ...document,
+          connections: document.connections.filter(
+            (connection) => !edgeIdSet.has(connection.id),
+          ),
+        };
+      }
+      applyDocument(document);
+      bump();
+    },
+    [applyDocument, bump, pushHistory, snapshotNow],
+  );
 
   const onNodesChange = useCallback(
-    (changes: NodeChange<AcademicNode>[]) => {
-      const structural = changes.some(
-        (change) => change.type === "remove" || change.type === "add",
+    (changes: NodeChange<CanvasFlowNode>[]) => {
+      const removedNodeIds = changes
+        .filter((change) => change.type === "remove")
+        .map((change) => change.id);
+      if (removedNodeIds.length) {
+        deleteCanvasElements(removedNodeIds);
+      }
+
+      let retainedChanges = changes.filter(
+        (change) => change.type !== "remove",
       );
-      if (structural) pushHistory();
-      setNodes((current) => applyNodeChanges(changes, current));
-      if (changes.some((change) => change.type !== "select")) bump();
+      if (!retainedChanges.length) return;
+      if (retainedChanges.some((change) => change.type === "add")) {
+        pushHistory();
+      }
+
+      const drag = frameDragRef.current;
+      if (drag?.phase === "ending") {
+        retainedChanges = retainedChanges.filter(
+          (change) => change.type !== "position",
+        );
+        if (!retainedChanges.length) return;
+      }
+      const positionUpdates = retainedChanges.flatMap((change) =>
+        change.type === "position" && change.position
+          ? [{ id: change.id, position: change.position }]
+          : [],
+      );
+
+      if (drag && positionUpdates.length) {
+        setNodes((current) => {
+          const currentDocument = flowToCanvasDocument(
+            current,
+            edgesRef.current,
+            viewportRef.current,
+            shellRef.current,
+          );
+          const moved = updateFrameDragState(
+            currentDocument,
+            drag,
+            positionUpdates,
+          );
+          frameDragRef.current = moved.state;
+          const movedById = new Map(
+            moved.document.nodes.map((node) => [node.id, node]),
+          );
+          const movedNodes = current.map((node) => {
+            const model = movedById.get(node.id);
+            return model
+              ? {
+                  ...node,
+                  position: model.position,
+                  data: { ...node.data, model },
+                }
+              : node;
+          });
+          return applyNodeChanges(retainedChanges, movedNodes);
+        });
+      } else {
+        setNodes((current) => applyNodeChanges(retainedChanges, current));
+      }
+
+      if (!drag && retainedChanges.some((change) => change.type !== "select")) {
+        bump();
+      }
     },
-    [bump, pushHistory],
+    [bump, deleteCanvasElements, edgesRef, pushHistory, shellRef, viewportRef],
   );
 
   const onEdgesChange = useCallback(
-    (changes: EdgeChange<Edge>[]) => {
-      if (changes.some((change) => change.type === "remove")) pushHistory();
-      setEdges((current) => applyEdgeChanges(changes, current));
-      if (changes.some((change) => change.type !== "select")) bump();
+    (changes: EdgeChange<CanvasFlowEdge>[]) => {
+      const removedEdgeIds = changes
+        .filter((change) => change.type === "remove")
+        .map((change) => change.id);
+      if (removedEdgeIds.length) {
+        deleteCanvasElements([], removedEdgeIds);
+      }
+      const retainedChanges = changes.filter(
+        (change) => change.type !== "remove",
+      );
+      if (!retainedChanges.length) return;
+      setEdges((current) => applyEdgeChanges(retainedChanges, current));
+      if (retainedChanges.some((change) => change.type !== "select")) bump();
     },
-    [bump, pushHistory],
+    [bump, deleteCanvasElements],
   );
+
+  const beginNodeDrag = useCallback<OnNodeDrag<CanvasFlowNode>>(
+    (_event, _node, draggedNodes) => {
+      pushHistory();
+      frameDragRef.current =
+        beginFrameDragState(
+          snapshotNow(),
+          draggedNodes.map((dragged) => dragged.id),
+        ) ?? null;
+    },
+    [pushHistory, snapshotNow],
+  );
+
+  const endFrameDrag = useCallback(() => {
+    const settled = settleFrameDragState(frameDragRef.current ?? undefined);
+    frameDragRef.current = settled.state ?? null;
+    if (settled.notify) bump();
+  }, [bump]);
+
+  const finishNodeDrag = useCallback<OnNodeDrag<CanvasFlowNode>>(() => {
+    const stopped = finishFrameDragState(frameDragRef.current ?? undefined);
+    frameDragRef.current = stopped.state ?? null;
+    if (stopped.notify) bump();
+  }, [bump]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
       pushHistory();
+      const id = newId("edge");
+      const color = "#9ca3af";
       setEdges((current) =>
-        addEdge({ ...connection, id: newId("edge") }, current),
+        addEdge(
+          {
+            ...connection,
+            id,
+            data: {
+              connection: {
+                id,
+                kind: "basic",
+                source: connection.source,
+                target: connection.target,
+                sourceHandle: connection.sourceHandle,
+                targetHandle: connection.targetHandle,
+                color,
+                arrow: true,
+              },
+            },
+            style: { stroke: color },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              width: 16,
+              height: 16,
+              color,
+            },
+          },
+          current,
+        ),
       );
       bump();
     },
@@ -363,7 +590,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   );
 
   const addNode = useCallback(
-    (kind: BoardNodeKind, position?: { x: number; y: number }) => {
+    (kind: CanvasNodeKind, position?: { x: number; y: number }) => {
       pushHistory();
       const center = position ??
         flowRef.current?.screenToFlowPosition({
@@ -371,23 +598,21 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           y: window.innerHeight / 2,
         }) ?? { x: 120, y: 120 };
       const nodeId = newId(kind);
-      const spec = getNodeSpec(kind);
-      const created = boardDocumentToFlow({
-        v: 1,
-        engine: "xyflow",
-        nodes: [
-          {
-            ...createBoardNode(kind, center, nodeId),
-            width: spec.defaultWidth,
-            height: spec.defaultHeight,
-          },
-        ],
-        edges: [],
+      const created = canvasDocumentToFlow({
+        version: 2,
+        nodes: [createCanvasNode(kind, center, nodeId)],
+        connections: [],
       }).nodes[0];
-      setNodes((current) => [...current, created]);
+      const editOnCreate = isStampTool(kind) && shouldEditOnCreate(kind);
+      setNodes((current) => {
+        const next = [...current, created];
+        return editOnCreate
+          ? (beginNodeEditing(next, nodeId)?.nodes ?? next)
+          : next;
+      });
       bump();
-      if (kind === "text") {
-        setEditing({ nodeId, value: created.data.title || "" });
+      if (editOnCreate) {
+        setEditing({ nodeId, value: flowNodeText(created) });
       }
       if (isLibraryKind(kind)) {
         const requestId = `pick-${nodeId}-${Date.now().toString(36)}`;
@@ -478,11 +703,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       });
       preDrawRef.current = snapshotNow();
       const created = applyDrawFrame(
-        boardDocumentToFlow({
-          v: 1,
-          engine: "xyflow",
-          nodes: [createBoardNode(kind, origin, nodeId)],
-          edges: [],
+        canvasDocumentToFlow({
+          version: 2,
+          nodes: [createBasicNode(kind, origin, nodeId)],
+          connections: [],
         }).nodes[0],
         frame,
         kind,
@@ -500,27 +724,20 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
 
   const eraseNode = useCallback(
     (id: string) => {
-      pushHistory();
-      setNodes((current) => current.filter((node) => node.id !== id));
-      setEdges((current) =>
-        current.filter((edge) => edge.source !== id && edge.target !== id),
-      );
-      bump();
+      deleteCanvasElements([id]);
     },
-    [bump, pushHistory],
+    [deleteCanvasElements],
   );
 
   const eraseEdge = useCallback(
     (id: string) => {
-      pushHistory();
-      setEdges((current) => current.filter((edge) => edge.id !== id));
-      bump();
+      deleteCanvasElements([], [id]);
     },
-    [bump, pushHistory],
+    [deleteCanvasElements],
   );
 
   const updateNode = useCallback(
-    (nodeId: string, updater: (node: AcademicNode) => AcademicNode) => {
+    (nodeId: string, updater: (node: CanvasFlowNode) => CanvasFlowNode) => {
       pushHistory();
       setNodes((current) =>
         current.map((node) => (node.id === nodeId ? updater(node) : node)),
@@ -531,34 +748,29 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   );
 
   const startEdit = useCallback((nodeId: string) => {
-    const node = nodesRef.current.find((item) => item.id === nodeId);
-    if (!node) return;
+    const transition = beginNodeEditing(nodesRef.current, nodeId);
+    if (!transition) return;
     setMenu(null);
     setStyleTarget(null);
     setActiveTool("select");
-    setNodes((current) =>
-      current.map((item) => ({
-        ...item,
-        className: item.id === nodeId ? "is-editing-label" : undefined,
-      })),
-    );
-    setEditing({ nodeId, value: node.data.title || "" });
+    setNodes(transition.nodes);
+    setEditing(transition.editing);
   }, []);
 
   const openNode = useCallback(
-    (node: AcademicNode) => {
-      const data = node.data;
-      if (data.noteID) {
-        propsRef.current.onOpenItem({ noteID: data.noteID });
-      } else if (data.attachmentID && node.type === "pdf") {
+    (node: CanvasFlowNode) => {
+      const model = node.data.model;
+      if (model.kind === "pdf" && model.data.attachmentID) {
         propsRef.current.onOpenItem({
-          attachmentID: data.attachmentID,
-          pdfPage: data.pdfPage,
+          attachmentID: model.data.attachmentID,
+          pdfPage: model.data.pdfPage,
         });
-      } else if (data.attachmentID) {
-        propsRef.current.onOpenItem({ attachmentID: data.attachmentID });
-      } else if (data.itemID) {
-        propsRef.current.onOpenItem({ itemID: data.itemID });
+      } else if (model.kind === "attachment" && model.data.attachmentID) {
+        propsRef.current.onOpenItem({
+          attachmentID: model.data.attachmentID,
+        });
+      } else if (model.kind === "item" && model.data.itemID) {
+        propsRef.current.onOpenItem({ itemID: model.data.itemID });
       } else {
         startEdit(node.id);
       }
@@ -577,16 +789,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       );
       return;
     }
-    if (node.data.title === value) {
+    if (flowNodeText(node) === value) {
       setNodes((current) =>
         current.map((item) => ({ ...item, className: undefined })),
       );
       return;
     }
     updateNode(nodeId, (current) => ({
-      ...current,
+      ...mergeEditingStyle(current, value, {}),
       className: undefined,
-      data: { ...current.data, title: value },
     }));
   }, [editing, updateNode]);
 
@@ -605,12 +816,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       const id = newId(node.type || "item");
       setNodes((current) => [
         ...current,
-        {
-          ...node,
-          id,
-          selected: false,
-          position: { x: node.position.x + 24, y: node.position.y + 24 },
-        },
+        updateFlowNodeModel(
+          {
+            ...node,
+            id,
+            selected: false,
+            position: { x: node.position.x + 24, y: node.position.y + 24 },
+          },
+          (model) => ({ ...model, id }),
+        ),
       ]);
       bump();
     },
@@ -620,9 +834,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const deleteNode = useCallback(
     (nodeId: string) => {
       setMenu(null);
-      eraseNode(nodeId);
+      deleteCanvasElements([nodeId]);
     },
-    [eraseNode],
+    [deleteCanvasElements],
   );
 
   const alignSelected = useCallback(
@@ -631,15 +845,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       if (selected.length < 2) return;
       pushHistory();
       const aligned = alignNodes(selected, mode);
-      setNodes((current) =>
-        current.map((node) => {
-          const target = aligned.find((item) => item.id === node.id);
-          return target ? { ...node, position: target.position } : node;
-        }),
-      );
+      applyNodePositions(aligned);
       bump();
     },
-    [bump, pushHistory],
+    [applyNodePositions, bump, pushHistory],
   );
 
   const distributeSelected = useCallback(
@@ -648,22 +857,41 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       if (selected.length < 3) return;
       pushHistory();
       const distributed = distributeNodes(selected, direction);
-      setNodes((current) =>
-        current.map((node) => {
-          const target = distributed.find((item) => item.id === node.id);
-          return target ? { ...node, position: target.position } : node;
-        }),
-      );
+      applyNodePositions(distributed);
       bump();
     },
-    [bump, pushHistory],
+    [applyNodePositions, bump, pushHistory],
   );
 
   const autoLayout = useCallback(() => {
     pushHistory();
-    setNodes((current) => autoLayoutNodes(current));
+    applyNodePositions(autoLayoutNodes(nodesRef.current));
     bump();
-  }, [bump, pushHistory]);
+  }, [applyNodePositions, bump, nodesRef, pushHistory]);
+
+  const nudgeSelected = useCallback(
+    (key: string, shift: boolean): boolean => {
+      const selected = nodesRef.current.filter((node) => node.selected);
+      if (!selected.length || !key.startsWith("Arrow")) return false;
+      const step = shift ? 16 : 1;
+      const dx = key === "ArrowLeft" ? -step : key === "ArrowRight" ? step : 0;
+      const dy = key === "ArrowUp" ? -step : key === "ArrowDown" ? step : 0;
+      if (!dx && !dy) return false;
+
+      pushHistory();
+      const positioned = selected.map((node) => ({
+        ...node,
+        position: {
+          x: node.position.x + dx,
+          y: node.position.y + dy,
+        },
+      }));
+      applyNodePositions(positioned);
+      bump();
+      return true;
+    },
+    [applyNodePositions, bump, nodesRef, pushHistory],
+  );
 
   const fitView = useCallback(() => {
     void flowRef.current?.fitView({ padding: 0.2, duration: 300 });
@@ -753,11 +981,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           requestId,
           format,
           mimeType: "text/markdown",
-          text: buildBoardMarkdown(doc),
+          text: buildCanvasMarkdown(doc),
         });
         return;
       }
-      const svg = buildBoardSvg(doc);
+      const svg = buildCanvasSvg(doc);
       if (format === "svg") {
         propsRef.current.onExportFile({
           requestId,
@@ -791,15 +1019,17 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       pushHistory();
       setNodes((current) => [
         ...current,
-        boardDocumentToFlow({
-          v: 1,
-          engine: "xyflow",
-          nodes: [createBoardNode("item", position, nodeId)],
-          edges: [],
+        canvasDocumentToFlow({
+          version: 2,
+          nodes: [createBasicNode("item", position, nodeId)],
+          connections: [],
         }).nodes[0],
       ]);
       bump();
-      const raw: Record<string, string> = {};
+      const raw: Record<string, string> = Object.create(null) as Record<
+        string,
+        string
+      >;
       const types = Array.from(event.dataTransfer?.types || []);
       for (const type of types) {
         try {
@@ -819,6 +1049,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const onKeyDown = (event: KeyboardEvent) => {
       if (editing) return;
       if (event.key === "Escape") {
+        endFrameDrag();
         if (drawRef.current) {
           event.preventDefault();
           cancelDraw();
@@ -839,44 +1070,31 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           return;
         }
       }
-      if (event.key.startsWith("Arrow")) {
-        const selected = nodesRef.current.filter((node) => node.selected);
-        if (!selected.length) return;
+      if (event.key === "Backspace" || event.key === "Delete") {
+        const selectedNodeIds = nodesRef.current
+          .filter((node) => node.selected)
+          .map((node) => node.id);
+        const selectedEdgeIds = edgesRef.current
+          .filter((edge) => edge.selected)
+          .map((edge) => edge.id);
+        if (!selectedNodeIds.length && !selectedEdgeIds.length) return;
         event.preventDefault();
-        const step = event.shiftKey ? 16 : 1;
-        const dx =
-          event.key === "ArrowLeft"
-            ? -step
-            : event.key === "ArrowRight"
-              ? step
-              : 0;
-        const dy =
-          event.key === "ArrowUp"
-            ? -step
-            : event.key === "ArrowDown"
-              ? step
-              : 0;
-        if (!dx && !dy) return;
-        pushHistory();
-        setNodes((current) =>
-          current.map((node) =>
-            node.selected
-              ? {
-                  ...node,
-                  position: {
-                    x: node.position.x + dx,
-                    y: node.position.y + dy,
-                  },
-                }
-              : node,
-          ),
-        );
-        bump();
+        deleteCanvasElements(selectedNodeIds, selectedEdgeIds);
+        return;
       }
+      captureCanvasArrowKey(event, Boolean(editing), nudgeSelected);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editing, bump, pushHistory, cancelDraw, cancelEdit]);
+  }, [
+    editing,
+    cancelDraw,
+    cancelEdit,
+    deleteCanvasElements,
+    edgesRef,
+    endFrameDrag,
+    nudgeSelected,
+  ]);
 
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
@@ -915,28 +1133,26 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const runtime: WhiteboardRuntime = {
       setTheme,
       setLabels,
-      loadSnapshot(snapshot) {
-        applyDocument(parseBoardDocument(snapshot));
-        documentHistory.replace();
-      },
+      loadSnapshot,
       getSnapshot: snapshotNow,
-      undo() {
-        const previous = documentHistory.undo(snapshotNow());
-        if (!previous) return;
-        applyDocument(previous);
-      },
-      redo() {
-        const next = documentHistory.redo(snapshotNow());
-        if (!next) return;
-        applyDocument(next);
-      },
+      undo,
+      redo,
       resolvePick(requestId, nodeId, data) {
         if (pendingPicksRef.current.get(requestId) !== nodeId) return;
         pendingPicksRef.current.delete(requestId);
+        const picker = parsePickerNodeData(data);
+        if (!picker) {
+          propsRef.current.onError("Invalid Zotero picker payload.");
+          return;
+        }
         pushHistory();
         setNodes((current) =>
           current.map((node) =>
-            node.id === nodeId ? { ...node, type: data.kind, data } : node,
+            node.id === nodeId
+              ? updateFlowNodeModel(node, (model) =>
+                  mergePickerData(model, picker),
+                )
+              : node,
           ),
         );
         bump();
@@ -951,7 +1167,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     };
     runtimeRef.current = runtime;
     propsRef.current.onReady(runtime);
-  }, [applyDocument, bump, documentHistory, pushHistory, snapshotNow]);
+  }, [bump, loadSnapshot, pushHistory, redo, snapshotNow, undo]);
 
   useEffect(() => {
     setTheme(props.theme);
@@ -965,6 +1181,12 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const editingScreen = editingNode
     ? flowRef.current?.flowToScreenPosition(editingNode.position)
     : null;
+  const editingTextStyle = editingNode
+    ? effectiveCanvasNodeUiTextStyle(
+        editingNode.data.model.kind,
+        editingNode.data.model.style,
+      )
+    : null;
   const menuNode = menu ? nodes.find((node) => node.id === menu.nodeId) : null;
   const styleNode = styleTarget
     ? nodes.find((node) => node.id === styleTarget)
@@ -975,339 +1197,348 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const zoom = viewportRef.current.zoom || 1;
 
   return (
-    <div
-      className={`zmd-board-host${eraser ? " is-eraser" : ""}${activeTool === "hand" ? " is-hand" : ""}${isDrawTool(activeTool) ? " is-draw" : ""}`}
-      data-theme={theme}
-      onDragOver={(event) => {
-        if (event.dataTransfer?.types?.length) event.preventDefault();
-      }}
-      onDrop={handleDrop}
-      onPointerDown={(event) => {
-        if (event.button !== 0 || editing) return;
-        if (!isDrawTool(activeToolRef.current)) return;
-        const target = event.target as HTMLElement | null;
-        if (!target?.closest(".react-flow__pane")) return;
-        event.preventDefault();
-        beginDraw(event, activeToolRef.current);
-      }}
-    >
-      <TopIsland
-        labels={labels}
-        activeTool={activeTool}
-        onSelectTool={setActiveTool}
-        saveState={saveState}
-        selectedNodeCount={selectedNodes.length}
-        selectedEdgeCount={selectedEdges.length}
-        onUndo={() => runtimeRef.current?.undo()}
-        onRedo={() => runtimeRef.current?.redo()}
-        onSave={() => propsRef.current.onSave()}
-        onFitView={fitView}
-        onAutoLayout={autoLayout}
-        onOpenShortcuts={() => setHelpOpen(true)}
-        onAlign={alignSelected}
-        onDistribute={distributeSelected}
-        onEdgeColor={() =>
-          selectedEdges[0] && cycleEdgeColor(selectedEdges[0].id)
-        }
-        onEdgeDash={() =>
-          selectedEdges[0] && toggleEdgeDashed(selectedEdges[0].id)
-        }
-        onEdgeArrow={() =>
-          selectedEdges[0] && toggleEdgeArrow(selectedEdges[0].id)
-        }
-      />
-      <PropertiesPanel
-        labels={labels}
-        node={
-          selectedNodes.length === 1 &&
-          isLibraryKind(
-            (selectedNodes[0].type ||
-              selectedNodes[0].data.kind) as BoardNodeKind,
-          )
-            ? selectedNodes[0]
-            : null
-        }
-        onEdit={startEdit}
-        onOpen={openNode}
-        onCopy={copyNode}
-        onDelete={deleteNode}
-      />
-      <ReactFlow<AcademicNode>
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={boardNodeTypes}
-        defaultViewport={initial.viewport}
-        fitView={!props.initialSnapshot}
-        connectionMode={ConnectionMode.Loose}
-        defaultEdgeOptions={{
-          type: "smoothstep",
-          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+    <WhiteboardLabelsProvider value={labels}>
+      <div
+        className={`zmd-board-host${eraser ? " is-eraser" : ""}${activeTool === "hand" ? " is-hand" : ""}${isDrawTool(activeTool) ? " is-draw" : ""}`}
+        data-theme={theme}
+        onDragOver={(event) => {
+          if (event.dataTransfer?.types?.length) event.preventDefault();
         }}
-        snapToGrid={activeTool === "select"}
-        snapGrid={[16, 16]}
-        deleteKeyCode={editing ? null : ["Backspace", "Delete"]}
-        panOnDrag={activeTool === "hand" ? true : [1, 2]}
-        selectionOnDrag={activeTool === "select"}
-        elementsSelectable={activeTool === "select"}
-        nodesDraggable={!eraser && !editing && activeTool === "select"}
-        nodesConnectable={!eraser && activeTool === "select"}
-        onInit={(instance) => {
-          flowRef.current = instance;
-        }}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={(event, node) => {
-          if (!eraser) return;
+        onDrop={handleDrop}
+        onPointerDown={(event) => {
+          if (event.button !== 0 || editing) return;
+          if (!isDrawTool(activeToolRef.current)) return;
+          const target = event.target as HTMLElement | null;
+          if (!target?.closest(".react-flow__pane")) return;
           event.preventDefault();
-          eraseNode(node.id);
+          beginDraw(event, activeToolRef.current);
         }}
-        onNodeDoubleClick={(event, node) => {
-          event.preventDefault();
-          const origin = flowRef.current?.flowToScreenPosition(node.position);
-          const size = nodeSize(node);
-          const zoom = viewportRef.current.zoom || 1;
-          const kind = (node.type || node.data.kind) as BoardNodeKind;
-          if (origin) {
-            const local = {
-              x: (event.clientX - origin.x) / zoom,
-              y: (event.clientY - origin.y) / zoom,
-            };
-            if (
-              isBorderHit(local, {
-                width: size.width,
-                height: size.height,
-                kind,
-              })
-            ) {
-              setEditing(null);
-              setStyleTarget(node.id);
-              return;
-            }
-          }
-          if (isLibraryKind(kind)) {
-            openNode(node);
-            return;
-          }
-          startEdit(node.id);
-        }}
-        onEdgeClick={(event, edge) => {
-          if (!eraser) return;
-          event.preventDefault();
-          eraseEdge(edge.id);
-        }}
-        onNodeContextMenu={(event, node) => {
-          event.preventDefault();
-          setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
-        }}
-        onPaneClick={(event) => {
-          setMenu(null);
-          setStyleTarget(null);
-          if (eraser) {
-            setActiveTool("select");
-            return;
-          }
-          if (isDrawTool(activeTool) || drawRef.current) return;
-          if (!isStampTool(activeTool)) return;
-          const position = flowRef.current?.screenToFlowPosition({
-            x: event.clientX,
-            y: event.clientY,
-          });
-          addNode(activeTool, position);
-        }}
-        onPaneContextMenu={(event) => {
-          event.preventDefault();
-          setMenu({ x: event.clientX, y: event.clientY, nodeId: "" });
-        }}
-        onNodeDragStart={pushHistory}
-        onMoveEnd={(_, viewport) => {
-          const previous = viewportRef.current;
-          if (
-            previous.x === viewport.x &&
-            previous.y === viewport.y &&
-            previous.zoom === viewport.zoom
-          ) {
-            return;
-          }
-          viewportRef.current = viewport;
-          bump();
-        }}
-        proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-        <Controls showInteractive={false} position="bottom-right" />
-      </ReactFlow>
-      {editing && editingNode && editingScreen ? (
-        <div
-          className="zmd-board-editor is-in-shape"
-          style={{
-            left: editingScreen.x,
-            top: editingScreen.y,
-            width:
-              nodeSize(editingNode).width * (viewportRef.current.zoom || 1),
-            height:
-              nodeSize(editingNode).height * (viewportRef.current.zoom || 1),
-            borderRadius:
-              editingNode.type === "ellipse"
-                ? 999
-                : (editingNode.data.radius ?? 8) *
-                  (viewportRef.current.zoom || 1),
-            ...verticalAlignmentStyle(editingNode.data),
+        <TopIsland
+          labels={labels}
+          activeTool={activeTool}
+          onSelectTool={setActiveTool}
+          saveState={saveState}
+          selectedNodeCount={selectedNodes.length}
+          selectedEdgeCount={selectedEdges.length}
+          onUndo={() => runtimeRef.current?.undo()}
+          onRedo={() => runtimeRef.current?.redo()}
+          onSave={() => propsRef.current.onSave()}
+          onFitView={fitView}
+          onAutoLayout={autoLayout}
+          onOpenShortcuts={() => setHelpOpen(true)}
+          onAlign={alignSelected}
+          onDistribute={distributeSelected}
+          onEdgeColor={() =>
+            selectedEdges[0] && cycleEdgeColor(selectedEdges[0].id)
+          }
+          onEdgeDash={() =>
+            selectedEdges[0] && toggleEdgeDashed(selectedEdges[0].id)
+          }
+          onEdgeArrow={() =>
+            selectedEdges[0] && toggleEdgeArrow(selectedEdges[0].id)
+          }
+        />
+        <PropertiesPanel
+          labels={labels}
+          node={
+            selectedNodes.length === 1 &&
+            isLibraryKind(selectedNodes[0].data.model.kind)
+              ? selectedNodes[0]
+              : null
+          }
+          onEdit={startEdit}
+          onOpen={openNode}
+          onCopy={copyNode}
+          onDelete={deleteNode}
+        />
+        <ReactFlow<CanvasFlowNode, CanvasFlowEdge>
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={canvasNodeTypes}
+          defaultViewport={initial.viewport}
+          fitView={!props.initialSnapshot}
+          minZoom={0.1}
+          connectionMode={ConnectionMode.Loose}
+          defaultEdgeOptions={{
+            type: "smoothstep",
+            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
           }}
-        >
-          <textarea
-            autoFocus
-            className="zmd-board-in-shape-edit"
-            value={editing.value}
-            style={{
-              ...labelTextStyle(editingNode.data),
-              fontSize:
-                (editingNode.data.fontSize || 16) *
-                (viewportRef.current.zoom || 1),
-            }}
-            onChange={(event) =>
-              setEditing({
-                nodeId: editing.nodeId,
-                value: event.target.value,
-              })
-            }
-            onBlur={() => {
-              handleEditBlur(holdEditFocusRef, commitEdit);
-            }}
-            onKeyDown={(event) => {
+          snapToGrid={activeTool === "select"}
+          snapGrid={[16, 16]}
+          deleteKeyCode={null}
+          onKeyDownCapture={(event) => {
+            captureCanvasArrowKey(event, Boolean(editing), nudgeSelected);
+          }}
+          panOnDrag={activeTool === "hand" ? true : [1, 2]}
+          selectionOnDrag={activeTool === "select"}
+          elementsSelectable={activeTool === "select"}
+          nodesDraggable={!eraser && !editing && activeTool === "select"}
+          nodesConnectable={!eraser && activeTool === "select"}
+          onInit={(instance) => {
+            flowRef.current = instance;
+          }}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={(event, node) => {
+            if (!eraser) return;
+            event.preventDefault();
+            eraseNode(node.id);
+          }}
+          onNodeDoubleClick={(event, node) => {
+            event.preventDefault();
+            const origin = flowRef.current?.flowToScreenPosition(node.position);
+            const size = nodeSize(node);
+            const zoom = viewportRef.current.zoom || 1;
+            const kind = node.data.model.kind;
+            if (origin) {
+              const local = {
+                x: (event.clientX - origin.x) / zoom,
+                y: (event.clientY - origin.y) / zoom,
+              };
               if (
-                (event.metaKey || event.ctrlKey) &&
-                event.key.toLowerCase() === "b"
+                isBorderHit(local, {
+                  width: size.width,
+                  height: size.height,
+                  kind,
+                })
               ) {
-                event.preventDefault();
-                updateNode(editing.nodeId, (current) =>
-                  mergeEditingStyle(current, editing.value, {
-                    fontWeight:
-                      current.data.fontWeight === "bold" ? "normal" : "bold",
-                  }),
-                );
+                setEditing(null);
+                setStyleTarget(node.id);
                 return;
               }
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                commitEdit();
-              } else if (event.key === "Escape") {
-                event.preventDefault();
-                cancelEdit();
-              }
-            }}
-          />
-        </div>
-      ) : null}
-      {menu ? (
-        <div
-          className="zmd-board-context-menu"
-          style={{ left: menu.x, top: menu.y }}
+            }
+            if (isLibraryKind(kind)) {
+              openNode(node);
+              return;
+            }
+            startEdit(node.id);
+          }}
+          onEdgeClick={(event, edge) => {
+            if (!eraser) return;
+            event.preventDefault();
+            eraseEdge(edge.id);
+          }}
+          onNodeContextMenu={(event, node) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
+          }}
+          onPaneClick={(event) => {
+            setMenu(null);
+            setStyleTarget(null);
+            if (eraser) {
+              setActiveTool("select");
+              return;
+            }
+            if (isDrawTool(activeTool) || drawRef.current) return;
+            if (!isStampTool(activeTool)) return;
+            const position = flowRef.current?.screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            addNode(activeTool, position);
+          }}
+          onPaneContextMenu={(event) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY, nodeId: "" });
+          }}
+          onNodeDragStart={beginNodeDrag}
+          onNodeDragStop={finishNodeDrag}
+          onMoveEnd={(_, viewport) => {
+            const previous = viewportRef.current;
+            if (
+              previous.x === viewport.x &&
+              previous.y === viewport.y &&
+              previous.zoom === viewport.zoom
+            ) {
+              return;
+            }
+            viewportRef.current = viewport;
+            bump();
+          }}
+          proOptions={{ hideAttribution: true }}
         >
-          {menuNode ? (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenu(null);
-                  startEdit(menuNode.id);
-                }}
-              >
-                <IconEdit />
-                <span>{labels.editText}</span>
-              </button>
-              {(menuNode.data.itemID ||
-                menuNode.data.attachmentID ||
-                menuNode.data.noteID) && (
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          <Controls showInteractive={false} position="bottom-right" />
+        </ReactFlow>
+        {editing && editingNode && editingScreen && editingTextStyle ? (
+          <div
+            className="zmd-board-editor is-in-shape"
+            style={{
+              left: editingScreen.x,
+              top: editingScreen.y,
+              width:
+                nodeSize(editingNode).width * (viewportRef.current.zoom || 1),
+              height:
+                nodeSize(editingNode).height * (viewportRef.current.zoom || 1),
+              borderRadius:
+                editingNode.type === "ellipse"
+                  ? 999
+                  : (editingNode.data.model.style?.radius ?? 8) *
+                    (viewportRef.current.zoom || 1),
+              ...verticalAlignmentStyle(editingTextStyle),
+            }}
+          >
+            <textarea
+              autoFocus
+              aria-label={labels.editText}
+              className="zmd-board-in-shape-edit"
+              value={editing.value}
+              style={{
+                ...labelTextStyle(editingTextStyle),
+                fontSize:
+                  editingTextStyle.fontSize * (viewportRef.current.zoom || 1),
+              }}
+              onChange={(event) =>
+                setEditing({
+                  nodeId: editing.nodeId,
+                  value: event.target.value,
+                })
+              }
+              onBlur={() => {
+                handleEditBlur(holdEditFocusRef, commitEdit);
+              }}
+              onKeyDown={(event) => {
+                if (
+                  (event.metaKey || event.ctrlKey) &&
+                  event.key.toLowerCase() === "b"
+                ) {
+                  event.preventDefault();
+                  updateNode(editing.nodeId, (current) =>
+                    toggleEditingBold(current, editing.value),
+                  );
+                  return;
+                }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  commitEdit();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelEdit();
+                }
+              }}
+            />
+          </div>
+        ) : null}
+        {menu ? (
+          <div
+            className="zmd-board-context-menu"
+            style={{ left: menu.x, top: menu.y }}
+          >
+            {menuNode ? (
+              <>
                 <button
                   type="button"
                   onClick={() => {
                     setMenu(null);
-                    openNode(menuNode);
+                    startEdit(menuNode.id);
                   }}
                 >
-                  <IconOpen />
-                  <span>{labels.openItem}</span>
+                  <IconEdit />
+                  <span>{labels.editText}</span>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setMenu(null);
-                  copyNode(menuNode.id);
-                }}
-              >
-                <IconCopy />
-                <span>{labels.copy}</span>
-              </button>
-              <button type="button" onClick={() => deleteNode(menuNode.id)}>
-                <IconTrash />
-                <span>{labels.delete}</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <button type="button" onClick={() => exportAs("png")}>
-                <IconExport />
-                <span>{labels.exportPng}</span>
-              </button>
-              <button type="button" onClick={() => exportAs("svg")}>
-                <IconExport />
-                <span>{labels.exportSvg}</span>
-              </button>
-              <button type="button" onClick={() => exportAs("md")}>
-                <IconExport />
-                <span>{labels.exportMarkdown}</span>
-              </button>
-            </>
-          )}
-        </div>
-      ) : null}
-      {editing && editingNode && editingScreen ? (
-        <TextStyleBar
-          data={editingNode.data}
-          labels={labels}
-          left={
-            editingScreen.x +
-            (nodeSize(editingNode).width * (viewportRef.current.zoom || 1)) /
-              2 -
-            280
-          }
-          top={Math.max(8, editingScreen.y - 56)}
-          onHoldFocus={() => {
-            armEditFocusHold(holdEditFocusRef);
-          }}
-          onChange={(patch) => {
-            updateNode(editing.nodeId, (current) =>
-              mergeEditingStyle(current, editing.value, patch),
-            );
-          }}
-        />
-      ) : null}
-      {styleNode && styleScreen ? (
-        <StyleBar
-          node={styleNode}
-          labels={labels}
-          left={styleScreen.x + (nodeSize(styleNode).width * zoom) / 2 - 280}
-          top={Math.max(8, styleScreen.y - 56)}
-          onChange={(patch) => {
-            const { width, height, ...data } = patch;
-            updateNode(styleNode.id, (current) => ({
-              ...current,
-              width: width ?? current.width,
-              height: height ?? current.height,
-              style: {
-                width: width ?? nodeSize(current).width,
-                height: height ?? nodeSize(current).height,
-              },
-              data: { ...current.data, ...data },
-            }));
-          }}
-        />
-      ) : null}
-      {helpOpen ? (
-        <ShortcutsOverlay labels={labels} onClose={() => setHelpOpen(false)} />
-      ) : null}
-    </div>
+                {hasOpenTarget(menuNode) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenu(null);
+                      openNode(menuNode);
+                    }}
+                  >
+                    <IconOpen />
+                    <span>{labels.openItem}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenu(null);
+                    copyNode(menuNode.id);
+                  }}
+                >
+                  <IconCopy />
+                  <span>{labels.copy}</span>
+                </button>
+                <button type="button" onClick={() => deleteNode(menuNode.id)}>
+                  <IconTrash />
+                  <span>{labels.delete}</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" onClick={() => exportAs("png")}>
+                  <IconExport />
+                  <span>{labels.exportPng}</span>
+                </button>
+                <button type="button" onClick={() => exportAs("svg")}>
+                  <IconExport />
+                  <span>{labels.exportSvg}</span>
+                </button>
+                <button type="button" onClick={() => exportAs("md")}>
+                  <IconExport />
+                  <span>{labels.exportMarkdown}</span>
+                </button>
+              </>
+            )}
+          </div>
+        ) : null}
+        {editing && editingNode && editingScreen ? (
+          <TextStyleBar
+            node={editingNode}
+            labels={labels}
+            theme={theme}
+            left={
+              editingScreen.x +
+              (nodeSize(editingNode).width * (viewportRef.current.zoom || 1)) /
+                2 -
+              280
+            }
+            top={Math.max(8, editingScreen.y - 56)}
+            onHoldFocus={() => {
+              armEditFocusHold(holdEditFocusRef);
+            }}
+            onChange={(patch) => {
+              updateNode(editing.nodeId, (current) =>
+                mergeEditingStyle(current, editing.value, patch),
+              );
+            }}
+          />
+        ) : null}
+        {styleNode && styleScreen ? (
+          <StyleBar
+            node={styleNode}
+            labels={labels}
+            theme={theme}
+            left={styleScreen.x + (nodeSize(styleNode).width * zoom) / 2 - 280}
+            top={Math.max(8, styleScreen.y - 56)}
+            onChange={(patch) => {
+              const { width, height, ...style } = patch;
+              updateNode(styleNode.id, (current) => {
+                const next = updateFlowNodeModel(current, (model) => ({
+                  ...model,
+                  style: { ...(model.style ?? {}), ...style },
+                }));
+                return {
+                  ...next,
+                  width: width ?? current.width,
+                  height: height ?? current.height,
+                  style: {
+                    width: width ?? nodeSize(current).width,
+                    height: height ?? nodeSize(current).height,
+                  },
+                };
+              });
+            }}
+          />
+        ) : null}
+        {helpOpen ? (
+          <ShortcutsOverlay
+            labels={labels}
+            onClose={() => setHelpOpen(false)}
+          />
+        ) : null}
+      </div>
+    </WhiteboardLabelsProvider>
   );
 }

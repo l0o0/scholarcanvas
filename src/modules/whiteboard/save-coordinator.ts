@@ -1,10 +1,10 @@
-import type { BoardDocument } from "./snapshot";
+import type { CanvasDocument } from "./snapshot";
 
 export type WhiteboardSaveState = "saved" | "saving" | "error";
 
 export interface WhiteboardSaveSnapshot {
   rev: number;
-  document: BoardDocument;
+  document: CanvasDocument;
 }
 
 export interface WhiteboardSaveCoordinatorOptions {

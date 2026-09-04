@@ -8,7 +8,7 @@ export interface WhiteboardView {
 
 export interface WhiteboardSession {
   tabID: string;
-  boardId: string;
+  canvasId: string;
   itemID: number;
   win: _ZoteroTypes.MainWindow;
   path: string;

@@ -1,10 +1,18 @@
-import type { BoardNodeKind } from "../model/snapshot";
+import type { CanvasNodeKind } from "../model/academic";
 import type { CanvasTool } from "./tools";
 
 export const CLICK_THRESHOLD = 5;
 
 export type DrawKind = "rect" | "ellipse" | "line" | "arrow";
-export type StampKind = "item" | "note" | "pdf" | "attachment" | "text";
+export type StampKind =
+  | "item"
+  | "pdf"
+  | "attachment"
+  | "text"
+  | "note"
+  | "question"
+  | "claim"
+  | "frame";
 
 export interface Point {
   x: number;
@@ -27,6 +35,9 @@ const STAMP_KINDS = new Set<StampKind>([
   "pdf",
   "attachment",
   "text",
+  "question",
+  "claim",
+  "frame",
 ]);
 
 export function isDrawTool(tool: CanvasTool): tool is DrawKind {
@@ -128,19 +139,30 @@ export function toolShortcut(key: string): CanvasTool | null {
       return "line";
     case "t":
       return "text";
+    case "q":
+      return "question";
+    case "c":
+      return "claim";
+    case "f":
+      return "frame";
     default:
       return null;
   }
 }
 
 export function isLibraryKind(
-  kind: BoardNodeKind,
-): kind is "item" | "note" | "pdf" | "attachment" {
+  kind: CanvasNodeKind,
+): kind is "item" | "pdf" | "attachment" {
+  return kind === "item" || kind === "pdf" || kind === "attachment";
+}
+
+export function shouldEditOnCreate(kind: StampKind): boolean {
   return (
-    kind === "item" ||
+    kind === "text" ||
     kind === "note" ||
-    kind === "pdf" ||
-    kind === "attachment"
+    kind === "question" ||
+    kind === "claim" ||
+    kind === "frame"
   );
 }
 
@@ -150,7 +172,7 @@ export function toolAfterDraw(_kind: DrawKind): CanvasTool {
 
 export function isBorderHit(
   local: Point,
-  box: { width: number; height: number; kind: BoardNodeKind },
+  box: { width: number; height: number; kind: CanvasNodeKind },
   threshold = 8,
 ): boolean {
   const width = Math.max(box.width, 1);

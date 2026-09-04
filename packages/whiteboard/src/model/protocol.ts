@@ -7,11 +7,8 @@
  * so the two iframes cannot accept each other's messages.
  */
 
-import type {
-  BoardDocument,
-  BoardNodeData,
-  WhiteboardSnapshot,
-} from "./snapshot";
+import type { AttachmentNodeData, ItemNodeData, PdfNodeData } from "./basic";
+import type { CanvasDocument } from "./document";
 
 export const WHITEBOARD_MESSAGE_SOURCE = "zotero-markdown-whiteboard" as const;
 export const WHITEBOARD_PROTOCOL_VERSION = 1;
@@ -20,6 +17,11 @@ export type WhiteboardTheme = "light" | "dark";
 
 export type WhiteboardCommand = "undo" | "redo";
 
+export type BasicPickerPayload =
+  | ({ kind: "item" } & ItemNodeData)
+  | ({ kind: "pdf" } & PdfNodeData)
+  | ({ kind: "attachment" } & AttachmentNodeData);
+
 export interface WhiteboardProtocolMessage {
   source: typeof WHITEBOARD_MESSAGE_SOURCE;
   channel?: string;
@@ -27,11 +29,14 @@ export interface WhiteboardProtocolMessage {
 }
 
 export interface WhiteboardLabels {
-  board: string;
+  canvas: string;
   select: string;
   hand: string;
   addItem: string;
   addNote: string;
+  addQuestion: string;
+  addClaim: string;
+  addFrame: string;
   addPdf: string;
   addFile: string;
   addText: string;
@@ -39,6 +44,14 @@ export interface WhiteboardLabels {
   addEllipse: string;
   addLine: string;
   addArrow: string;
+  kindLiterature: string;
+  kindQuote: string;
+  kindNote: string;
+  kindQuestion: string;
+  kindClaim: string;
+  kindFrame: string;
+  annotationColor: string;
+  annotations: { one: string; other: string };
   eraser: string;
   undo: string;
   redo: string;
@@ -98,6 +111,9 @@ export interface WhiteboardLabels {
   shortcutArrow: string;
   shortcutLine: string;
   shortcutText: string;
+  shortcutQuestion: string;
+  shortcutClaim: string;
+  shortcutFrame: string;
   shortcutEraser: string;
   shortcutConstrain: string;
   shortcutCancel: string;
@@ -108,7 +124,7 @@ export interface WhiteboardLabels {
 
 export interface WhiteboardInitPayload {
   theme: WhiteboardTheme;
-  snapshot?: BoardDocument | Record<string, unknown> | null;
+  snapshot?: CanvasDocument | null;
   labels?: WhiteboardLabels;
 }
 
@@ -118,7 +134,7 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
     | { type: "setTheme"; payload: { theme: WhiteboardTheme } }
     | {
         type: "loadSnapshot";
-        payload: { snapshot: BoardDocument | Record<string, unknown> };
+        payload: { snapshot: CanvasDocument };
       }
     | { type: "requestSnapshot"; payload: { requestId: string } }
     | { type: "command"; payload: { command: WhiteboardCommand } }
@@ -126,7 +142,11 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
     | { type: "destroy" }
     | {
         type: "itemPicked";
-        payload: { requestId: string; nodeId: string; data: BoardNodeData };
+        payload: {
+          requestId: string;
+          nodeId: string;
+          data: BasicPickerPayload;
+        };
       }
     | {
         type: "pickFailed";
@@ -147,7 +167,7 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
         payload: {
           requestId: string;
           rev: number;
-          snapshot: WhiteboardSnapshot;
+          snapshot: CanvasDocument;
         };
       }
     | { type: "save" }
@@ -157,7 +177,7 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
         payload: {
           requestId: string;
           nodeId: string;
-          kind: "item" | "pdf" | "note" | "attachment";
+          kind: "item" | "pdf" | "attachment";
         };
       }
     | {
@@ -165,7 +185,6 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
         payload: {
           itemID?: number;
           attachmentID?: number;
-          noteID?: number;
           pdfPage?: number;
         };
       }
@@ -213,6 +232,6 @@ export function isWhiteboardProtocolMessageForChannel(
   );
 }
 
-export function whiteboardChannel(tabID: string, boardId: string) {
-  return `${tabID}:${boardId}`;
+export function whiteboardChannel(tabID: string, canvasId: string) {
+  return `${tabID}:${canvasId}`;
 }

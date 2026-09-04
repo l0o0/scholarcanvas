@@ -1,6 +1,10 @@
 import type { Node } from "@xyflow/react";
-import type { BoardNodeData, BoardNodeKind } from "../model/snapshot";
+import type { CanvasNode, CanvasNodeKind } from "../model/academic";
 
-export type AcademicNode = Node<BoardNodeData, BoardNodeKind>;
+export interface CanvasFlowData extends Record<string, unknown> {
+  model: CanvasNode;
+}
 
-export type NodeGroup = "library" | "draw";
+export type CanvasFlowNode = Node<CanvasFlowData, CanvasNodeKind>;
+
+export type NodeGroup = "library" | "academic" | "draw";

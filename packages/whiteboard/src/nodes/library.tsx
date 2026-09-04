@@ -1,59 +1,87 @@
 import type { NodeProps } from "@xyflow/react";
+import { useWhiteboardLabels } from "../chrome/labels";
+import { nodeTextStyle } from "../whiteboard/document";
 import { CardShell } from "./CardShell";
-import type { AcademicNode } from "./types";
+import type { CanvasFlowNode } from "./types";
 
-export function ItemNode({ data, selected }: NodeProps<AcademicNode>) {
+export function ItemNode({ data, selected }: NodeProps<CanvasFlowNode>) {
+  const labels = useWhiteboardLabels();
+  const model = data.model;
+  if (model.kind !== "item") return null;
   return (
-    <CardShell kind="item" selected={selected}>
-      <h3 className="zmd-board-card-title">{data.title}</h3>
-      {data.subtitle ? (
-        <p className="zmd-board-card-meta">{data.subtitle}</p>
+    <CardShell
+      kind="item"
+      kindLabel={labels.addItem}
+      selected={selected}
+      nodeStyle={model.style}
+    >
+      <h3
+        className="zmd-board-card-title"
+        style={nodeTextStyle(model.style ?? {})}
+      >
+        {model.data.title}
+      </h3>
+      {model.data.subtitle ? (
+        <p className="zmd-board-card-meta">{model.data.subtitle}</p>
       ) : null}
     </CardShell>
   );
 }
 
-export function NoteNode({ data, selected }: NodeProps<AcademicNode>) {
+export function PdfNode({ data, selected }: NodeProps<CanvasFlowNode>) {
+  const labels = useWhiteboardLabels();
+  const model = data.model;
+  if (model.kind !== "pdf") return null;
   return (
-    <CardShell kind="note" selected={selected}>
-      <h3 className="zmd-board-card-title">{data.title}</h3>
-      {data.preview ? (
-        <p className="zmd-board-card-preview">{data.preview}</p>
-      ) : (
-        <p className="zmd-board-card-meta">Empty note</p>
-      )}
-    </CardShell>
-  );
-}
-
-export function PdfNode({ data, selected }: NodeProps<AcademicNode>) {
-  return (
-    <CardShell kind="pdf" selected={selected}>
-      {data.image ? (
+    <CardShell
+      kind="pdf"
+      kindLabel={labels.addPdf}
+      selected={selected}
+      nodeStyle={model.style}
+    >
+      {model.data.image ? (
         <img
           className="zmd-board-pdf-image"
-          src={data.image}
-          alt={data.title || "PDF page"}
+          src={model.data.image}
+          alt={model.data.title || labels.addPdf}
         />
       ) : (
         <div className="zmd-board-pdf-page" aria-hidden="true">
-          <span>{data.pdfPage ? `p. ${data.pdfPage}` : "PDF"}</span>
+          <span>{model.data.pdfPage ? model.data.pdfPage : labels.addPdf}</span>
         </div>
       )}
-      <h3 className="zmd-board-card-title">{data.title}</h3>
-      {data.subtitle ? (
-        <p className="zmd-board-card-meta">{data.subtitle}</p>
+      <h3
+        className="zmd-board-card-title"
+        style={nodeTextStyle(model.style ?? {})}
+      >
+        {model.data.title}
+      </h3>
+      {model.data.subtitle ? (
+        <p className="zmd-board-card-meta">{model.data.subtitle}</p>
       ) : null}
     </CardShell>
   );
 }
 
-export function AttachmentNode({ data, selected }: NodeProps<AcademicNode>) {
+export function AttachmentNode({ data, selected }: NodeProps<CanvasFlowNode>) {
+  const labels = useWhiteboardLabels();
+  const model = data.model;
+  if (model.kind !== "attachment") return null;
   return (
-    <CardShell kind="attachment" selected={selected}>
-      <h3 className="zmd-board-card-title">{data.title}</h3>
-      {data.subtitle ? (
-        <p className="zmd-board-card-meta">{data.subtitle}</p>
+    <CardShell
+      kind="attachment"
+      kindLabel={labels.addFile}
+      selected={selected}
+      nodeStyle={model.style}
+    >
+      <h3
+        className="zmd-board-card-title"
+        style={nodeTextStyle(model.style ?? {})}
+      >
+        {model.data.title}
+      </h3>
+      {model.data.subtitle ? (
+        <p className="zmd-board-card-meta">{model.data.subtitle}</p>
       ) : null}
     </CardShell>
   );

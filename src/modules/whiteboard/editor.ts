@@ -1,5 +1,5 @@
 /**
- * Parent-side board: mounts a chrome:// iframe and bridges via postMessage.
+ * Parent-side canvas: mounts a chrome:// iframe and bridges via postMessage.
  */
 import { resolveEditorTheme } from "../markdown/editor";
 import { ensureDOMGlobals } from "../../utils/dom";
@@ -7,26 +7,30 @@ import {
   WHITEBOARD_MESSAGE_SOURCE,
   WHITEBOARD_PROTOCOL_VERSION,
   isWhiteboardProtocolMessageForChannel,
+  type BasicPickerPayload,
   type ParentToWhiteboardMessage,
   type WhiteboardLabels,
-  type WhiteboardSnapshot,
   type WhiteboardTheme,
   type WhiteboardToParentMessage,
 } from "./protocol";
-import type { BoardNodeData } from "./snapshot";
+import type { CanvasDocument } from "./snapshot";
 
 export interface WhiteboardHandle {
   ready: Promise<void>;
   focus: () => void;
   destroy: () => void;
   setTheme: (theme: WhiteboardTheme) => void;
-  loadSnapshot: (snapshot: WhiteboardSnapshot) => void;
+  loadSnapshot: (snapshot: CanvasDocument) => void;
   requestSnapshot: () => Promise<{
     rev: number;
-    snapshot: WhiteboardSnapshot;
+    snapshot: CanvasDocument;
   }>;
   command: (command: "undo" | "redo") => void;
-  resolvePick: (requestId: string, nodeId: string, data: BoardNodeData) => void;
+  resolvePick: (
+    requestId: string,
+    nodeId: string,
+    data: BasicPickerPayload,
+  ) => void;
   rejectPick: (requestId: string, message: string) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
@@ -57,7 +61,7 @@ export function createWhiteboardEditor(
   options: {
     win?: Window;
     channel?: string;
-    snapshot?: WhiteboardSnapshot | null;
+    snapshot?: CanvasDocument | null;
     labels?: WhiteboardLabels;
     onChange?: (rev: number) => void;
     onSave?: () => void;
@@ -65,12 +69,11 @@ export function createWhiteboardEditor(
     onPickItem?: (
       requestId: string,
       nodeId: string,
-      kind: "item" | "pdf" | "note" | "attachment",
+      kind: "item" | "pdf" | "attachment",
     ) => void;
     onOpenItem?: (payload: {
       itemID?: number;
       attachmentID?: number;
-      noteID?: number;
       pdfPage?: number;
     }) => void;
     onDropItems?: (
@@ -128,7 +131,7 @@ export function createWhiteboardEditor(
   const pending: PendingCommand[] = [];
   const snapshotWaiters = new Map<
     string,
-    (value: { rev: number; snapshot: WhiteboardSnapshot }) => void
+    (value: { rev: number; snapshot: CanvasDocument }) => void
   >();
 
   let resolveReady!: () => void;

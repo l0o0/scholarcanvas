@@ -1,32 +1,62 @@
-import type { AcademicNode } from "../nodes";
-import type { BoardNodeData } from "../model/snapshot";
+import type { CanvasNodeStyle } from "../model/core";
+import {
+  canvasNodeUiSurfaceDefaults,
+  canvasThemePalette,
+  type CanvasNodeKind,
+} from "../model/academic";
 import type { WhiteboardLabels } from "../model/protocol";
+import type { WhiteboardTheme } from "../model/protocol";
+import type { CanvasFlowNode } from "../nodes";
 
 const STROKES = ["#1f2937", "#2563eb", "#dc2626", "#059669", "#d97706"];
 const FILLS = ["transparent", "#ffffff", "#f3f4f6", "#dbeafe"];
 const WIDTHS = [1, 2, 4];
 const RADII = [0, 8, 16, 32];
 
+export function supportsFillStyle(kind: CanvasNodeKind): boolean {
+  return kind !== "line" && kind !== "arrow";
+}
+
+export function supportsRadiusStyle(kind: CanvasNodeKind): boolean {
+  return kind !== "ellipse" && kind !== "line" && kind !== "arrow";
+}
+
 export function StyleBar(props: {
-  node: AcademicNode;
+  node: CanvasFlowNode;
   left: number;
   top: number;
   labels: WhiteboardLabels;
+  theme: WhiteboardTheme;
   onChange: (
-    patch: Partial<BoardNodeData> & { width?: number; height?: number },
+    patch: Partial<CanvasNodeStyle> & { width?: number; height?: number },
   ) => void;
 }) {
   const { node } = props;
-  const data = node.data;
-  const kind = node.type || data.kind;
-  const stroke = data.stroke || "#1f2937";
-  const fill = data.fill || "#ffffff";
-  const strokeWidth = data.strokeWidth ?? 2;
-  const radius = data.radius ?? 8;
+  const model = node.data.model;
+  const style = model.style ?? {};
+  const kind = model.kind;
+  const defaults = canvasNodeUiSurfaceDefaults(kind, props.theme);
+  const palette = canvasThemePalette(props.theme);
+  const stroke = style.stroke || defaults.stroke;
+  const fill = style.fill || defaults.fill;
+  const strokeWidth = style.strokeWidth ?? defaults.strokeWidth;
+  const radius = style.radius ?? defaults.radius;
+  const dashed =
+    style.strokeStyle !== undefined
+      ? style.strokeStyle !== "solid"
+      : (style.dashed ?? defaults.strokeStyle !== "solid");
   const width = Math.round(node.width ?? 120);
   const height = Math.round(node.height ?? 80);
-  const showFill = kind === "rect" || kind === "ellipse";
-  const showRadius = kind === "rect";
+  const showFill = supportsFillStyle(kind);
+  const showRadius = supportsRadiusStyle(kind);
+  const strokes = [
+    defaults.stroke,
+    ...STROKES.filter((color) => color !== defaults.stroke),
+  ];
+  const fills = [
+    defaults.fill,
+    ...FILLS.filter((color) => color !== defaults.fill),
+  ];
 
   return (
     <div
@@ -37,7 +67,7 @@ export function StyleBar(props: {
       <label className="zmd-board-style-group">
         <span>{props.labels.stroke}</span>
         <span className="zmd-board-swatches">
-          {STROKES.map((color) => (
+          {strokes.map((color) => (
             <button
               key={color}
               type="button"
@@ -68,16 +98,16 @@ export function StyleBar(props: {
         <label className="zmd-board-style-group">
           <span>{props.labels.background}</span>
           <span className="zmd-board-swatches">
-            {FILLS.map((color) => (
+            {fills.map((color) => (
               <button
                 key={color}
                 type="button"
                 className={fill === color ? "is-active" : ""}
                 style={{
-                  background: color === "transparent" ? "#fff" : color,
+                  background: color === "transparent" ? palette.surface : color,
                   backgroundImage:
                     color === "transparent"
-                      ? "linear-gradient(45deg,#e5e7eb 25%,transparent 25%),linear-gradient(-45deg,#e5e7eb 25%,transparent 25%)"
+                      ? `linear-gradient(45deg,${palette.border} 25%,transparent 25%),linear-gradient(-45deg,${palette.border} 25%,transparent 25%)`
                       : undefined,
                   backgroundSize:
                     color === "transparent" ? "8px 8px" : undefined,
@@ -93,10 +123,15 @@ export function StyleBar(props: {
         <span>{props.labels.style}</span>
         <button
           type="button"
-          className={data.dashed ? "is-active" : ""}
-          onClick={() => props.onChange({ dashed: !data.dashed })}
+          className={dashed ? "is-active" : ""}
+          onClick={() =>
+            props.onChange({
+              dashed: !dashed,
+              strokeStyle: dashed ? "solid" : "dashed",
+            })
+          }
         >
-          {data.dashed ? props.labels.dashed : props.labels.solid}
+          {dashed ? props.labels.dashed : props.labels.solid}
         </button>
       </label>
       {showRadius ? (

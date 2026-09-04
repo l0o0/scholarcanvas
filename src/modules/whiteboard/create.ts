@@ -1,17 +1,143 @@
-import { emptyBoard, type BoardDocument } from "./snapshot";
-import { serializeBoardDocument } from "./file-io";
-import { defaultBoardFilename } from "./detect";
+import {
+  createAcademicNode,
+  createBasicNode,
+  emptyCanvasDocument,
+  type CanvasDocument,
+} from "./snapshot";
+import { serializeCanvasDocument } from "../../../packages/whiteboard/src/model/canvas-file";
+import { defaultCanvasFilename } from "./detect";
 
-function notePreview(item: Zotero.Item): string {
+function decodeHtmlEntities(value: string): string {
+  const named: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: '"',
+  };
+  return value.replace(/&(#(?:x[\da-f]+|\d+)|[a-z]+);/gi, (entity, key) => {
+    if (key[0] !== "#") return named[key.toLowerCase()] ?? entity;
+    const hexadecimal = key[1]?.toLowerCase() === "x";
+    const codePoint = Number.parseInt(
+      key.slice(hexadecimal ? 2 : 1),
+      hexadecimal ? 16 : 10,
+    );
+    const isUnicodeScalar =
+      codePoint > 0 &&
+      codePoint <= 0x10ffff &&
+      !(codePoint >= 0xd800 && codePoint <= 0xdfff);
+    return isUnicodeScalar ? String.fromCodePoint(codePoint) : entity;
+  });
+}
+
+const BLOCK_TAGS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "br",
+  "dd",
+  "div",
+  "dl",
+  "dt",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hr",
+  "li",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "table",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+  "ul",
+]);
+
+function htmlTagEnd(value: string, start: number): number {
+  let quote: '"' | "'" | undefined;
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === ">") return index;
+  }
+  return -1;
+}
+
+function stripHtmlMarkup(value: string): string {
+  let text = "";
+  let index = 0;
+  while (index < value.length) {
+    if (value.startsWith("<!--", index)) {
+      const commentEnd = value.indexOf("-->", index + 4);
+      index = commentEnd < 0 ? value.length : commentEnd + 3;
+      continue;
+    }
+    if (value[index] !== "<") {
+      text += value[index];
+      index += 1;
+      continue;
+    }
+
+    const end = htmlTagEnd(value, index + 1);
+    if (end < 0) {
+      text += value[index];
+      index += 1;
+      continue;
+    }
+    const token = value.slice(index + 1, end);
+    const tag = /^\s*\/?\s*([a-z][\w:-]*)\b/i.exec(token)?.[1];
+    const isDeclaration = /^\s*[!?]/.test(token);
+    if (!tag && !isDeclaration) {
+      text += value.slice(index, end + 1);
+      index = end + 1;
+      continue;
+    }
+    const isClosingTag = /^\s*\//.test(token);
+    if (
+      tag &&
+      BLOCK_TAGS.has(tag.toLowerCase()) &&
+      (isClosingTag || tag.toLowerCase() === "br" || tag.toLowerCase() === "hr")
+    ) {
+      text += "\n";
+    }
+    index = end + 1;
+  }
+  return text;
+}
+
+export function zoteroNotePlainText(item: { getNote?: () => unknown }): string {
   try {
-    const html = (item as any).getNote?.();
+    const html = item.getNote?.();
     if (typeof html === "string") {
-      return html
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/g, " ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 180);
+      return decodeHtmlEntities(stripHtmlMarkup(html))
+        .replace(/[^\S\r\n]+/g, " ")
+        .replace(/ *\r?\n */g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
     }
   } catch {
     // ignore
@@ -21,7 +147,7 @@ function notePreview(item: Zotero.Item): string {
 
 export async function createWhiteboardAttachment(
   parentItem?: Zotero.Item | null,
-  options: { doc?: BoardDocument } = {},
+  options: { document?: CanvasDocument } = {},
 ): Promise<Zotero.Item | null> {
   let parent: Zotero.Item | undefined;
   if (parentItem) {
@@ -39,8 +165,10 @@ export async function createWhiteboardAttachment(
   const titleBase = parent
     ? parent.getField("title") || parent.getDisplayTitle()
     : "Whiteboard";
-  const filename = defaultBoardFilename(String(titleBase));
-  const content = serializeBoardDocument(options.doc ?? emptyBoard(), "canvas");
+  const filename = defaultCanvasFilename(String(titleBase));
+  const content = serializeCanvasDocument(
+    options.document ?? emptyCanvasDocument(),
+  );
 
   const tmpDir = Zotero.getTempDirectory().path;
   const tmpPath = PathUtils.join(
@@ -141,8 +269,10 @@ function creatorsText(item: Zotero.Item): string {
     .join(", ");
 }
 
-function buildCollectionBoard(collection: Zotero.Collection): BoardDocument {
-  const doc = emptyBoard();
+export function buildCollectionCanvas(
+  collection: Zotero.Collection,
+): CanvasDocument {
+  const document = emptyCanvasDocument();
   const items = collection.getChildItems();
   let y = 80;
   let seq = 0;
@@ -151,12 +281,10 @@ function buildCollectionBoard(collection: Zotero.Collection): BoardDocument {
     if (seq >= 50) break;
     const itemId = `col-item-${seq}`;
     const date = item.getField?.("date");
-    doc.nodes.push({
-      id: itemId,
-      type: "item",
-      position: { x: 80, y },
+    const itemNode = createBasicNode("item", { x: 80, y }, itemId);
+    document.nodes.push({
+      ...itemNode,
       data: {
-        kind: "item",
         title:
           (item as any).getDisplayTitle?.() ||
           item.getField?.("title") ||
@@ -178,18 +306,21 @@ function buildCollectionBoard(collection: Zotero.Collection): BoardDocument {
       );
     if (pdf) {
       const pdfId = `${itemId}-pdf`;
-      doc.nodes.push({
-        id: pdfId,
-        type: "pdf",
-        position: { x: 360, y },
+      const pdfNode = createBasicNode("pdf", { x: 360, y }, pdfId);
+      document.nodes.push({
+        ...pdfNode,
         data: {
-          kind: "pdf",
           title: pdf.attachmentFilename || "PDF",
           subtitle: "PDF",
           attachmentID: pdf.id,
         },
       });
-      doc.edges.push({ id: `${itemId}-e-pdf`, source: itemId, target: pdfId });
+      document.connections.push({
+        id: `${itemId}-e-pdf`,
+        kind: "basic",
+        source: itemId,
+        target: pdfId,
+      });
     }
 
     const note = item
@@ -198,19 +329,18 @@ function buildCollectionBoard(collection: Zotero.Collection): BoardDocument {
       .find((child): child is Zotero.Item => !!child && child.isNote?.());
     if (note) {
       const noteId = `${itemId}-note`;
-      doc.nodes.push({
-        id: noteId,
-        type: "note",
-        position: { x: 80, y: y + 180 },
-        data: {
-          kind: "note",
-          title: note.getField?.("title") || "Note",
-          preview: notePreview(note) || "Empty note",
-          noteID: note.id,
-        },
+      const noteNode = createAcademicNode(
+        "note",
+        { x: 80, y: y + 180 },
+        noteId,
+      );
+      document.nodes.push({
+        ...noteNode,
+        content: zoteroNotePlainText(note) || "Empty note",
       });
-      doc.edges.push({
+      document.connections.push({
         id: `${itemId}-e-note`,
+        kind: "basic",
         source: itemId,
         target: noteId,
       });
@@ -219,7 +349,7 @@ function buildCollectionBoard(collection: Zotero.Collection): BoardDocument {
     y += 360;
     seq += 1;
   }
-  return doc;
+  return document;
 }
 
 export async function createWhiteboardFromCollection(): Promise<void> {
@@ -239,8 +369,8 @@ export async function createWhiteboardFromCollection(): Promise<void> {
       .show();
     return;
   }
-  const doc = buildCollectionBoard(collection);
-  const attachment = await createWhiteboardAttachment(null, { doc });
+  const document = buildCollectionCanvas(collection);
+  const attachment = await createWhiteboardAttachment(null, { document });
   if (attachment) {
     const { openWhiteboardAttachment } = await import("./open");
     await openWhiteboardAttachment(attachment);

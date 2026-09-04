@@ -5,7 +5,10 @@ import {
   frameFromDrag,
   isBorderHit,
   isDrawTool,
+  isLibraryKind,
   isStampTool,
+  shouldEditOnCreate,
+  toolShortcut,
   toolAfterDraw,
 } from "../packages/whiteboard/src/chrome/draw.ts";
 import { keyboardShortcuts } from "../packages/whiteboard/src/chrome/shortcuts.ts";
@@ -102,7 +105,34 @@ test("classifies draw tools vs stamp tools", () => {
   assert.equal(isDrawTool("text"), false);
   assert.equal(isStampTool("item"), true);
   assert.equal(isStampTool("text"), true);
+  assert.equal(isStampTool("note"), true);
+  assert.equal(isStampTool("question"), true);
+  assert.equal(isStampTool("claim"), true);
+  assert.equal(isStampTool("frame"), true);
   assert.equal(isStampTool("rect"), false);
+});
+
+test("only Zotero-backed basic nodes open the library picker", () => {
+  assert.equal(isLibraryKind("item"), true);
+  assert.equal(isLibraryKind("pdf"), true);
+  assert.equal(isLibraryKind("attachment"), true);
+  assert.equal(isLibraryKind("note"), false);
+  assert.equal(isLibraryKind("question"), false);
+});
+
+test("academic creation tools use mnemonic shortcuts", () => {
+  assert.equal(toolShortcut("Q"), "question");
+  assert.equal(toolShortcut("c"), "claim");
+  assert.equal(toolShortcut("F"), "frame");
+});
+
+test("locally authored text stamps enter editing immediately", () => {
+  assert.equal(shouldEditOnCreate("text"), true);
+  assert.equal(shouldEditOnCreate("note"), true);
+  assert.equal(shouldEditOnCreate("question"), true);
+  assert.equal(shouldEditOnCreate("claim"), true);
+  assert.equal(shouldEditOnCreate("frame"), true);
+  assert.equal(shouldEditOnCreate("item"), false);
 });
 
 test("draw tools return to select after a shape is placed", () => {
@@ -137,6 +167,9 @@ test("shortcut help lists core drawing keys", () => {
   const keys = keyboardShortcuts(labels).map((item) => item.keys);
   assert.ok(keys.includes("V"));
   assert.ok(keys.includes("R"));
+  assert.ok(keys.includes("Q"));
+  assert.ok(keys.includes("C"));
+  assert.ok(keys.includes("F"));
   assert.ok(keys.includes("Esc"));
 });
 

@@ -3,4 +3,3 @@
  * packages/whiteboard canvas package.
  */
 export * from "../../../packages/whiteboard/src/model/protocol";
-export type { WhiteboardSnapshot } from "../../../packages/whiteboard/src/model/snapshot";

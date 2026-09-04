@@ -1,7 +1,7 @@
-import type { BoardNodeKind } from "../model/snapshot";
+import type { CanvasNodeKind } from "../model/academic";
 
-export type CanvasTool = "select" | "hand" | "eraser" | BoardNodeKind;
+export type CanvasTool = "select" | "hand" | "eraser" | CanvasNodeKind;
 
-export function isPlaceTool(tool: CanvasTool): tool is BoardNodeKind {
+export function isPlaceTool(tool: CanvasTool): tool is CanvasNodeKind {
   return tool !== "select" && tool !== "hand" && tool !== "eraser";
 }

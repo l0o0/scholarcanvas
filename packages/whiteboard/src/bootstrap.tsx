@@ -10,16 +10,16 @@ import {
   WHITEBOARD_PROTOCOL_VERSION,
   isWhiteboardProtocolMessage,
   type ParentToWhiteboardMessage,
-  type WhiteboardLabels,
   type WhiteboardTheme,
 } from "./model/protocol";
-import type { BoardDocument } from "./model/snapshot";
+import { emptyCanvasDocument, type CanvasDocument } from "./model/document";
+import { createDeferredLabels } from "./bootstrapState";
 
 const channel = new URL(window.location.href).searchParams.get("channel") || "";
 
 let theme: WhiteboardTheme = "light";
-let pendingSnapshot: BoardDocument | Record<string, unknown> | null = null;
-let labels: WhiteboardLabels | undefined;
+let pendingSnapshot: CanvasDocument | null = null;
+const deferredLabels = createDeferredLabels();
 let runtime: WhiteboardRuntime | null = null;
 let rev = 0;
 
@@ -58,8 +58,7 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
     case "init":
       applyDocumentTheme(data.payload.theme);
       pendingSnapshot = data.payload.snapshot ?? null;
-      labels = data.payload.labels;
-      if (data.payload.labels) runtime?.setLabels(data.payload.labels);
+      deferredLabels.receive(data.payload.labels);
       runtime?.setTheme(data.payload.theme);
       if (data.payload.snapshot) runtime?.loadSnapshot(data.payload.snapshot);
       break;
@@ -77,8 +76,8 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
         payload: {
           requestId: data.payload.requestId,
           rev,
-          snapshot: runtime?.getSnapshot() ??
-            pendingSnapshot ?? { v: 1, engine: "xyflow", nodes: [], edges: [] },
+          snapshot:
+            runtime?.getSnapshot() ?? pendingSnapshot ?? emptyCanvasDocument(),
         },
       });
       break;
@@ -105,6 +104,7 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
       break;
     case "destroy":
       runtime = null;
+      deferredLabels.detach();
       break;
     default:
       break;
@@ -159,10 +159,11 @@ function boot() {
   createRoot(host).render(
     <WhiteboardApp
       theme={theme}
-      labels={labels}
-      initialSnapshot={pendingSnapshot}
+      labels={deferredLabels.current}
+      initialSnapshot={pendingSnapshot ?? undefined}
       onReady={(next) => {
         runtime = next;
+        deferredLabels.attach(next);
         if (pendingSnapshot) next.loadSnapshot(pendingSnapshot);
         next.setTheme(theme);
       }}

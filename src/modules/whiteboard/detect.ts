@@ -1,5 +1,4 @@
-/** .canvas is canonical; .board and .zmdboard remain legacy-compatible. */
-const BOARD_EXTENSIONS = new Set(["canvas", "board", "zmdboard"]);
+const CANVAS_EXTENSION = "canvas";
 
 export function isWhiteboardAttachment(
   item: Zotero.Item | false | undefined,
@@ -10,7 +9,7 @@ export function isWhiteboardAttachment(
   }
   const filename = item.attachmentFilename || "";
   const ext = getExtension(filename);
-  return ext ? BOARD_EXTENSIONS.has(ext) : false;
+  return ext === CANVAS_EXTENSION;
 }
 
 export function getExtension(filename: string): string {
@@ -20,15 +19,12 @@ export function getExtension(filename: string): string {
   return base.slice(idx + 1).toLowerCase();
 }
 
-export function defaultBoardFilename(
+export function defaultCanvasFilename(
   title?: string,
   now: Date = new Date(),
 ): string {
   const raw = (title || "Whiteboard").trim() || "Whiteboard";
-  const safe = Zotero.File.getValidFileName(raw).replace(
-    /\.(canvas|board|zmdboard)$/i,
-    "",
-  );
+  const safe = Zotero.File.getValidFileName(raw).replace(/\.canvas$/i, "");
   const timestamp = [
     now.getFullYear(),
     pad2(now.getMonth() + 1),

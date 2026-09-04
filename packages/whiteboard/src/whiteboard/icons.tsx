@@ -81,6 +81,30 @@ export const IconNote = () => (
   </Icon>
 );
 
+export const IconQuestion = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.8 9a2.4 2.4 0 1 1 3.7 2c-.9.5-1.5 1.1-1.5 2" />
+    <path d="M12 17h.01" />
+  </Icon>
+);
+
+export const IconClaim = () => (
+  <Icon>
+    <path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-4 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+    <path d="m8 11 2.5 2.5L16 8" />
+  </Icon>
+);
+
+export const IconFrame = () => (
+  <Icon>
+    <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+    <path d="M16 3h3a2 2 0 0 1 2 2v3" />
+    <path d="M21 16v3a2 2 0 0 1-2 2h-3" />
+    <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
+  </Icon>
+);
+
 export const IconPdf = () => (
   <Icon>
     <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />

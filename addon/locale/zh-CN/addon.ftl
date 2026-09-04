@@ -22,6 +22,9 @@ whiteboard-pdf-page-title = PDF 页面
 whiteboard-pdf-page-prompt = 要把哪一页截取为卡片图片？
 whiteboard-add-item = 条目
 whiteboard-add-note = 笔记
+whiteboard-add-question = 问题
+whiteboard-add-claim = 主张
+whiteboard-add-frame = 框架
 whiteboard-add-pdf = PDF
 whiteboard-add-file = 附件
 whiteboard-add-text = 文字
@@ -29,6 +32,18 @@ whiteboard-add-rect = 矩形
 whiteboard-add-ellipse = 椭圆
 whiteboard-add-line = 直线
 whiteboard-add-arrow = 箭头
+whiteboard-kind-literature = 文献
+whiteboard-kind-quote = 引文
+whiteboard-kind-note = 笔记
+whiteboard-kind-question = 问题
+whiteboard-kind-claim = 主张
+whiteboard-kind-frame = 框架
+whiteboard-annotation-color = 批注颜色
+whiteboard-annotations =
+    { $count ->
+        [one] 条批注
+       *[other] 条批注
+    }
 whiteboard-eraser = 橡皮擦
 whiteboard-edit-text = 编辑文字
 whiteboard-copy = 复制
@@ -56,7 +71,7 @@ whiteboard-export-markdown = 导出 Markdown
 whiteboard-export-title = 导出白板
 whiteboard-exported = 已导出
 whiteboard-export-failed = 导出失败
-whiteboard-board = 白板
+whiteboard-canvas = 画布
 whiteboard-select = 选择 (V)
 whiteboard-hand = 抓手 (H)
 whiteboard-more = 更多
@@ -91,6 +106,9 @@ whiteboard-shortcut-ellipse = 绘制椭圆
 whiteboard-shortcut-arrow = 绘制箭头
 whiteboard-shortcut-line = 绘制直线
 whiteboard-shortcut-text = 添加文字
+whiteboard-shortcut-question = 添加问题
+whiteboard-shortcut-claim = 添加主张
+whiteboard-shortcut-frame = 添加框架
 whiteboard-shortcut-eraser = 擦除
 whiteboard-shortcut-constrain = 绘制时锁定比例或角度
 whiteboard-shortcut-cancel = 取消绘制或关闭菜单

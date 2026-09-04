@@ -15,17 +15,24 @@ export {
 } from "./open";
 export { injectWhiteboardStyles } from "./styles";
 export {
-  serializeBoardDocument,
-  canvasFormatForPath,
+  readCanvasFile,
+  writeCanvasFile,
+  pickCanvasFile,
   ensureCanvasExtension,
-  ensureBoardExtension,
   basename,
 } from "./file-io";
 export { whiteboardRegistry } from "./session-registry";
 export {
-  parseBoardDocument,
-  demoBoard,
-  emptyBoard,
-  type BoardDocument,
-  type BoardNodeKind,
+  parseCanvasDocument,
+  demoCanvasDocument,
+  emptyCanvasDocument,
+  createBasicNode,
+  createAcademicNode,
+  createAcademicConnection,
+} from "./snapshot";
+export type {
+  CanvasDocument,
+  CanvasNode,
+  CanvasNodeKind,
+  CanvasConnection,
 } from "./snapshot";

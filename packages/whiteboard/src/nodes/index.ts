@@ -1,6 +1,14 @@
-export type { AcademicNode, NodeGroup } from "./types";
+export type { CanvasFlowData, CanvasFlowNode, NodeGroup } from "./types";
 export {
-  boardNodeTypes,
+  ClaimNode,
+  FrameNode,
+  LiteratureNode,
+  NoteNode,
+  QuestionNode,
+  QuoteNode,
+} from "./academic";
+export {
+  canvasNodeTypes,
   getNodeSpec,
   listNodeSpecs,
   type WhiteboardNodeSpec,

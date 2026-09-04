@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const hostKeys = [
-  "whiteboard-board",
+  "whiteboard-canvas",
   "whiteboard-select",
   "whiteboard-hand",
   "whiteboard-more",
@@ -44,6 +44,20 @@ const hostKeys = [
   "whiteboard-shortcut-delete",
   "whiteboard-shortcut-undo",
   "whiteboard-shortcut-redo",
+  "whiteboard-add-question",
+  "whiteboard-add-claim",
+  "whiteboard-add-frame",
+  "whiteboard-kind-literature",
+  "whiteboard-kind-quote",
+  "whiteboard-kind-note",
+  "whiteboard-kind-question",
+  "whiteboard-kind-claim",
+  "whiteboard-kind-frame",
+  "whiteboard-annotation-color",
+  "whiteboard-annotations",
+  "whiteboard-shortcut-question",
+  "whiteboard-shortcut-claim",
+  "whiteboard-shortcut-frame",
 ];
 
 test("both host locales define every whiteboard chrome label", () => {
@@ -57,6 +71,61 @@ test("both host locales define every whiteboard chrome label", () => {
       );
     }
   }
+});
+
+test("host wires every academic label into the whiteboard protocol", () => {
+  const source = readFileSync("src/modules/whiteboard/tab.ts", "utf8");
+  for (const [field, key] of [
+    ["canvas", "whiteboard-canvas"],
+    ["addQuestion", "whiteboard-add-question"],
+    ["addClaim", "whiteboard-add-claim"],
+    ["addFrame", "whiteboard-add-frame"],
+    ["kindLiterature", "whiteboard-kind-literature"],
+    ["kindQuote", "whiteboard-kind-quote"],
+    ["kindNote", "whiteboard-kind-note"],
+    ["kindQuestion", "whiteboard-kind-question"],
+    ["kindClaim", "whiteboard-kind-claim"],
+    ["kindFrame", "whiteboard-kind-frame"],
+    ["annotationColor", "whiteboard-annotation-color"],
+    ["shortcutQuestion", "whiteboard-shortcut-question"],
+    ["shortcutClaim", "whiteboard-shortcut-claim"],
+    ["shortcutFrame", "whiteboard-shortcut-frame"],
+  ]) {
+    assert.match(
+      source,
+      new RegExp(`${field}: getString\\("${key}"\\)`),
+      `${field}: ${key}`,
+    );
+  }
+  assert.match(
+    source,
+    /annotations:\s*\{[\s\S]*one:\s*getString\("whiteboard-annotations",\s*\{[\s\S]*count:\s*1[\s\S]*other:\s*getString\("whiteboard-annotations",\s*\{[\s\S]*count:\s*2/s,
+  );
+});
+
+test("annotation labels use Fluent plural selection", () => {
+  for (const locale of ["en-US", "zh-CN"]) {
+    const source = readFileSync(`addon/locale/${locale}/addon.ftl`, "utf8");
+    const message = source.match(
+      /^whiteboard-annotations\s*=([^\n]*(?:\n[ \t]+[^\n]*)*)/m,
+    )?.[1];
+    assert.ok(message, `${locale}: missing annotation selector`);
+    assert.match(message, /\{\s*\$count\s*->/);
+    assert.match(message, /\[one\]/);
+    assert.match(message, /\*\[other\]/);
+  }
+});
+
+test("host picker protocol excludes local academic notes", () => {
+  const protocol = readFileSync(
+    "packages/whiteboard/src/model/protocol.ts",
+    "utf8",
+  );
+  const editor = readFileSync("src/modules/whiteboard/editor.ts", "utf8");
+  const tab = readFileSync("src/modules/whiteboard/tab.ts", "utf8");
+  assert.doesNotMatch(protocol, /"item" \| "pdf" \| "note" \| "attachment"/);
+  assert.doesNotMatch(editor, /"item" \| "pdf" \| "note" \| "attachment"/);
+  assert.doesNotMatch(tab, /if \(kind === "note"\)/);
 });
 
 test("isolated whiteboard package contains no hard-coded CJK text", () => {

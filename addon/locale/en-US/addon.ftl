@@ -22,6 +22,9 @@ whiteboard-pdf-page-title = PDF Page
 whiteboard-pdf-page-prompt = Which page should be snapshotted as the card image?
 whiteboard-add-item = Item
 whiteboard-add-note = Note
+whiteboard-add-question = Question
+whiteboard-add-claim = Claim
+whiteboard-add-frame = Frame
 whiteboard-add-pdf = PDF
 whiteboard-add-file = File
 whiteboard-add-text = Text
@@ -29,6 +32,18 @@ whiteboard-add-rect = Rect
 whiteboard-add-ellipse = Oval
 whiteboard-add-line = Line
 whiteboard-add-arrow = Arrow
+whiteboard-kind-literature = Literature
+whiteboard-kind-quote = Quote
+whiteboard-kind-note = Note
+whiteboard-kind-question = Question
+whiteboard-kind-claim = Claim
+whiteboard-kind-frame = Frame
+whiteboard-annotation-color = Annotation color
+whiteboard-annotations =
+    { $count ->
+        [one] annotation
+       *[other] annotations
+    }
 whiteboard-eraser = Eraser
 whiteboard-edit-text = Edit text
 whiteboard-copy = Copy
@@ -56,7 +71,7 @@ whiteboard-export-markdown = Export Markdown
 whiteboard-export-title = Export Whiteboard
 whiteboard-exported = Exported
 whiteboard-export-failed = Export failed
-whiteboard-board = Board
+whiteboard-canvas = Canvas
 whiteboard-select = Select (V)
 whiteboard-hand = Hand (H)
 whiteboard-more = More
@@ -91,6 +106,9 @@ whiteboard-shortcut-ellipse = Draw ellipse
 whiteboard-shortcut-arrow = Draw arrow
 whiteboard-shortcut-line = Draw line
 whiteboard-shortcut-text = Add text
+whiteboard-shortcut-question = Add question
+whiteboard-shortcut-claim = Add claim
+whiteboard-shortcut-frame = Add frame
 whiteboard-shortcut-eraser = Erase
 whiteboard-shortcut-constrain = Constrain ratio or angle while drawing
 whiteboard-shortcut-cancel = Cancel drawing or close menu

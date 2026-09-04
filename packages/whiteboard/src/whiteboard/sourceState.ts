@@ -63,6 +63,44 @@ export interface SourceRefreshRuntime {
   clear(): void;
 }
 
+export interface SourceActionCorrelation {
+  begin(
+    requestId: string,
+    nodeId: string,
+    source: AcademicSourceDescriptor,
+  ): void;
+  accept(
+    requestId: string,
+    nodeId: string,
+    source: AcademicSourceDescriptor,
+  ): boolean;
+  clear(): void;
+}
+
+export function createSourceActionCorrelation(): SourceActionCorrelation {
+  const pending = new Map<string, { requestId: string; sourceKey: string }>();
+  return {
+    begin(requestId, nodeId, source) {
+      pending.set(nodeId, { requestId, sourceKey: sourceCacheKey(source) });
+    },
+    accept(requestId, nodeId, source) {
+      const expected = pending.get(nodeId);
+      if (
+        !expected ||
+        expected.requestId !== requestId ||
+        expected.sourceKey !== sourceCacheKey(source)
+      ) {
+        return false;
+      }
+      pending.delete(nodeId);
+      return true;
+    },
+    clear() {
+      pending.clear();
+    },
+  };
+}
+
 const QUOTE_LAYOUT_COLUMNS = 2;
 const QUOTE_LAYOUT_GAP = 24;
 

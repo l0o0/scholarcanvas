@@ -57,11 +57,6 @@ export function PropertiesPanel(props: {
           <p
             className="zmd-board-source-status"
             data-source-status={props.sourceState?.status ?? "idle"}
-            title={
-              props.sourceState?.status === "unavailable"
-                ? props.sourceState.message
-                : undefined
-            }
           >
             {labels.sourceStatus}: {sourceStatus}
           </p>

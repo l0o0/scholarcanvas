@@ -122,7 +122,7 @@ test("multi-source acquisition preserves order, duplicates, grid placement, and 
   let pushes = 0;
   let changes = 0;
   const historyKinds: string[][] = [];
-  const notices: string[] = [];
+  const notices: unknown[] = [];
   const acquisition = createAcademicAcquisitionRuntime({
     getNodes: () => nodes,
     setNodes: (next) => {
@@ -157,7 +157,12 @@ test("multi-source acquisition preserves order, duplicates, grid placement, and 
     "drop-many",
     "batch-placeholder",
     { x: 100, y: 200 },
-    { items: "[11, 12, 13, 14]" },
+    [
+      { library: { type: "user" }, itemKey: "FIRST123" },
+      { library: { type: "user" }, itemKey: "PDF12345" },
+      { library: { type: "user" }, itemKey: "FIRST123" },
+      { library: { type: "user" }, itemKey: "NOTE1234" },
+    ],
   );
   const failures: AcademicAcquisitionFailure[] = [
     {
@@ -206,7 +211,6 @@ test("multi-source acquisition preserves order, duplicates, grid placement, and 
       },
     ],
     failures,
-    "Added 4 sources; 1 could not be added.",
   );
 
   const saved = flowToCanvasDocument(nodes, edges, {
@@ -263,7 +267,12 @@ test("multi-source acquisition preserves order, duplicates, grid placement, and 
   assert.equal(pushes, 1);
   assert.equal(changes, 1);
   assert.deepEqual(historyKinds, [["claim"]]);
-  assert.deepEqual(notices, ["Added 4 sources; 1 could not be added."]);
+  assert.deepEqual(notices, [
+    {
+      code: "acquisition-summary",
+      context: { successCount: 4, failureCount: 1 },
+    },
+  ]);
   assert.deepEqual(
     failures.map((failure) => failure.index),
     [1],
@@ -275,7 +284,7 @@ test("a zero-success source batch removes loading state without history and igno
   let edges: ReturnType<typeof canvasDocumentToFlow>["edges"] = [];
   let pushes = 0;
   let changes = 0;
-  const notices: string[] = [];
+  const notices: unknown[] = [];
   const acquisition = createAcademicAcquisitionRuntime({
     getNodes: () => nodes,
     setNodes: (next) => {
@@ -297,21 +306,29 @@ test("a zero-success source batch removes loading state without history and igno
     onDropAcademicSources: () => undefined,
   });
 
-  acquisition.dropLiterature("failed", "pending", { x: 1, y: 2 }, {});
+  acquisition.dropLiterature("failed", "pending", { x: 1, y: 2 }, [
+    { library: { type: "user" }, itemKey: "MISSING1" },
+  ]);
   acquisition.resolveBatch(
     "failed",
     "pending",
     [],
     [{ index: 0, code: "item-missing", message: "Missing" }],
-    "Added 0 sources; 1 could not be added.",
   );
   assert.deepEqual(nodes, []);
   assert.deepEqual(acquisition.pendingNodeIds(), []);
   assert.equal(pushes, 0);
   assert.equal(changes, 0);
-  assert.deepEqual(notices, ["Added 0 sources; 1 could not be added."]);
+  assert.deepEqual(notices, [
+    {
+      code: "acquisition-summary",
+      context: { successCount: 0, failureCount: 1 },
+    },
+  ]);
 
-  acquisition.dropLiterature("stale", "old-document", { x: 3, y: 4 }, {});
+  acquisition.dropLiterature("stale", "old-document", { x: 3, y: 4 }, [
+    { library: { type: "user" }, itemKey: "STALE123" },
+  ]);
   acquisition.clear();
   nodes = canvasDocumentToFlow({
     ...EMPTY,
@@ -340,7 +357,6 @@ test("a zero-success source batch removes loading state without history and igno
       },
     ],
     [],
-    "Added 1 source; 0 could not be added.",
   );
   assert.deepEqual(
     nodes.map((node) => node.id),
@@ -902,7 +918,7 @@ test("only source-backed Notes expose refresh in properties", () => {
     }),
   );
   assert.equal(unavailable.includes("Source unavailable"), true);
-  assert.equal(unavailable.includes('title="Item missing"'), true);
+  assert.equal(unavailable.includes('title="Item missing"'), false);
 });
 
 test("source-backed properties distinguish every transient source state", () => {
@@ -947,18 +963,84 @@ test("source action failures are rendered inside the nonblocking canvas UI", () 
   assert.match(appSource, /className="zmd-board-notice/);
   assert.match(appSource, /role="status"/);
   assert.match(appSource, /aria-live="polite"/);
-  assert.match(appSource, /rejectSourceAction\(requestId, nodeId, failure\)/);
+  assert.match(
+    appSource,
+    /rejectSourceAction\(requestId, nodeId, source, _failure\)/,
+  );
   assert.match(canvasCss, /\.zmd-board-notice/);
   assert.match(
     callbackSource("applySourceResolutionBatch") ?? "",
-    /setCanvasNotice/,
+    /showCanvasNotice/,
     "an explicit refresh failure must surface in the canvas",
   );
   assert.match(
     callbackSource("rejectAnnotationList") ?? "",
-    /setCanvasNotice/,
+    /showCanvasNotice/,
     "an annotation failure must surface in the canvas as well as its dialog",
   );
+});
+
+test("open action correlation makes stale request/source replies completely inert", async () => {
+  const module =
+    (await import("../packages/whiteboard/src/whiteboard/sourceState.ts")) as typeof import("../packages/whiteboard/src/whiteboard/sourceState.ts") & {
+      createSourceActionCorrelation?: () => {
+        begin(
+          requestId: string,
+          nodeId: string,
+          source: ReturnType<typeof sourceDescriptor>,
+        ): void;
+        accept(
+          requestId: string,
+          nodeId: string,
+          source: ReturnType<typeof sourceDescriptor>,
+        ): boolean;
+        clear(): void;
+      };
+    };
+  assert.equal(typeof module.createSourceActionCorrelation, "function");
+  const correlation = module.createSourceActionCorrelation!();
+  const first = {
+    kind: "literature" as const,
+    source: { library: { type: "user" as const }, itemKey: "FIRST123" },
+  };
+  const other = {
+    kind: "literature" as const,
+    source: { library: { type: "user" as const }, itemKey: "OTHER123" },
+  };
+  correlation.begin("request-1", "node-1", first);
+  assert.equal(correlation.accept("request-old", "node-1", first), false);
+  assert.equal(correlation.accept("request-1", "node-1", other), false);
+  assert.equal(correlation.accept("request-1", "node-1", first), true);
+  assert.equal(
+    correlation.accept("request-1", "node-1", first),
+    false,
+    "a duplicate late success is inert after the correlated request is removed",
+  );
+  correlation.begin("request-2", "node-1", first);
+  correlation.clear();
+  assert.equal(
+    correlation.accept("request-2", "node-1", first),
+    false,
+    "document replacement/unmount clears pending opens",
+  );
+});
+
+test("annotation failure correlation precedes every canvas-visible notice", () => {
+  const callback = callbackSource("rejectAnnotationList") ?? "";
+  assert.ok(callback.indexOf("acceptAnnotationListFailure") >= 0);
+  assert.ok(callback.indexOf("showCanvasNotice") >= 0);
+  assert.ok(
+    callback.indexOf("acceptAnnotationListFailure") <
+      callback.indexOf("showCanvasNotice"),
+    "closed, replaced, request-mismatched, and source-mismatched replies must be inert",
+  );
+});
+
+test("canvas notices never render raw host diagnostic messages", () => {
+  assert.doesNotMatch(appSource, /message:\s*failure\.message/);
+  assert.doesNotMatch(appSource, /message:\s*failedRefresh\.message/);
+  assert.match(appSource, /noticeTimerRef/);
+  assert.match(appSource, /clearTimeout/);
 });
 
 test("Literature and Quote properties expose native source open and refresh actions", () => {
@@ -1264,12 +1346,9 @@ test("Note refresh preserves a pending acquisition until its later reply resolve
     createRequestId: () => "refresh-1",
   });
 
-  acquisition.dropLiterature(
-    "drop-1",
-    "literature-pending",
-    { x: 320, y: 0 },
-    { text: "11" },
-  );
+  acquisition.dropLiterature("drop-1", "literature-pending", { x: 320, y: 0 }, [
+    { library: { type: "user" }, itemKey: "ITEM1234" },
+  ]);
   const note = nodes.find((node) => node.id === "source-note")!;
   refresh.request(note, noteActionLabels);
   assert.equal(
@@ -1752,20 +1831,20 @@ test("correlated Literature rejection removes its placeholder and incident edges
     ],
   }).edges;
 
-  acquisitionRuntime.reject("other", "literature-pending", "Ignored");
+  acquisitionRuntime.reject("other", "literature-pending", "picker-failed");
   assert.equal(nodes.length, 2);
   assert.equal(edges.length, 1);
   acquisitionRuntime.reject(
     "pick-reject",
     "literature-pending",
-    "Selection cancelled",
+    "picker-cancelled",
   );
   assert.deepEqual(
     nodes.map((node) => node.id),
     ["keep"],
   );
   assert.deepEqual(edges, []);
-  assert.deepEqual(errors, ["Selection cancelled"]);
+  assert.deepEqual(errors, [], "user picker cancellation is silent");
 });
 
 test("canonical documents adapt to React Flow and back", () => {

@@ -60,20 +60,23 @@ const unavailableMessages = {
   "parent-mismatch": "The Zotero item's parent has changed.",
 } as const;
 
-type TerminalAnnotationListFailureCode = Extract<
-  AnnotationListFailureCode,
-  | "library-missing"
-  | "item-missing"
-  | "wrong-kind"
-  | "parent-mismatch"
-  | "list-failed"
->;
+export type SourceGatewayFailureCode =
+  | Extract<
+      AnnotationListFailureCode,
+      | "library-missing"
+      | "item-missing"
+      | "wrong-kind"
+      | "parent-mismatch"
+      | "list-failed"
+    >
+  | "open-failed"
+  | "note-refresh-failed";
 
 export class SourceGatewayError extends Error {
   override readonly name = "SourceGatewayError";
 
   constructor(
-    readonly code: TerminalAnnotationListFailureCode,
+    readonly code: SourceGatewayFailureCode,
     message: string,
   ) {
     super(message);
@@ -241,36 +244,78 @@ export function createZoteroSourceGateway(
     source: NoteSource,
   ): Promise<Extract<AcademicAcquisition, { kind: "note" }>> {
     const id = libraryID(source.library);
-    if (id == null) throw new Error(unavailableMessages["library-missing"]);
+    if (id == null)
+      throw new SourceGatewayError(
+        "library-missing",
+        unavailableMessages["library-missing"],
+      );
     const note = deps.getByLibraryAndKey(id, source.noteKey);
-    if (!note) throw new Error(unavailableMessages["item-missing"]);
-    return noteForSource(note, source, deps);
+    if (!note)
+      throw new SourceGatewayError(
+        "item-missing",
+        unavailableMessages["item-missing"],
+      );
+    try {
+      return noteForSource(note, source, deps);
+    } catch (error) {
+      if (error instanceof SourceIntegrityError) {
+        throw new SourceGatewayError(
+          error.code,
+          unavailableMessages[error.code],
+        );
+      }
+      throw new SourceGatewayError(
+        "note-refresh-failed",
+        error instanceof Error ? error.message : "Zotero Note refresh failed.",
+      );
+    }
   }
 
   async function open(descriptor: AcademicSourceDescriptor): Promise<void> {
     const id = libraryID(descriptor.source.library);
-    if (id == null) throw new Error(unavailableMessages["library-missing"]);
+    if (id == null)
+      throw new SourceGatewayError(
+        "library-missing",
+        unavailableMessages["library-missing"],
+      );
     const item = deps.getByLibraryAndKey(id, keyFor(descriptor));
-    if (!item) throw new Error(unavailableMessages["item-missing"]);
+    if (!item)
+      throw new SourceGatewayError(
+        "item-missing",
+        unavailableMessages["item-missing"],
+      );
 
-    if (descriptor.kind === "literature") {
-      if (!item.isRegularItem())
-        throw new Error(unavailableMessages["wrong-kind"]);
-      await deps.openItem(item);
-      return;
-    }
-    if (descriptor.kind === "note") {
-      noteForSource(item, descriptor.source, deps);
-      await deps.openNote(item);
-      return;
-    }
+    try {
+      if (descriptor.kind === "literature") {
+        if (!item.isRegularItem()) throw new SourceIntegrityError("wrong-kind");
+        await deps.openItem(item);
+        return;
+      }
+      if (descriptor.kind === "note") {
+        noteForSource(item, descriptor.source, deps);
+        await deps.openNote(item);
+        return;
+      }
 
-    const quote = quoteForSource(item, descriptor.source);
-    const exact = await deps.openAnnotation(quote.attachment, item);
-    if (!exact) {
-      await deps.openAttachmentPage(
-        quote.attachment,
-        pageIndex(item.annotationPosition),
+      const quote = quoteForSource(item, descriptor.source);
+      const exact = await deps.openAnnotation(quote.attachment, item);
+      if (!exact) {
+        await deps.openAttachmentPage(
+          quote.attachment,
+          pageIndex(item.annotationPosition),
+        );
+      }
+    } catch (error) {
+      if (error instanceof SourceIntegrityError) {
+        throw new SourceGatewayError(
+          error.code,
+          unavailableMessages[error.code],
+        );
+      }
+      if (error instanceof SourceGatewayError) throw error;
+      throw new SourceGatewayError(
+        "open-failed",
+        error instanceof Error ? error.message : "Zotero source open failed.",
       );
     }
   }

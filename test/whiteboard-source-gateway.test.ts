@@ -468,7 +468,8 @@ test("rejects unsupported quote annotations during acquire, resolve, and open", 
         annotationKey: "EMPTY",
       },
     }),
-    /wrong-kind/i,
+    (error: unknown) =>
+      error instanceof SourceGatewayError && error.code === "wrong-kind",
   );
 });
 
@@ -712,6 +713,26 @@ test("terminal annotation list failures carry codes without message parsing", as
   );
 });
 
+test("open and Note refresh failures retain finite gateway diagnostic codes", async () => {
+  const { deps } = dependencies();
+  await assert.rejects(
+    createZoteroSourceGateway(deps).open({
+      kind: "literature",
+      source: { library: { type: "group", groupID: 99 }, itemKey: "ITEM" },
+    }),
+    (error: unknown) =>
+      error instanceof SourceGatewayError && error.code === "library-missing",
+  );
+  await assert.rejects(
+    createZoteroSourceGateway(deps).refreshNote({
+      library: { type: "user" },
+      noteKey: "MISSING",
+    }),
+    (error: unknown) =>
+      error instanceof SourceGatewayError && error.code === "item-missing",
+  );
+});
+
 test("converts Zotero note HTML and falls back to DOM text content only after utility failure", () => {
   const utilities = {
     cleanTags: (html: string) =>
@@ -903,7 +924,8 @@ test("opening a Quote rejects a lookup result with the wrong annotation key", as
         annotationKey: "EXPECTED-ANNOTATION",
       },
     }),
-    /parent-mismatch/,
+    (error: unknown) =>
+      error instanceof SourceGatewayError && error.code === "parent-mismatch",
   );
   assert.equal(exactAttempts, 0);
   assert.deepEqual(pages, []);

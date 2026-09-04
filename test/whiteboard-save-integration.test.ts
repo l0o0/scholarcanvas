@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   acquireAcademicItems,
   parseDroppedItemIDs,
+  resolveNativeAcademicDrop,
 } from "../src/modules/whiteboard/tab.ts";
 
 const tab = readFileSync(
@@ -101,22 +102,88 @@ test("generic Zotero acquisition accepts Notes and refreshes them through the so
   assert.doesNotMatch(tab, /gateway\.acquireItem\([^)]*isAttachment/);
 });
 
-test("generic Zotero drops parse every encoded item id once", () => {
+test("production Zotero item drops use one canonical payload and preserve its order", () => {
+  const transfer = (data: Record<string, string>) => {
+    const value = { ...data } as Record<string, string> & {
+      types: string[];
+      getData(type: string): string;
+    };
+    Object.defineProperties(value, {
+      types: { value: Object.keys(data), enumerable: false },
+      getData: {
+        value: (type: string) => data[type] ?? "",
+        enumerable: false,
+      },
+    });
+    return value;
+  };
   assert.deepEqual(
-    parseDroppedItemIDs({
-      json: JSON.stringify([11, { itemID: 12 }, { id: 13 }, "14"]),
-      text: "15, 11",
-    }),
-    [11, 12, 13, 14, 15],
-  );
-  assert.deepEqual(
-    parseDroppedItemIDs({ json: "[11, 11, 12]", text: "11 12" }),
+    parseDroppedItemIDs(
+      transfer({
+        "text/plain": "12,13",
+        "zotero/item": "11,11,12",
+        "application/json": "[14]",
+      }),
+    ),
     [11, 11, 12],
-    "intentional repeats in one ordered payload remain independent placements",
+    "mirrored MIME flavors cannot multiply or reorder canonical entries",
   );
   assert.deepEqual(
-    parseDroppedItemIDs({ uri: "file:///tmp/2026/paper.pdf" }),
+    parseDroppedItemIDs(
+      transfer({ "zotero/collection": "7", "zotero/item": "11,12" }),
+    ),
     [],
+    "Zotero's collection > item > search precedence rejects a mixed collection drag",
+  );
+  assert.deepEqual(
+    parseDroppedItemIDs(
+      transfer({ "application/json": "[11,12]", "text/plain": "11,12" }),
+    ),
+    [],
+    "arbitrary MIME payloads are not interpreted as Zotero item IDs",
+  );
+});
+
+test("host resolves ordered Zotero ids to native user/group keys before protocol crossing", () => {
+  const payloads = new Map([
+    ["zotero/item", "11,12,11"],
+    ["text/plain", "12,11"],
+  ]);
+  const result = resolveNativeAcademicDrop(
+    {
+      types: [...payloads.keys()],
+      getData: (type) => payloads.get(type) ?? "",
+    },
+    {
+      userLibraryID: 1,
+      getItem(itemID) {
+        if (itemID === 11)
+          return { key: "PAPER123", libraryID: 1 } as Zotero.Item;
+        if (itemID === 12)
+          return { key: "PDF12345", libraryID: 5 } as Zotero.Item;
+        return null;
+      },
+      getLibrary(libraryID) {
+        return libraryID === 5 ? { libraryType: "group", groupID: 88 } : null;
+      },
+    },
+  );
+
+  assert.deepEqual(result, {
+    status: "accepted",
+    sources: [
+      { library: { type: "user" }, itemKey: "PAPER123" },
+      { library: { type: "group", groupID: 88 }, itemKey: "PDF12345" },
+      { library: { type: "user" }, itemKey: "PAPER123" },
+    ],
+  });
+  assert.equal(JSON.stringify(result).includes("itemID"), false);
+  assert.deepEqual(
+    resolveNativeAcademicDrop(
+      { types: ["zotero/item"], getData: () => "11,broken" },
+      { userLibraryID: 1, getItem: () => null, getLibrary: () => null },
+    ),
+    { status: "rejected", code: "drop-malformed" },
   );
 });
 

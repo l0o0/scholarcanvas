@@ -62,6 +62,12 @@ const hostKeys = [
   "whiteboard-source-loading",
   "whiteboard-source-missing",
   "whiteboard-acquisition-summary",
+  "whiteboard-drop-malformed",
+  "whiteboard-drop-unsupported",
+  "whiteboard-acquisition-failed",
+  "whiteboard-source-open-failed",
+  "whiteboard-source-refresh-failed",
+  "whiteboard-note-refresh-failed",
   "whiteboard-open-source",
   "whiteboard-refresh-source",
   "whiteboard-refresh-note",
@@ -130,6 +136,12 @@ test("host wires every academic label into the whiteboard protocol", () => {
     ["sourceAvailable", "whiteboard-source-available"],
     ["sourceLoading", "whiteboard-source-loading"],
     ["sourceMissing", "whiteboard-source-missing"],
+    ["dropMalformed", "whiteboard-drop-malformed"],
+    ["dropUnsupported", "whiteboard-drop-unsupported"],
+    ["acquisitionFailed", "whiteboard-acquisition-failed"],
+    ["sourceOpenFailed", "whiteboard-source-open-failed"],
+    ["sourceRefreshFailed", "whiteboard-source-refresh-failed"],
+    ["noteRefreshFailed", "whiteboard-note-refresh-failed"],
     ["openSource", "whiteboard-open-source"],
     ["refreshSource", "whiteboard-refresh-source"],
     ["refreshNote", "whiteboard-refresh-note"],
@@ -164,7 +176,7 @@ test("host wires every academic label into the whiteboard protocol", () => {
   );
   assert.match(
     source,
-    /getString\("whiteboard-acquisition-summary",\s*\{\s*args:\s*\{\s*successCount[,\s]*failureCount/s,
+    /acquisitionSummary:\s*getString\("whiteboard-acquisition-summary"/,
   );
 });
 

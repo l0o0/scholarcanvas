@@ -9,6 +9,9 @@ import {
   isWhiteboardProtocolMessageForChannel,
   type AcademicAcquisition,
   type AcademicAcquisitionFailure,
+  type AcademicDropFailureCode,
+  type AcademicDropSourceRef,
+  type AcademicRequestFailureCode,
   type AcademicSourceDescriptor,
   type AcademicSourceActionFailure,
   type AnnotationCandidate,
@@ -45,17 +48,24 @@ export interface WhiteboardHandle {
     nodeId: string,
     successes: IndexedAcademicAcquisition[],
     failures: AcademicAcquisitionFailure[],
-    summary: string,
   ) => void;
   rejectAcademicRequest: (
     requestId: string,
     nodeId: string,
-    message: string,
+    code: AcademicRequestFailureCode,
+    diagnostic?: string,
   ) => void;
   rejectSourceAction: (
     requestId: string,
     nodeId: string,
+    source: AcademicSourceDescriptor,
     failure: AcademicSourceActionFailure,
+  ) => void;
+  acceptSourceAction: (
+    requestId: string,
+    nodeId: string,
+    action: "open",
+    source: AcademicSourceDescriptor,
   ) => void;
   applySourceResolutionBatch: (
     requestId: string,
@@ -81,6 +91,72 @@ export interface WhiteboardHandle {
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
 
+export type NativeAcademicDropResolution =
+  | { status: "ignored" }
+  | { status: "rejected"; code: AcademicDropFailureCode }
+  | { status: "accepted"; sources: AcademicDropSourceRef[] };
+
+type AcademicDropEventTarget = {
+  addEventListener(
+    type: string,
+    listener: (event: DragEvent) => void,
+    capture?: boolean,
+  ): void;
+  removeEventListener(
+    type: string,
+    listener: (event: DragEvent) => void,
+    capture?: boolean,
+  ): void;
+};
+
+export type NativeAcademicDropEvent =
+  | { code: AcademicDropFailureCode }
+  | {
+      position: { x: number; y: number };
+      sources: AcademicDropSourceRef[];
+    };
+
+export function attachNativeAcademicDropListeners(
+  target: AcademicDropEventTarget,
+  resolve: (dataTransfer: DataTransfer) => NativeAcademicDropResolution,
+  emit: (drop: NativeAcademicDropEvent) => void,
+): () => void {
+  const onDragOver = (event: DragEvent) => {
+    const types = Array.from(event.dataTransfer?.types ?? []);
+    if (
+      !types.some((type) =>
+        ["zotero/collection", "zotero/item", "zotero/search"].includes(type),
+      )
+    ) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  };
+  const onDrop = (event: DragEvent) => {
+    const transfer = event.dataTransfer;
+    if (!transfer) return;
+    const resolved = resolve(transfer);
+    if (resolved.status === "ignored") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (resolved.status === "rejected") {
+      emit({ code: resolved.code });
+      return;
+    }
+    emit({
+      position: { x: event.clientX, y: event.clientY },
+      sources: resolved.sources,
+    });
+  };
+  target.addEventListener("dragover", onDragOver, true);
+  target.addEventListener("drop", onDrop, true);
+  return () => {
+    target.removeEventListener("dragover", onDragOver, true);
+    target.removeEventListener("drop", onDrop, true);
+  };
+}
+
 function whiteboardPageURL() {
   const ref = addon.data.config.addonRef;
   return `chrome://${ref}/content/whiteboard/index.html`;
@@ -98,12 +174,15 @@ type PendingCommand = Extract<
       | "destroy"
       | "academicSourceAcquired"
       | "academicSourcesAcquired"
+      | "academicDropStarted"
+      | "academicDropRejected"
       | "sourceResolutionBatch"
       | "noteRefreshed"
       | "annotationsListed"
       | "annotationListFailed"
       | "academicRequestFailed"
       | "sourceActionFailed"
+      | "sourceActionSucceeded"
       | "saveState";
   }
 >;
@@ -128,10 +207,13 @@ export function createWhiteboardEditor(
       attachmentID?: number;
       pdfPage?: number;
     }) => void;
+    resolveNativeAcademicDrop?: (
+      dataTransfer: DataTransfer,
+    ) => NativeAcademicDropResolution;
     onDropAcademicSources?: (
       requestId: string,
       nodeId: string,
-      raw: Record<string, string>,
+      sources: AcademicDropSourceRef[],
     ) => void;
     onResolveAcademicSources?: (
       requestId: string,
@@ -294,7 +376,7 @@ export function createWhiteboardEditor(
         options.onDropAcademicSources?.(
           data.payload.requestId,
           data.payload.nodeId,
-          data.payload.raw,
+          data.payload.sources,
         );
         break;
       case "resolveAcademicSources":
@@ -338,6 +420,41 @@ export function createWhiteboardEditor(
 
   ownerWin?.addEventListener("message", onMessage);
 
+  let dropSequence = 0;
+  let detachDropListeners: () => void = () => undefined;
+  const attachDropListeners = () => {
+    detachDropListeners();
+    const target = iframe.contentDocument;
+    if (!target || !options.resolveNativeAcademicDrop) return;
+    detachDropListeners = attachNativeAcademicDropListeners(
+      target,
+      options.resolveNativeAcademicDrop,
+      (drop) => {
+        if ("code" in drop) {
+          sendOrQueue({
+            source: WHITEBOARD_MESSAGE_SOURCE,
+            type: "academicDropRejected",
+            payload: { code: drop.code },
+          });
+          return;
+        }
+        const suffix = `${Date.now().toString(36)}-${dropSequence++}`;
+        sendOrQueue({
+          source: WHITEBOARD_MESSAGE_SOURCE,
+          type: "academicDropStarted",
+          payload: {
+            requestId: `drop-${suffix}`,
+            nodeId: `literature-${suffix}`,
+            position: drop.position,
+            sources: drop.sources,
+          },
+        });
+      },
+    );
+  };
+  iframe.addEventListener("load", attachDropListeners);
+  if (iframe.contentDocument?.readyState === "complete") attachDropListeners();
+
   return {
     ready,
     focus() {
@@ -352,6 +469,8 @@ export function createWhiteboardEditor(
       if (destroyed) return;
       destroyed = true;
       ownerWin?.removeEventListener("message", onMessage);
+      iframe.removeEventListener("load", attachDropListeners);
+      detachDropListeners();
       post({ source: WHITEBOARD_MESSAGE_SOURCE, type: "destroy" });
       iframe.remove();
       wrap.remove();
@@ -405,31 +524,32 @@ export function createWhiteboardEditor(
         payload: { requestId, nodeId, acquisition },
       });
     },
-    resolveAcademicAcquisitionBatch(
-      requestId,
-      nodeId,
-      successes,
-      failures,
-      summary,
-    ) {
+    resolveAcademicAcquisitionBatch(requestId, nodeId, successes, failures) {
       sendOrQueue({
         source: WHITEBOARD_MESSAGE_SOURCE,
         type: "academicSourcesAcquired",
-        payload: { requestId, nodeId, successes, failures, summary },
+        payload: { requestId, nodeId, successes, failures },
       });
     },
-    rejectAcademicRequest(requestId, nodeId, message) {
+    rejectAcademicRequest(requestId, nodeId, code, diagnostic) {
       sendOrQueue({
         source: WHITEBOARD_MESSAGE_SOURCE,
         type: "academicRequestFailed",
-        payload: { requestId, nodeId, message },
+        payload: { requestId, nodeId, code, diagnostic },
       });
     },
-    rejectSourceAction(requestId, nodeId, failure) {
+    rejectSourceAction(requestId, nodeId, source, failure) {
       sendOrQueue({
         source: WHITEBOARD_MESSAGE_SOURCE,
         type: "sourceActionFailed",
-        payload: { requestId, nodeId, failure },
+        payload: { requestId, nodeId, source, failure },
+      });
+    },
+    acceptSourceAction(requestId, nodeId, action, source) {
+      sendOrQueue({
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        type: "sourceActionSucceeded",
+        payload: { requestId, nodeId, action, source },
       });
     },
     applySourceResolutionBatch(requestId, generation, results) {

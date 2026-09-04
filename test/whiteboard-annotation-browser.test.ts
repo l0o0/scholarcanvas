@@ -22,6 +22,45 @@ import type {
   WhiteboardLabels,
 } from "../packages/whiteboard/src/model/protocol.ts";
 import { canvasDocumentToFlow } from "../packages/whiteboard/src/whiteboard/document.ts";
+import {
+  acceptAnnotationListFailure,
+  closeAnnotationBrowserSession,
+  openAnnotationBrowserSession,
+  replaceDocumentAnnotationBrowserSession,
+} from "../packages/whiteboard/src/whiteboard/annotationBrowserState.ts";
+
+test("closed, replaced, reopened, and source-mismatched annotation failures are inert", () => {
+  const source = { library: { type: "user" as const }, itemKey: "ITEM1234" };
+  const failure = {
+    code: "list-failed" as const,
+    message: "host diagnostic",
+  };
+  const open = openAnnotationBrowserSession("request-1", source);
+  const closed = closeAnnotationBrowserSession(open);
+  assert.equal(
+    acceptAnnotationListFailure(closed, "request-1", source, failure),
+    closed,
+  );
+  const replaced = replaceDocumentAnnotationBrowserSession(open);
+  assert.equal(
+    acceptAnnotationListFailure(replaced, "request-1", source, failure),
+    replaced,
+  );
+  const reopened = openAnnotationBrowserSession("request-2", source);
+  assert.equal(
+    acceptAnnotationListFailure(reopened, "request-1", source, failure),
+    reopened,
+  );
+  assert.equal(
+    acceptAnnotationListFailure(
+      reopened,
+      "request-2",
+      { library: { type: "user" }, itemKey: "OTHER123" },
+      failure,
+    ),
+    reopened,
+  );
+});
 
 const browserLabels: AnnotationBrowserLabels = {
   title: "Annotations",
@@ -265,6 +304,13 @@ test("renders loading, empty, unavailable, and partial-failure states", () => {
     ),
     /Annotations unavailable/,
   );
+  assert.doesNotMatch(
+    renderToStaticMarkup(
+      browser({ state: { status: "unavailable", failure: unavailable } }),
+    ),
+    /The Zotero item is unavailable/,
+    "host diagnostics must not leak into visible DOM attributes",
+  );
   assert.match(
     renderToStaticMarkup(
       browser({
@@ -276,6 +322,18 @@ test("renders loading, empty, unavailable, and partial-failure states", () => {
       }),
     ),
     /Some annotations could not be loaded[\s\S]*Strong result/,
+  );
+  assert.doesNotMatch(
+    renderToStaticMarkup(
+      browser({
+        state: {
+          status: "ready",
+          candidates: [candidates[1]],
+          failures: [{ code: "list-failed", message: "One PDF failed" }],
+        },
+      }),
+    ),
+    /One PDF failed/,
   );
 });
 

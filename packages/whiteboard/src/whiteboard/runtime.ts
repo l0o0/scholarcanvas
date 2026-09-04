@@ -17,6 +17,9 @@ import { parseCanvasDocument, type CanvasDocument } from "../model/document";
 import type {
   AcademicAcquisition,
   AcademicAcquisitionFailure,
+  AcademicDropSourceRef,
+  AcademicRequestFailureCode,
+  CanvasNotice,
   IndexedAcademicAcquisition,
 } from "../model/protocol";
 import type { SourceResolutionResult } from "../model/protocol";
@@ -62,7 +65,7 @@ export interface AcademicAcquisitionRuntimeBindings {
   pushHistory: () => void;
   changed: () => void;
   onError: (message: string) => void;
-  onNotice?: (message: string) => void;
+  onNotice?: (notice: CanvasNotice) => void;
   createNodeId?: (requestId: string, sourceIndex: number) => string;
   onPickAcademicSource: (
     requestId: string,
@@ -72,7 +75,7 @@ export interface AcademicAcquisitionRuntimeBindings {
   onDropAcademicSources: (
     requestId: string,
     nodeId: string,
-    raw: Record<string, string>,
+    sources: AcademicDropSourceRef[],
   ) => void;
 }
 
@@ -86,7 +89,7 @@ export interface AcademicAcquisitionRuntime {
     requestId: string,
     nodeId: string,
     position: { x: number; y: number },
-    raw: Record<string, string>,
+    sources: AcademicDropSourceRef[],
   ) => void;
   resolve: (
     requestId: string,
@@ -98,9 +101,12 @@ export interface AcademicAcquisitionRuntime {
     nodeId: string,
     successes: IndexedAcademicAcquisition[],
     failures: AcademicAcquisitionFailure[],
-    summary: string,
   ) => string[];
-  reject: (requestId: string, nodeId: string, message: string) => void;
+  reject: (
+    requestId: string,
+    nodeId: string,
+    code: AcademicRequestFailureCode,
+  ) => void;
   pendingNodeIds: () => string[];
   clear: () => void;
 }
@@ -158,22 +164,27 @@ export function createAcademicAcquisitionRuntime(
     bindings.setNodes([...bindings.getNodes(), placeholder]);
   };
 
-  const reject = (requestId: string, nodeId: string, message: string) => {
+  const reject = (
+    requestId: string,
+    nodeId: string,
+    code: AcademicRequestFailureCode,
+  ) => {
     if (pending.get(requestId) !== nodeId) return;
     pending.delete(requestId);
     bindings.setNodes(rejectAcademicPlaceholder(bindings.getNodes(), nodeId));
     bindings.setEdges(
       rejectAcademicPlaceholderConnections(bindings.getEdges(), nodeId),
     );
-    bindings.onError(message);
+    if (code !== "picker-cancelled") {
+      bindings.onNotice?.({ code: "acquisition-failed" });
+    }
   };
 
   const resolveBatch = (
     requestId: string,
     nodeId: string,
     successes: IndexedAcademicAcquisition[],
-    _failures: AcademicAcquisitionFailure[],
-    summary: string,
+    failures: AcademicAcquisitionFailure[],
   ): string[] => {
     if (pending.get(requestId) !== nodeId) return [];
     const placeholder = bindings.getNodes().find((node) => node.id === nodeId);
@@ -194,7 +205,10 @@ export function createAcademicAcquisitionRuntime(
       bindings.setEdges(
         rejectAcademicPlaceholderConnections(bindings.getEdges(), nodeId),
       );
-      bindings.onNotice?.(summary);
+      bindings.onNotice?.({
+        code: "acquisition-summary",
+        context: { successCount: 0, failureCount: failures.length },
+      });
       return [];
     }
 
@@ -221,7 +235,10 @@ export function createAcademicAcquisitionRuntime(
     if (!replacements.length) {
       pending.delete(requestId);
       bindings.setNodes(rejectAcademicPlaceholder(bindings.getNodes(), nodeId));
-      bindings.onNotice?.(summary);
+      bindings.onNotice?.({
+        code: "acquisition-summary",
+        context: { successCount: 0, failureCount: failures.length },
+      });
       return [];
     }
     bindings.pushHistory();
@@ -231,7 +248,13 @@ export function createAcademicAcquisitionRuntime(
       ...replacements,
     ]);
     bindings.changed();
-    bindings.onNotice?.(summary);
+    bindings.onNotice?.({
+      code: "acquisition-summary",
+      context: {
+        successCount: replacements.length,
+        failureCount: failures.length,
+      },
+    });
     return replacements.map((node) => node.id);
   };
 
@@ -240,9 +263,9 @@ export function createAcademicAcquisitionRuntime(
       addPlaceholder(requestId, nodeId, position);
       bindings.onPickAcademicSource(requestId, nodeId, "literature");
     },
-    dropLiterature(requestId, nodeId, position, raw) {
+    dropLiterature(requestId, nodeId, position, sources) {
       addPlaceholder(requestId, nodeId, position);
-      bindings.onDropAcademicSources(requestId, nodeId, raw);
+      bindings.onDropAcademicSources(requestId, nodeId, sources);
     },
     resolve(requestId, nodeId, acquisition) {
       if (pending.get(requestId) !== nodeId) return;
@@ -252,7 +275,7 @@ export function createAcademicAcquisitionRuntime(
         acquisition,
       );
       if (!resolved) {
-        reject(requestId, nodeId, "Invalid Zotero academic acquisition.");
+        reject(requestId, nodeId, "acquisition-failed");
         return;
       }
       bindings.pushHistory();

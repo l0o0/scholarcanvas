@@ -249,21 +249,13 @@ export function AnnotationBrowser(props: {
           {props.state.status === "loading" ? (
             <p className="zmd-board-annotation-state">{props.labels.loading}</p>
           ) : props.state.status === "unavailable" ? (
-            <p
-              className="zmd-board-annotation-state is-error"
-              title={props.state.failure.message}
-            >
+            <p className="zmd-board-annotation-state is-error">
               {props.labels.unavailable}
             </p>
           ) : (
             <>
               {props.state.failures.length ? (
-                <p
-                  className="zmd-board-annotation-state is-warning"
-                  title={props.state.failures
-                    .map((failure) => failure.message)
-                    .join("\n")}
-                >
+                <p className="zmd-board-annotation-state is-warning">
                   {props.labels.partialFailure}
                 </p>
               ) : null}

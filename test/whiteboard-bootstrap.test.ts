@@ -89,6 +89,8 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
       calls.push(["reject", ...args]),
     rejectSourceAction: (...args: unknown[]) =>
       calls.push(["source-action-failure", ...args]),
+    acceptSourceAction: (...args: unknown[]) =>
+      calls.push(["source-action-success", ...args]),
     applySourceResolutionBatch: (...args: unknown[]) =>
       calls.push(["resolution", ...args]),
     applyNoteRefresh: (...args: unknown[]) =>
@@ -113,7 +115,7 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
     payload: {
       requestId: "pick-2",
       nodeId: "node-2",
-      message: "Cancelled",
+      code: "picker-cancelled",
     },
   };
   const acquiredBatch: ParentToWhiteboardMessage = {
@@ -132,7 +134,6 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
           message: "Unsupported attachment",
         },
       ],
-      summary: "Added 1 source; 1 could not be added.",
     },
   };
   const sourceActionFailed: ParentToWhiteboardMessage = {
@@ -143,7 +144,20 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
     payload: {
       requestId: "open-1",
       nodeId: "node-1",
+      source: { kind: "literature", source: acquisition.source },
       failure: { code: "open-failed", message: "Could not open" },
+    },
+  };
+  const sourceActionSucceeded: ParentToWhiteboardMessage = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "sourceActionSucceeded",
+    payload: {
+      requestId: "open-2",
+      nodeId: "node-1",
+      action: "open",
+      source: { kind: "literature", source: acquisition.source },
     },
   };
   const resolution: ParentToWhiteboardMessage = {
@@ -222,6 +236,10 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
   assert.equal(forwardAcademicParentMessage(runtime, acquiredBatch), true);
   assert.equal(forwardAcademicParentMessage(runtime, rejected), true);
   assert.equal(forwardAcademicParentMessage(runtime, sourceActionFailed), true);
+  assert.equal(
+    forwardAcademicParentMessage(runtime, sourceActionSucceeded),
+    true,
+  );
   assert.equal(forwardAcademicParentMessage(runtime, resolution), true);
   assert.equal(forwardAcademicParentMessage(runtime, noteRefresh), true);
   assert.equal(forwardAcademicParentMessage(runtime, annotationsListed), true);
@@ -237,14 +255,21 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
       "drop-node",
       acquiredBatch.payload.successes,
       acquiredBatch.payload.failures,
-      acquiredBatch.payload.summary,
     ],
-    ["reject", "pick-2", "node-2", "Cancelled"],
+    ["reject", "pick-2", "node-2", "picker-cancelled"],
     [
       "source-action-failure",
       "open-1",
       "node-1",
+      sourceActionFailed.payload.source,
       sourceActionFailed.payload.failure,
+    ],
+    [
+      "source-action-success",
+      "open-2",
+      "node-1",
+      "open",
+      sourceActionSucceeded.payload.source,
     ],
     ["resolution", 4, resolution.payload.results],
     ["note-refresh", "refresh-1", "node-4", noteRefresh.payload.acquisition],
@@ -280,4 +305,66 @@ test("both bridge listeners require the exact peer window and protocol channel",
     editor,
     /isWhiteboardProtocolMessageForChannel\(event\.data, channel\)/,
   );
+  assert.match(bootstrap, /reactRoot\?\.unmount\(\)/);
+});
+
+test("host-owned iframe drop capture emits native refs and cleans up listeners", async () => {
+  const module =
+    (await import("../src/modules/whiteboard/editor.ts")) as typeof import("../src/modules/whiteboard/editor.ts") & {
+      attachNativeAcademicDropListeners?: (
+        target: {
+          addEventListener(
+            type: string,
+            listener: (event: DragEvent) => void,
+          ): void;
+          removeEventListener(
+            type: string,
+            listener: (event: DragEvent) => void,
+          ): void;
+        },
+        resolve: () => {
+          status: "accepted";
+          sources: Array<{
+            library: { type: "user" };
+            itemKey: string;
+          }>;
+        },
+        emit: (drop: unknown) => void,
+      ) => () => void;
+    };
+  assert.equal(typeof module.attachNativeAcademicDropListeners, "function");
+  const listeners = new Map<string, (event: DragEvent) => void>();
+  const removed: string[] = [];
+  const target = {
+    addEventListener(type: string, listener: (event: DragEvent) => void) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type: string) {
+      removed.push(type);
+      listeners.delete(type);
+    },
+  };
+  const emitted: unknown[] = [];
+  const sources = [{ library: { type: "user" as const }, itemKey: "ITEM1234" }];
+  const cleanup = module.attachNativeAcademicDropListeners!(
+    target,
+    () => ({ status: "accepted", sources }),
+    (drop) => emitted.push(drop),
+  );
+  let prevented = 0;
+  let stopped = 0;
+  const event = {
+    dataTransfer: { types: ["zotero/item"], dropEffect: "none" },
+    clientX: 40,
+    clientY: 70,
+    preventDefault: () => prevented++,
+    stopPropagation: () => stopped++,
+  } as unknown as DragEvent;
+  listeners.get("dragover")?.(event);
+  listeners.get("drop")?.(event);
+  assert.deepEqual(emitted, [{ position: { x: 40, y: 70 }, sources }]);
+  assert.equal(prevented, 2);
+  assert.equal(stopped, 1);
+  cleanup();
+  assert.deepEqual(removed.sort(), ["dragover", "drop"]);
 });

@@ -3,7 +3,7 @@
  */
 /// <reference lib="dom" />
 
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { WhiteboardApp, type WhiteboardRuntime } from "./whiteboard/app";
 import {
   WHITEBOARD_MESSAGE_SOURCE,
@@ -24,7 +24,28 @@ let theme: WhiteboardTheme = "light";
 let pendingSnapshot: CanvasDocument | null = null;
 const deferredLabels = createDeferredLabels();
 let runtime: WhiteboardRuntime | null = null;
+let reactRoot: Root | null = null;
 let rev = 0;
+
+function onWindowKeyDown(event: KeyboardEvent) {
+  if (!(event.metaKey || event.ctrlKey)) return;
+  const key = event.key.toLowerCase();
+  if (key === "s") {
+    event.preventDefault();
+    postToParent({ type: "save" });
+    return;
+  }
+  if (key === "z") {
+    event.preventDefault();
+    if (event.shiftKey) runtime?.redo();
+    else runtime?.undo();
+    return;
+  }
+  if (key === "y") {
+    event.preventDefault();
+    runtime?.redo();
+  }
+}
 
 function postToParent(message: {
   type:
@@ -103,6 +124,10 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
     case "destroy":
       runtime = null;
       deferredLabels.detach();
+      reactRoot?.unmount();
+      reactRoot = null;
+      window.removeEventListener("message", onWindowMessage);
+      window.removeEventListener("keydown", onWindowKeyDown);
       break;
     default:
       break;
@@ -135,26 +160,9 @@ function boot() {
   }
   applyDocumentTheme("light");
   window.addEventListener("message", onWindowMessage);
-  window.addEventListener("keydown", (event) => {
-    if (!(event.metaKey || event.ctrlKey)) return;
-    const key = event.key.toLowerCase();
-    if (key === "s") {
-      event.preventDefault();
-      postToParent({ type: "save" });
-      return;
-    }
-    if (key === "z") {
-      event.preventDefault();
-      if (event.shiftKey) runtime?.redo();
-      else runtime?.undo();
-      return;
-    }
-    if (key === "y") {
-      event.preventDefault();
-      runtime?.redo();
-    }
-  });
-  createRoot(host).render(
+  window.addEventListener("keydown", onWindowKeyDown);
+  reactRoot = createRoot(host);
+  reactRoot.render(
     <WhiteboardApp
       theme={theme}
       labels={deferredLabels.current}
@@ -180,10 +188,10 @@ function boot() {
         })
       }
       onOpenItem={(payload) => postToParent({ type: "openItem", payload })}
-      onDropAcademicSources={(requestId, nodeId, raw) =>
+      onDropAcademicSources={(requestId, nodeId, sources) =>
         postToParent({
           type: "dropAcademicSources",
-          payload: { requestId, nodeId, raw },
+          payload: { requestId, nodeId, sources },
         })
       }
       onResolveAcademicSources={(requestId, generation, priority, sources) =>

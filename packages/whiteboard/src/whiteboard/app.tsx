@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type ReactElement,
 } from "react";
 import {
@@ -45,10 +44,14 @@ import {
 import type {
   AcademicAcquisition,
   AcademicAcquisitionFailure,
+  AcademicDropFailureCode,
+  AcademicDropSourceRef,
+  AcademicRequestFailureCode,
   AcademicSourceDescriptor,
   AcademicSourceActionFailure,
   AnnotationCandidate,
   AnnotationListFailure,
+  CanvasNotice,
   IndexedAcademicAcquisition,
   SourceResolutionPriority,
   SourceResolutionResult,
@@ -127,6 +130,7 @@ import {
 } from "./runtime";
 import {
   createQuoteBatchRuntime,
+  createSourceActionCorrelation,
   createSourceRefreshRuntime,
   createSourceResolutionStates,
   prioritizedSourceRequests,
@@ -169,6 +173,14 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   sourceAvailable: "Available",
   sourceLoading: "Checking…",
   sourceMissing: "Source unavailable",
+  acquisitionSummary:
+    "Added {successCount} source(s); {failureCount} could not be added.",
+  dropMalformed: "The Zotero drop could not be read.",
+  dropUnsupported: "This Zotero drag type cannot be added to the canvas.",
+  acquisitionFailed: "The Zotero source could not be added.",
+  sourceOpenFailed: "The Zotero source could not be opened.",
+  sourceRefreshFailed: "The Zotero source could not be refreshed.",
+  noteRefreshFailed: "The Zotero Note could not be refreshed.",
   openSource: "Open source",
   refreshSource: "Refresh source",
   refreshNote: "Refresh from Zotero",
@@ -279,7 +291,7 @@ export interface WhiteboardAppProps {
   onDropAcademicSources: (
     requestId: string,
     nodeId: string,
-    raw: Record<string, string>,
+    sources: AcademicDropSourceRef[],
   ) => void;
   onResolveAcademicSources?: (
     requestId: string,
@@ -317,6 +329,13 @@ export interface WhiteboardRuntime {
   getSnapshot: () => CanvasDocument;
   undo: () => void;
   redo: () => void;
+  beginAcademicDrop: (
+    requestId: string,
+    nodeId: string,
+    position: { x: number; y: number },
+    sources: AcademicDropSourceRef[],
+  ) => void;
+  rejectAcademicDrop: (code: AcademicDropFailureCode) => void;
   resolveAcademicAcquisition: (
     requestId: string,
     nodeId: string,
@@ -327,17 +346,23 @@ export interface WhiteboardRuntime {
     nodeId: string,
     successes: IndexedAcademicAcquisition[],
     failures: AcademicAcquisitionFailure[],
-    summary: string,
   ) => void;
   rejectAcademicRequest: (
     requestId: string,
     nodeId: string,
-    message: string,
+    code: AcademicRequestFailureCode,
   ) => void;
   rejectSourceAction: (
     requestId: string,
     nodeId: string,
+    source: AcademicSourceDescriptor,
     failure: AcademicSourceActionFailure,
+  ) => void;
+  acceptSourceAction: (
+    requestId: string,
+    nodeId: string,
+    action: "open",
+    source: AcademicSourceDescriptor,
   ) => void;
   applySourceResolutionBatch: (
     generation: number,
@@ -371,6 +396,34 @@ const SOURCE_PRIORITY_ORDER: Record<SourceResolutionPriority, number> = {
   visible: 1,
   idle: 2,
 };
+
+export function canvasNoticeText(
+  labels: WhiteboardLabels,
+  notice: CanvasNotice,
+): string {
+  switch (notice.code) {
+    case "acquisition-summary":
+      return labels.acquisitionSummary
+        .replace("{successCount}", String(notice.context.successCount))
+        .replace("{failureCount}", String(notice.context.failureCount));
+    case "drop-malformed":
+      return labels.dropMalformed;
+    case "drop-unsupported":
+      return labels.dropUnsupported;
+    case "acquisition-failed":
+      return labels.acquisitionFailed;
+    case "source-open-failed":
+      return labels.sourceOpenFailed;
+    case "source-refresh-failed":
+      return labels.sourceRefreshFailed;
+    case "note-refresh-failed":
+      return labels.noteRefreshFailed;
+    case "annotations-unavailable":
+      return labels.annotationsUnavailable;
+    case "annotations-partial-failure":
+      return labels.annotationsPartialFailure;
+  }
+}
 
 interface ContextMenuState {
   x: number;
@@ -471,11 +524,39 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const [sourceCycle, setSourceCycle] = useState(1);
   const propsRef = useRef(props);
   propsRef.current = props;
-  const [canvasNotice, setCanvasNotice] = useState<{
-    tone: "info" | "error";
-    message: string;
-  } | null>(null);
-  const openSourceRequestsRef = useRef(new Map<string, string>());
+  const [canvasNotice, setCanvasNotice] = useState<CanvasNotice | null>(null);
+  const noticeTimerRef = useRef<number | null>(null);
+  const clearCanvasNotice = useCallback(() => {
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+    setCanvasNotice(null);
+  }, []);
+  const showCanvasNotice = useCallback((notice: CanvasNotice) => {
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+    }
+    setCanvasNotice(notice);
+    noticeTimerRef.current = window.setTimeout(() => {
+      noticeTimerRef.current = null;
+      setCanvasNotice(null);
+    }, 6000);
+  }, []);
+  const clearMatchingNotice = useCallback(
+    (matches: (notice: CanvasNotice) => boolean) => {
+      setCanvasNotice((current) => {
+        if (!current || !matches(current)) return current;
+        if (noticeTimerRef.current !== null) {
+          window.clearTimeout(noticeTimerRef.current);
+          noticeTimerRef.current = null;
+        }
+        return null;
+      });
+    },
+    [],
+  );
+  const openSourceRequestsRef = useRef(createSourceActionCorrelation());
   const academicAcquisitionRef = useRef<AcademicAcquisitionRuntime | null>(
     null,
   );
@@ -519,16 +600,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       setEdges,
       pushHistory,
       changed: bump,
-      onError: (message) => {
-        setCanvasNotice({ tone: "error", message });
-        propsRef.current.onError(message);
-      },
-      onNotice: (message) => setCanvasNotice({ tone: "info", message }),
+      onError: (message) => propsRef.current.onError(message),
+      onNotice: showCanvasNotice,
       createNodeId: () => newId("academic"),
       onPickAcademicSource: (requestId, nodeId, kind) =>
         propsRef.current.onPickAcademicSource(requestId, nodeId, kind),
-      onDropAcademicSources: (requestId, nodeId, raw) =>
-        propsRef.current.onDropAcademicSources(requestId, nodeId, raw),
+      onDropAcademicSources: (requestId, nodeId, sources) =>
+        propsRef.current.onDropAcademicSources(requestId, nodeId, sources),
     });
   }
   const academicAcquisition = academicAcquisitionRef.current;
@@ -545,10 +623,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       confirm: (warning) => window.confirm(warning),
       request: (requestId, nodeId, source) =>
         propsRef.current.onRefreshZoteroNote(requestId, nodeId, source),
-      onError: (message) => {
-        setCanvasNotice({ tone: "error", message });
-        propsRef.current.onError(message);
-      },
+      onError: () => undefined,
       createRequestId: () => newId("note-refresh"),
     });
   }
@@ -682,7 +757,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       sourceRefreshRuntimeRef.current?.clear();
       academicAcquisitionRef.current?.clear();
       openSourceRequestsRef.current.clear();
-      setCanvasNotice(null);
+      clearCanvasNotice();
       annotationBrowserOriginNodeIdRef.current = null;
       sourceGenerationRef.current += 1;
       sourcePrioritiesRef.current.clear();
@@ -690,7 +765,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       loadDocumentSnapshot(value);
       setSourceCycle(sourceGenerationRef.current);
     },
-    [cancelIdleResolution, loadDocumentSnapshot],
+    [cancelIdleResolution, clearCanvasNotice, loadDocumentSnapshot],
   );
 
   const applySourceResolutionBatch = useCallback(
@@ -714,14 +789,25 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       );
       renderSourceState((revision) => revision + 1);
       const explicitResults = sourceRefreshRuntime.apply(generation, current);
+      for (const result of explicitResults) {
+        if (result.status !== "resolved") continue;
+        clearMatchingNotice(
+          (notice) =>
+            notice.code === "source-refresh-failed" &&
+            notice.nodeId === result.nodeId,
+        );
+      }
       const failedRefresh = explicitResults.find(
         (result) => result.status === "unavailable",
       );
       if (failedRefresh?.status === "unavailable") {
-        setCanvasNotice({ tone: "error", message: failedRefresh.message });
+        showCanvasNotice({
+          code: "source-refresh-failed",
+          nodeId: failedRefresh.nodeId,
+        });
       }
     },
-    [sourceRefreshRuntime],
+    [clearMatchingNotice, showCanvasNotice, sourceRefreshRuntime],
   );
 
   const refreshNoteSource = useCallback(
@@ -755,6 +841,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       acquisition: Extract<AcademicAcquisition, { kind: "note" }>,
     ) => {
       if (noteRefreshRuntime.resolve(requestId, nodeId, acquisition)) {
+        clearMatchingNotice(
+          (notice) =>
+            notice.code === "note-refresh-failed" && notice.nodeId === nodeId,
+        );
         sourceStatesRef.current = updateSourceResolutionStates(
           sourceStatesRef.current,
           [{ nodeId, status: "resolved" }],
@@ -762,7 +852,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         renderSourceState((revision) => revision + 1);
       }
     },
-    [noteRefreshRuntime],
+    [clearMatchingNotice, noteRefreshRuntime],
   );
 
   const openAnnotationBrowser = useCallback((node: CanvasFlowNode) => {
@@ -783,16 +873,28 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       candidates: AnnotationCandidate[],
       failures: AnnotationListFailure[],
     ) => {
-      setAnnotationBrowser((current) => {
-        const next = acceptAnnotationListResult(current, requestId, source, {
-          candidates,
-          failures,
-        });
-        annotationBrowserRef.current = next;
-        return next;
+      const current = annotationBrowserRef.current;
+      const next = acceptAnnotationListResult(current, requestId, source, {
+        candidates,
+        failures,
       });
+      if (next === current) return;
+      annotationBrowserRef.current = next;
+      setAnnotationBrowser(next);
+      if (failures.length) {
+        showCanvasNotice({
+          code: "annotations-partial-failure",
+          requestId,
+        });
+      } else {
+        clearMatchingNotice(
+          (notice) =>
+            notice.code === "annotations-unavailable" ||
+            notice.code === "annotations-partial-failure",
+        );
+      }
     },
-    [],
+    [clearMatchingNotice, showCanvasNotice],
   );
 
   const rejectAnnotationList = useCallback(
@@ -801,19 +903,19 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       source: LiteratureSource,
       failure: AnnotationListFailure,
     ) => {
-      setCanvasNotice({ tone: "error", message: failure.message });
-      setAnnotationBrowser((current) => {
-        const next = acceptAnnotationListFailure(
-          current,
-          requestId,
-          source,
-          failure,
-        );
-        annotationBrowserRef.current = next;
-        return next;
-      });
+      const current = annotationBrowserRef.current;
+      const next = acceptAnnotationListFailure(
+        current,
+        requestId,
+        source,
+        failure,
+      );
+      if (next === current) return;
+      annotationBrowserRef.current = next;
+      setAnnotationBrowser(next);
+      showCanvasNotice({ code: "annotations-unavailable", requestId });
     },
-    [],
+    [showCanvasNotice],
   );
 
   const closeAnnotationBrowser = useCallback(() => {
@@ -1286,7 +1388,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           { nodeId: node.id, source: academicSource },
         ]);
         const requestId = newId("open-source");
-        openSourceRequestsRef.current.set(node.id, requestId);
+        openSourceRequestsRef.current.begin(requestId, node.id, academicSource);
         propsRef.current.onOpenAcademicSource?.(
           requestId,
           node.id,
@@ -1539,33 +1641,6 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     [snapshotNow],
   );
 
-  const handleDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      setActiveTool("select");
-      const position = flowRef.current?.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      }) ?? { x: 120, y: 120 };
-      const nodeId = newId("literature");
-      const requestId = `drop-${nodeId}-${Date.now().toString(36)}`;
-      const raw: Record<string, string> = Object.create(null) as Record<
-        string,
-        string
-      >;
-      const types = Array.from(event.dataTransfer?.types || []);
-      for (const type of types) {
-        try {
-          raw[type] = event.dataTransfer.getData(type);
-        } catch {
-          // ignore
-        }
-      }
-      academicAcquisition.dropLiterature(requestId, nodeId, position, raw);
-    },
-    [academicAcquisition],
-  );
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       handleGlobalCanvasKeyDown(
@@ -1647,22 +1722,30 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       getSnapshot: snapshotNow,
       undo,
       redo,
+      beginAcademicDrop(requestId, nodeId, screenPosition, sources) {
+        setActiveTool("select");
+        const position =
+          flowRef.current?.screenToFlowPosition(screenPosition) ??
+          screenPosition;
+        academicAcquisition.dropLiterature(
+          requestId,
+          nodeId,
+          position,
+          sources,
+        );
+      },
+      rejectAcademicDrop(code) {
+        showCanvasNotice({ code });
+      },
       resolveAcademicAcquisition(requestId, nodeId, acquisition) {
         academicAcquisition.resolve(requestId, nodeId, acquisition);
       },
-      resolveAcademicAcquisitionBatch(
-        requestId,
-        nodeId,
-        successes,
-        failures,
-        summary,
-      ) {
+      resolveAcademicAcquisitionBatch(requestId, nodeId, successes, failures) {
         const addedNodeIds = academicAcquisition.resolveBatch(
           requestId,
           nodeId,
           successes,
           failures,
-          summary,
         );
         if (addedNodeIds.length) {
           sourceStatesRef.current = updateSourceResolutionStates(
@@ -1676,14 +1759,30 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           setSourceCycle((cycle) => cycle + 1);
         }
       },
-      rejectAcademicRequest(requestId, nodeId, message) {
-        if (noteRefreshRuntime.reject(requestId, nodeId, message)) return;
-        academicAcquisition.reject(requestId, nodeId, message);
+      rejectAcademicRequest(requestId, nodeId, code) {
+        if (
+          noteRefreshRuntime.reject(requestId, nodeId, labels.noteRefreshFailed)
+        ) {
+          showCanvasNotice({ code: "note-refresh-failed", nodeId });
+          return;
+        }
+        academicAcquisition.reject(requestId, nodeId, code);
       },
-      rejectSourceAction(requestId, nodeId, failure) {
-        if (openSourceRequestsRef.current.get(nodeId) !== requestId) return;
-        openSourceRequestsRef.current.delete(nodeId);
-        setCanvasNotice({ tone: "error", message: failure.message });
+      rejectSourceAction(requestId, nodeId, source, _failure) {
+        if (!openSourceRequestsRef.current.accept(requestId, nodeId, source)) {
+          return;
+        }
+        showCanvasNotice({ code: "source-open-failed", nodeId });
+      },
+      acceptSourceAction(requestId, nodeId, action, source) {
+        if (action !== "open") return;
+        if (!openSourceRequestsRef.current.accept(requestId, nodeId, source)) {
+          return;
+        }
+        clearMatchingNotice(
+          (notice) =>
+            notice.code === "source-open-failed" && notice.nodeId === nodeId,
+        );
       },
       applySourceResolutionBatch,
       applyNoteRefresh,
@@ -1700,11 +1799,14 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     applySourceResolutionBatch,
     applyNoteRefresh,
     applyAnnotationCandidates,
+    clearMatchingNotice,
+    labels.noteRefreshFailed,
     loadSnapshot,
     noteRefreshRuntime,
     rejectAnnotationList,
     redo,
     snapshotNow,
+    showCanvasNotice,
     undo,
   ]);
 
@@ -1712,6 +1814,20 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     scheduleSourceResolution();
     return cancelIdleResolution;
   }, [cancelIdleResolution, scheduleSourceResolution, sourceCycle]);
+
+  useEffect(
+    () => () => {
+      if (noticeTimerRef.current !== null) {
+        window.clearTimeout(noticeTimerRef.current);
+        noticeTimerRef.current = null;
+      }
+      openSourceRequestsRef.current.clear();
+      academicAcquisitionRef.current?.clear();
+      noteRefreshRuntimeRef.current?.clear();
+      sourceRefreshRuntimeRef.current?.clear();
+    },
+    [],
+  );
 
   useEffect(() => {
     requestSources("selected", currentSourceRequests().selected);
@@ -1751,10 +1867,6 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         className={`zmd-board-host${eraser ? " is-eraser" : ""}${activeTool === "hand" ? " is-hand" : ""}${isDrawTool(activeTool) ? " is-draw" : ""}`}
         data-theme={theme}
         tabIndex={-1}
-        onDragOver={(event) => {
-          if (event.dataTransfer?.types?.length) event.preventDefault();
-        }}
-        onDrop={handleDrop}
         onPointerDown={(event) => {
           if (event.button !== 0 || editing) return;
           if (!isDrawTool(activeToolRef.current)) return;
@@ -1792,11 +1904,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         {canvasNotice ? (
           <div
             className="zmd-board-notice"
-            data-tone={canvasNotice.tone}
+            data-tone={
+              canvasNotice.code === "acquisition-summary" ? "info" : "error"
+            }
             role="status"
             aria-live="polite"
           >
-            {canvasNotice.message}
+            {canvasNoticeText(labels, canvasNotice)}
           </div>
         ) : null}
         <PropertiesPanel

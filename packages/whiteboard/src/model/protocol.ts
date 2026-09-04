@@ -65,6 +65,13 @@ export interface WhiteboardLabels {
   sourceAvailable: string;
   sourceLoading: string;
   sourceMissing: string;
+  acquisitionSummary: string;
+  dropMalformed: string;
+  dropUnsupported: string;
+  acquisitionFailed: string;
+  sourceOpenFailed: string;
+  sourceRefreshFailed: string;
+  noteRefreshFailed: string;
   openSource: string;
   refreshSource: string;
   refreshNote: string;
@@ -185,6 +192,24 @@ export interface IndexedAcademicAcquisition {
   acquisition: AcademicAcquisition;
 }
 
+/** Ordered, persistence-safe identity used after the host resolves a Zotero drag. */
+export interface AcademicDropSourceRef {
+  library: LiteratureSource["library"];
+  itemKey: string;
+}
+
+export type AcademicDropFailureCode = "drop-malformed" | "drop-unsupported";
+
+export type AcademicRequestFailureCode =
+  | "picker-cancelled"
+  | "picker-failed"
+  | "acquisition-failed"
+  | "library-missing"
+  | "item-missing"
+  | "wrong-kind"
+  | "parent-mismatch"
+  | "note-refresh-failed";
+
 export type AcademicAcquisitionFailureCode =
   | "item-missing"
   | "unsupported-attachment"
@@ -211,6 +236,19 @@ export interface AcademicSourceActionFailure {
     | "open-failed";
   message: string;
 }
+
+export type CanvasNotice =
+  | {
+      code: "acquisition-summary";
+      context: { successCount: number; failureCount: number };
+    }
+  | { code: AcademicDropFailureCode }
+  | { code: "acquisition-failed" }
+  | { code: "source-open-failed"; nodeId: string }
+  | { code: "source-refresh-failed"; nodeId: string }
+  | { code: "note-refresh-failed"; nodeId: string }
+  | { code: "annotations-unavailable"; requestId: string }
+  | { code: "annotations-partial-failure"; requestId: string };
 
 export type SourceResolutionResult =
   | {
@@ -298,8 +336,20 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
           nodeId: string;
           successes: IndexedAcademicAcquisition[];
           failures: AcademicAcquisitionFailure[];
-          summary: string;
         };
+      }
+    | {
+        type: "academicDropStarted";
+        payload: {
+          requestId: string;
+          nodeId: string;
+          position: { x: number; y: number };
+          sources: AcademicDropSourceRef[];
+        };
+      }
+    | {
+        type: "academicDropRejected";
+        payload: { code: AcademicDropFailureCode };
       }
     | {
         type: "sourceResolutionBatch";
@@ -336,14 +386,29 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
       }
     | {
         type: "academicRequestFailed";
-        payload: { requestId: string; nodeId: string; message: string };
+        payload: {
+          requestId: string;
+          nodeId: string;
+          code: AcademicRequestFailureCode;
+          diagnostic?: string;
+        };
       }
     | {
         type: "sourceActionFailed";
         payload: {
           requestId: string;
           nodeId: string;
+          source: AcademicSourceDescriptor;
           failure: AcademicSourceActionFailure;
+        };
+      }
+    | {
+        type: "sourceActionSucceeded";
+        payload: {
+          requestId: string;
+          nodeId: string;
+          action: "open";
+          source: AcademicSourceDescriptor;
         };
       }
     | {
@@ -403,7 +468,7 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
         payload: {
           requestId: string;
           nodeId: string;
-          raw: Record<string, string>;
+          sources: AcademicDropSourceRef[];
         };
       }
     | {

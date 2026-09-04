@@ -121,7 +121,6 @@ const v2ParentMessages = [
           message: "Unsupported attachment",
         },
       ],
-      summary: "Added 1 source; 1 could not be added.",
     },
   },
   {
@@ -168,7 +167,8 @@ const v2ParentMessages = [
     payload: {
       requestId: "request-5",
       nodeId: "node-5",
-      message: "Not available",
+      code: "acquisition-failed",
+      diagnostic: "Not available",
     },
   },
 ] satisfies ParentToWhiteboardMessage[];
@@ -186,7 +186,14 @@ const v2IframeMessages = [
     channel: "tab-9:canvas-a",
     v: 2,
     type: "dropAcademicSources",
-    payload: { requestId: "request-7", nodeId: "node-7", raw: { ids: "1,2" } },
+    payload: {
+      requestId: "request-7",
+      nodeId: "node-7",
+      sources: [
+        { library: { type: "user" }, itemKey: "ITEM1234" },
+        { library: { type: "group", groupID: 8 }, itemKey: "NOTE1234" },
+      ],
+    },
   },
   {
     source: WHITEBOARD_MESSAGE_SOURCE,
@@ -331,6 +338,31 @@ test("protocol source uses CanvasDocument and typed Basic picker payloads", () =
   assert.match(source, /snapshot\?: CanvasDocument \| null/);
   assert.match(source, /priority: SourceResolutionPriority/);
   assert.doesNotMatch(source, /noteID/);
+  const academicDrop = source.slice(
+    source.indexOf('type: "dropAcademicSources"'),
+    source.indexOf('type: "resolveAcademicSources"'),
+  );
+  assert.match(academicDrop, /sources:\s*AcademicDropSourceRef\[\]/);
+  assert.doesNotMatch(academicDrop, /Record<string, string>|\braw\b|itemID/);
+  const hostAcademicDrop = source.slice(
+    source.indexOf('type: "academicDropStarted"'),
+    source.indexOf('type: "academicDropRejected"'),
+  );
+  assert.match(hostAcademicDrop, /sources:\s*AcademicDropSourceRef\[\]/);
+  assert.doesNotMatch(
+    hostAcademicDrop,
+    /Record<string, string>|\braw\b|itemID/,
+  );
+  const sourceActionSuccess = source.slice(
+    source.indexOf('type: "sourceActionSucceeded"'),
+    source.indexOf('type: "saveState"'),
+  );
+  assert.match(sourceActionSuccess, /source: AcademicSourceDescriptor/);
+  const sourceActionFailure = source.slice(
+    source.indexOf('type: "sourceActionFailed"'),
+    source.indexOf('type: "sourceActionSucceeded"'),
+  );
+  assert.match(sourceActionFailure, /source: AcademicSourceDescriptor/);
 });
 
 test("tab refocus sends a versioned protocol message", () => {

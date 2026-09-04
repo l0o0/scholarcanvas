@@ -1,7 +1,10 @@
 import { resolveEditorTheme } from "../markdown/editor";
 import { getString } from "../../utils/locale";
 import { ensureDOMGlobals } from "../../utils/dom";
-import { createWhiteboardEditor } from "./editor";
+import {
+  createWhiteboardEditor,
+  type NativeAcademicDropResolution,
+} from "./editor";
 import { readCanvasFile, writeCanvasFile } from "./file-io";
 import {
   parseCanvasDocument,
@@ -14,6 +17,7 @@ import {
   type AcademicAcquisition,
   type AcademicAcquisitionBatch,
   type AcademicAcquisitionFailure,
+  type AcademicDropSourceRef,
   type AcademicSourceDescriptor,
   type AnnotationListFailure,
 } from "./protocol";
@@ -30,6 +34,10 @@ import { ProgressiveSourceScheduler } from "./source-scheduler";
 import { sourceCacheKey } from "../../../packages/whiteboard/src/whiteboard/sourceState";
 
 const AUTOSAVE_MS = 800;
+
+function logAcademicDiagnostic(message: string, detail: object) {
+  if (typeof ztoolkit !== "undefined") ztoolkit.log(message, detail);
+}
 
 function newCanvasId() {
   try {
@@ -203,17 +211,6 @@ export async function acquireAcademicItems(
   };
 }
 
-function academicAcquisitionSummary(
-  successes: number,
-  failures: number,
-): string {
-  const successCount = successes;
-  const failureCount = failures;
-  return getString("whiteboard-acquisition-summary", {
-    args: { successCount, failureCount },
-  });
-}
-
 async function resolveAcademicItems(
   session: WhiteboardSession,
   requestId: string,
@@ -243,7 +240,6 @@ async function resolveAcademicItems(
     nodeId,
     result.successes,
     result.failures,
-    academicAcquisitionSummary(result.successes.length, result.failures.length),
   );
 }
 
@@ -291,11 +287,7 @@ async function handlePickAcademicSource(
   try {
     const itemIDs = pickZoteroItem(session.win);
     if (!itemIDs) {
-      editor.rejectAcademicRequest(
-        requestId,
-        nodeId,
-        "No Zotero item was selected.",
-      );
+      editor.rejectAcademicRequest(requestId, nodeId, "picker-cancelled");
       return;
     }
     if (kind !== "literature") {
@@ -306,6 +298,7 @@ async function handlePickAcademicSource(
     editor.rejectAcademicRequest(
       requestId,
       nodeId,
+      "picker-failed",
       error instanceof Error ? error.message : String(error),
     );
   }
@@ -343,69 +336,123 @@ function openZoteroItem(payload: {
   }
 }
 
-export function parseDroppedItemIDs(raw: Record<string, string>): number[] {
-  const ids: number[] = [];
-  const maximumOccurrences = new Map<number, number>();
-  const parseValue = (value: unknown, parsed: number[]): void => {
-    if (typeof value === "number") {
-      if (Number.isInteger(value) && value > 0) parsed.push(value);
-      return;
-    }
-    if (typeof value === "string" && /^\d+$/.test(value)) {
-      parseValue(Number(value), parsed);
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const entry of value) parseValue(entry, parsed);
-      return;
-    }
-    if (value && typeof value === "object") {
-      const record = value as Record<string, unknown>;
-      if (Object.hasOwn(record, "itemID")) parseValue(record.itemID, parsed);
-      else if (Object.hasOwn(record, "id")) parseValue(record.id, parsed);
-    }
-  };
-  for (const value of Object.values(raw)) {
-    if (!value) continue;
-    const parsed: number[] = [];
-    try {
-      parseValue(JSON.parse(value), parsed);
-    } catch {
-      const list = value.trim();
-      if (/^\d+(?:[\s,;]+\d+)*$/.test(list)) {
-        for (const entry of list.split(/[\s,;]+/)) {
-          parseValue(Number(entry), parsed);
-        }
-      }
-    }
-    const occurrences = new Map<number, number>();
-    for (const id of parsed) {
-      const occurrence = (occurrences.get(id) ?? 0) + 1;
-      occurrences.set(id, occurrence);
-      if (occurrence <= (maximumOccurrences.get(id) ?? 0)) continue;
-      maximumOccurrences.set(id, occurrence);
-      ids.push(id);
-    }
+type ZoteroDragTransfer = Pick<DataTransfer, "types" | "getData">;
+
+const ZOTERO_DRAG_PRECEDENCE = [
+  "zotero/collection",
+  "zotero/item",
+  "zotero/search",
+] as const;
+
+function primaryZoteroDragType(transfer: ZoteroDragTransfer) {
+  const types = Array.from(transfer.types ?? []);
+  return ZOTERO_DRAG_PRECEDENCE.find((type) => types.includes(type));
+}
+
+export function parseDroppedItemIDs(transfer: ZoteroDragTransfer): number[] {
+  if (primaryZoteroDragType(transfer) !== "zotero/item") return [];
+  let payload: string;
+  try {
+    payload = transfer.getData("zotero/item").trim();
+  } catch {
+    return [];
   }
-  return ids;
+  if (!payload || !/^\d+(?:\s*,\s*\d+)*$/.test(payload)) return [];
+  const ids = payload.split(",").map((value) => Number(value.trim()));
+  return ids.every((id) => Number.isSafeInteger(id) && id > 0) ? ids : [];
+}
+
+interface AcademicDropResolverDependencies {
+  userLibraryID: number;
+  getItem(itemID: number): Zotero.Item | null;
+  getLibrary(
+    libraryID: number,
+  ): { libraryType: string; groupID?: number } | null;
+}
+
+export function resolveNativeAcademicDrop(
+  transfer: ZoteroDragTransfer,
+  dependencies: AcademicDropResolverDependencies = {
+    userLibraryID: Zotero.Libraries.userLibraryID,
+    getItem: (itemID) => Zotero.Items.get(itemID) || null,
+    getLibrary: (libraryID) => Zotero.Libraries.get(libraryID) || null,
+  },
+): NativeAcademicDropResolution {
+  const type = primaryZoteroDragType(transfer);
+  if (!type) return { status: "ignored" };
+  if (type !== "zotero/item") {
+    return { status: "rejected", code: "drop-unsupported" };
+  }
+  const itemIDs = parseDroppedItemIDs(transfer);
+  if (!itemIDs.length) {
+    return { status: "rejected", code: "drop-malformed" };
+  }
+  const sources: AcademicDropSourceRef[] = [];
+  for (const itemID of itemIDs) {
+    const item = dependencies.getItem(itemID);
+    if (!item?.key) {
+      return { status: "rejected", code: "drop-malformed" };
+    }
+    if (item.libraryID === dependencies.userLibraryID) {
+      sources.push({ library: { type: "user" }, itemKey: item.key });
+      continue;
+    }
+    const library = dependencies.getLibrary(item.libraryID);
+    if (
+      library?.libraryType !== "group" ||
+      typeof library.groupID !== "number"
+    ) {
+      return { status: "rejected", code: "drop-unsupported" };
+    }
+    sources.push({
+      library: { type: "group", groupID: library.groupID },
+      itemKey: item.key,
+    });
+  }
+  return { status: "accepted", sources };
 }
 
 async function handleDropAcademicSources(
   session: WhiteboardSession,
   requestId: string,
   nodeId: string,
-  raw: Record<string, string>,
+  sources: readonly AcademicDropSourceRef[],
 ) {
   const editor = session.editor;
   if (!editor) return;
   try {
-    const itemIDs = parseDroppedItemIDs(raw);
-    if (!itemIDs.length) throw new Error("Could not parse dropped item");
-    await resolveAcademicItems(session, requestId, nodeId, itemIDs);
+    if (!sources.length) {
+      editor.rejectAcademicRequest(requestId, nodeId, "acquisition-failed");
+      return;
+    }
+    const items = sources.map(({ library, itemKey }) => {
+      const libraryID =
+        library.type === "user"
+          ? Zotero.Libraries.userLibraryID
+          : (Zotero.Groups.get(library.groupID)?.libraryID ?? null);
+      if (libraryID === null) return undefined;
+      return Zotero.Items.getByLibraryAndKey(libraryID, itemKey) || undefined;
+    });
+    const gateway = createZoteroSourceGateway();
+    const result = await acquireAcademicItems(items, gateway);
+    for (const failure of result.failures) {
+      ztoolkit.log("Academic source drop acquisition failed", {
+        index: failure.index,
+        code: failure.code,
+        message: failure.message,
+      });
+    }
+    editor.resolveAcademicAcquisitionBatch(
+      requestId,
+      nodeId,
+      result.successes,
+      result.failures,
+    );
   } catch (error) {
     editor.rejectAcademicRequest(
       requestId,
       nodeId,
+      "acquisition-failed",
       error instanceof Error ? error.message : String(error),
     );
   }
@@ -424,9 +471,21 @@ async function handleRefreshZoteroNote(
     const acquisition = await gateway.refreshNote(source);
     editor.applyNoteRefresh(requestId, nodeId, acquisition);
   } catch (error) {
+    const code =
+      error instanceof SourceGatewayError &&
+      error.code !== "list-failed" &&
+      error.code !== "open-failed"
+        ? error.code
+        : "note-refresh-failed";
+    logAcademicDiagnostic("Zotero Note refresh failed", {
+      nodeId,
+      code,
+      message: error instanceof Error ? error.message : String(error),
+    });
     editor.rejectAcademicRequest(
       requestId,
       nodeId,
+      code,
       error instanceof Error ? error.message : String(error),
     );
   }
@@ -445,12 +504,20 @@ export async function handleListLiteratureAnnotations(
   if (!editor) return;
   try {
     const { candidates, failures } = await gateway.listAnnotations(source);
+    for (const failure of failures) {
+      logAcademicDiagnostic("Zotero annotation unavailable", {
+        code: failure.code,
+        attachmentKey: failure.attachmentKey,
+        annotationKey: failure.annotationKey,
+        message: failure.message,
+      });
+    }
     editor.applyAnnotationCandidates(requestId, source, candidates, failures);
   } catch (error) {
-    editor.rejectAnnotationList(
-      requestId,
-      source,
-      error instanceof SourceGatewayError
+    const failure: AnnotationListFailure =
+      error instanceof SourceGatewayError &&
+      error.code !== "open-failed" &&
+      error.code !== "note-refresh-failed"
         ? { code: error.code, message: error.message }
         : {
             code: "list-failed",
@@ -458,8 +525,12 @@ export async function handleListLiteratureAnnotations(
               error instanceof Error
                 ? error.message
                 : "Zotero annotations could not be loaded.",
-          },
-    );
+          };
+    logAcademicDiagnostic("Zotero annotation list failed", {
+      code: failure.code,
+      message: failure.message,
+    });
+    editor.rejectAnnotationList(requestId, source, failure);
   }
 }
 
@@ -472,15 +543,22 @@ export async function handleOpenAcademicSource(
 ) {
   try {
     await gateway.open(source);
+    session.editor?.acceptSourceAction(requestId, nodeId, "open", source);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    ztoolkit.log("Academic source open failed", {
+    const code =
+      error instanceof SourceGatewayError &&
+      error.code !== "list-failed" &&
+      error.code !== "note-refresh-failed"
+        ? error.code
+        : "open-failed";
+    logAcademicDiagnostic("Academic source open failed", {
       nodeId,
-      code: "open-failed",
+      code,
       message,
     });
-    session.editor?.rejectSourceAction(requestId, nodeId, {
-      code: "open-failed",
+    session.editor?.rejectSourceAction(requestId, nodeId, source, {
+      code,
       message,
     });
   }
@@ -657,6 +735,14 @@ function mountWhiteboardUI(
   session.sourceScheduler = new ProgressiveSourceScheduler({
     run: (job) => gateway.resolve(job.nodeId, job.generation, job.descriptor),
     emit: (results) => {
+      for (const result of results) {
+        if (result.status !== "unavailable") continue;
+        ztoolkit.log("Academic source resolution failed", {
+          nodeId: result.nodeId,
+          code: result.code,
+          message: result.message,
+        });
+      }
       const generations = new Map<number, typeof results>();
       for (const result of results) {
         const batch = generations.get(result.generation) ?? [];
@@ -734,6 +820,18 @@ function mountWhiteboardUI(
       sourceAvailable: getString("whiteboard-source-available"),
       sourceLoading: getString("whiteboard-source-loading"),
       sourceMissing: getString("whiteboard-source-missing"),
+      acquisitionSummary: getString("whiteboard-acquisition-summary", {
+        args: {
+          successCount: "{successCount}",
+          failureCount: "{failureCount}",
+        },
+      }),
+      dropMalformed: getString("whiteboard-drop-malformed"),
+      dropUnsupported: getString("whiteboard-drop-unsupported"),
+      acquisitionFailed: getString("whiteboard-acquisition-failed"),
+      sourceOpenFailed: getString("whiteboard-source-open-failed"),
+      sourceRefreshFailed: getString("whiteboard-source-refresh-failed"),
+      noteRefreshFailed: getString("whiteboard-note-refresh-failed"),
       openSource: getString("whiteboard-open-source"),
       refreshSource: getString("whiteboard-refresh-source"),
       refreshNote: getString("whiteboard-refresh-note"),
@@ -842,8 +940,11 @@ function mountWhiteboardUI(
     onOpenItem(payload) {
       openZoteroItem(payload);
     },
-    onDropAcademicSources(requestId, nodeId, raw) {
-      void handleDropAcademicSources(session, requestId, nodeId, raw);
+    resolveNativeAcademicDrop(dataTransfer) {
+      return resolveNativeAcademicDrop(dataTransfer);
+    },
+    onDropAcademicSources(requestId, nodeId, sources) {
+      void handleDropAcademicSources(session, requestId, nodeId, sources);
     },
     onResolveAcademicSources(_requestId, generation, priority, sources) {
       const scheduler = session.sourceScheduler;

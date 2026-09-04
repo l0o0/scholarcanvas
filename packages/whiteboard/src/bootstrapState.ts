@@ -1,6 +1,10 @@
 import type {
   AcademicAcquisition,
   AcademicAcquisitionFailure,
+  AcademicDropFailureCode,
+  AcademicDropSourceRef,
+  AcademicRequestFailureCode,
+  AcademicSourceDescriptor,
   AcademicSourceActionFailure,
   AnnotationCandidate,
   AnnotationListFailure,
@@ -16,6 +20,13 @@ interface LabelsTarget {
 }
 
 interface AcademicMessageTarget {
+  beginAcademicDrop: (
+    requestId: string,
+    nodeId: string,
+    position: { x: number; y: number },
+    sources: AcademicDropSourceRef[],
+  ) => void;
+  rejectAcademicDrop: (code: AcademicDropFailureCode) => void;
   resolveAcademicAcquisition: (
     requestId: string,
     nodeId: string,
@@ -26,17 +37,23 @@ interface AcademicMessageTarget {
     nodeId: string,
     successes: IndexedAcademicAcquisition[],
     failures: AcademicAcquisitionFailure[],
-    summary: string,
   ) => void;
   rejectAcademicRequest: (
     requestId: string,
     nodeId: string,
-    message: string,
+    code: AcademicRequestFailureCode,
   ) => void;
   rejectSourceAction: (
     requestId: string,
     nodeId: string,
+    source: AcademicSourceDescriptor,
     failure: AcademicSourceActionFailure,
+  ) => void;
+  acceptSourceAction: (
+    requestId: string,
+    nodeId: string,
+    action: "open",
+    source: AcademicSourceDescriptor,
   ) => void;
   applySourceResolutionBatch: (
     generation: number,
@@ -64,6 +81,19 @@ export function forwardAcademicParentMessage(
   target: AcademicMessageTarget | null,
   data: ParentToWhiteboardMessage,
 ): boolean {
+  if (data.type === "academicDropStarted") {
+    target?.beginAcademicDrop(
+      data.payload.requestId,
+      data.payload.nodeId,
+      data.payload.position,
+      data.payload.sources,
+    );
+    return true;
+  }
+  if (data.type === "academicDropRejected") {
+    target?.rejectAcademicDrop(data.payload.code);
+    return true;
+  }
   if (data.type === "academicSourceAcquired") {
     target?.resolveAcademicAcquisition(
       data.payload.requestId,
@@ -78,7 +108,6 @@ export function forwardAcademicParentMessage(
       data.payload.nodeId,
       data.payload.successes,
       data.payload.failures,
-      data.payload.summary,
     );
     return true;
   }
@@ -86,7 +115,7 @@ export function forwardAcademicParentMessage(
     target?.rejectAcademicRequest(
       data.payload.requestId,
       data.payload.nodeId,
-      data.payload.message,
+      data.payload.code,
     );
     return true;
   }
@@ -94,7 +123,17 @@ export function forwardAcademicParentMessage(
     target?.rejectSourceAction(
       data.payload.requestId,
       data.payload.nodeId,
+      data.payload.source,
       data.payload.failure,
+    );
+    return true;
+  }
+  if (data.type === "sourceActionSucceeded") {
+    target?.acceptSourceAction(
+      data.payload.requestId,
+      data.payload.nodeId,
+      data.payload.action,
+      data.payload.source,
     );
     return true;
   }

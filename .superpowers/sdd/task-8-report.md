@@ -137,3 +137,82 @@ change canonical availability.
 No blocking concerns remain. A real Zotero smoke test should still confirm the
 native multi-select dialog's returned ordering and the visual placement at
 several canvas zoom levels.
+
+## Review follow-up: closed drop and failure protocols
+
+This follow-up supersedes the report's earlier description of raw drag payloads
+and host-formatted summaries. The iframe no longer reads or forwards a MIME
+bag. A capture-phase listener owned by the Zotero host reads the production
+`DataTransfer`, applies Zotero's `collection > item > search` precedence, and
+accepts only the canonical `zotero/item` payload. It resolves local database IDs
+inside the host and crosses the protocol boundary with an ordered closed list of
+`{ library, itemKey }` references. Mirrored plain-text/JSON flavors are ignored,
+while intentional repeats in the canonical payload are retained. Listener
+ownership follows iframe loads and is released on editor destruction.
+
+Every canvas-visible failure is now selected inside the iframe from a finite
+typed code plus localized labels. Host exception text remains a diagnostic field
+for protocol logging and is never rendered as notice or tooltip content. Picker
+cancellation is silent; malformed and unsupported drops have localized notices.
+The acquisition summary is interpolated from typed success/failure counts in
+the iframe. English and Simplified Chinese active locale resources and generated
+key typings remain in parity.
+
+Annotation success/failure is correlated by live request and complete source
+identity before any state or notice mutation. Closed, replaced, reopened,
+request-mismatched, and source-mismatched replies are inert. Open actions now
+have symmetric typed success/failure replies; either consumes the matching
+pending entry exactly once, and a successful action clears a relevant stale
+notice. Note/source refresh and annotation successes likewise clear relevant
+failure notices. Notices auto-expire after six seconds, and their timer plus all
+request/session maps are cleared on document load or React unmount.
+
+### Follow-up RED evidence
+
+The first review-focused RED run reported 96 tests, 86 passed and 10 failed. It
+demonstrated that mirrored MIME flavors multiplied/reordered entries, the
+academic protocol still exposed an open raw bag, gateway English reached the
+DOM, the host supplied the batch summary string, annotation errors could notify
+before correlation, and localized/timer lifecycle behavior was absent.
+
+Separate RED cycles then proved the remaining lifecycle surfaces:
+
+- open success and source identity were missing from the protocol;
+- the request/node/source action correlator did not exist;
+- native iframe drop capture and cleanup were not owned by the host editor;
+- bootstrap destruction did not unmount React; and
+- open and Note-refresh gateway exceptions lost their finite typed codes.
+
+Each test failed for the stated missing behavior before its implementation was
+added.
+
+### Follow-up GREEN evidence
+
+- Review-focused app, production-drop, locale, scheduler, gateway, annotation,
+  bootstrap, protocol, and module-runtime suites: 136 passed, 0 failed.
+- Full `pnpm run test:unit`: 572 passed, 0 failed across 24 suites.
+- `pnpm exec tsc --noEmit`: passed.
+- `pnpm run lint:check`: Prettier and ESLint passed.
+- `git diff --check`: passed.
+
+### Follow-up self-review
+
+- Protocol boundary: neither direction of the academic drop protocol contains
+  arbitrary MIME records or integer item IDs; tests inspect both message arms.
+- Production drag behavior: only Zotero's canonical item flavor is consumed,
+  with deterministic precedence, order, and duplicate semantics matching the
+  inspected Zotero drag implementation.
+- Mixed acquisition: Attachment input remains an indexed typed failure (the
+  required mixed example returns failure indexes `[1]`) and creates no node or
+  placeholder; Literature and Note counts remain distinct.
+- Async/history: acquisition outcomes retain input indexes despite settlement
+  order, successes commit once, and zero-success batches do not create history
+  or save revisions.
+- Correlation: stale acquisition, annotation, resolution, Note refresh, and open
+  replies cannot mutate a replaced document or display a notice.
+- Localization/privacy: raw host diagnostics remain available to logs but have
+  no rendering path; all user-facing summaries and failures use active Fluent
+  labels.
+- Lifecycle: drop listeners, message/key listeners, React, timers, and pending
+  correlation state are released by their owning session.
+- Scope: no Task 9 documentation was modified.

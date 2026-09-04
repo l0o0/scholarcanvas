@@ -25,6 +25,26 @@ test("app and node modules load with label layout helpers owned by the pure docu
   assert.equal(typeof document.verticalAlignmentStyle, "function");
   assert.equal(typeof shapes.RectNode, "function");
   assert.equal(typeof app.WhiteboardApp, "function");
+  assert.equal(
+    app.canvasNoticeText(
+      {
+        acquisitionSummary:
+          "Added {successCount} source(s); {failureCount} could not be added.",
+      },
+      {
+        code: "acquisition-summary",
+        context: { successCount: 2, failureCount: 1 },
+      },
+    ),
+    "Added 2 source(s); 1 could not be added.",
+  );
+  assert.equal(
+    app.canvasNoticeText(
+      { sourceOpenFailed: "无法打开 Zotero 来源。" },
+      { code: "source-open-failed", nodeId: "node-1" },
+    ),
+    "无法打开 Zotero 来源。",
+  );
   assert.equal(typeof entrypoint.canvasNodeTypes, "object");
   assert.equal(typeof entrypoint.createBasicNode, "function");
   assert.equal(typeof entrypoint.createAcademicNode, "function");

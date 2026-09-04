@@ -308,6 +308,7 @@ test("both bridge listeners validate their envelope before allowing a null Zoter
 });
 
 test("iframe ingress accepts validated null-source parent messages and rejects forged traffic", () => {
+  const messageRealm = new Window({ url: "https://parent.example" });
   const parent = {} as WindowProxy;
   const accepted: ParentToWhiteboardMessage[] = [];
   const init: ParentToWhiteboardMessage = {
@@ -320,14 +321,19 @@ test("iframe ingress accepts validated null-source parent messages and rejects f
 
   assert.equal(
     dispatchWhiteboardParentMessageEvent(
-      { source: null, data: init },
+      {
+        source: null,
+        data: messageRealm.eval(`(${JSON.stringify(init)})`),
+      },
       parent,
       "tab-1:canvas-1",
       (message) => accepted.push(message),
     ),
     true,
   );
-  assert.deepEqual(accepted, [init]);
+  assert.equal(accepted.length, 1);
+  assert.equal(accepted[0].type, "init");
+  assert.equal(accepted[0].payload.theme, "dark");
 
   for (const data of [
     { ...init, source: "forged" },
@@ -365,7 +371,9 @@ test("iframe ingress accepts validated null-source parent messages and rejects f
     ),
     true,
   );
-  assert.deepEqual(accepted, [init, init]);
+  assert.equal(accepted.length, 2);
+  assert.deepEqual(accepted[1], init);
+  messageRealm.close();
 });
 
 test("host-owned iframe drop capture emits native refs and cleans up listeners", async () => {
@@ -633,16 +641,22 @@ test("production editor accepts strictly validated null-source Zotero messages",
       ],
     },
   };
+  const crossRealmReady = wrongWindow.eval(
+    `(${JSON.stringify(ready)})`,
+  ) as unknown;
+  const crossRealmResolve = wrongWindow.eval(
+    `(${JSON.stringify(resolve)})`,
+  ) as unknown;
   const dispatch = (data: unknown, source: WindowProxy | null) =>
     window.dispatchEvent(new window.MessageEvent("message", { data, source }));
 
-  dispatch(ready, null);
+  dispatch(crossRealmReady, null);
   assert.equal(
     (posted[0] as { type?: string } | undefined)?.type,
     "init",
     "null-source ready must initialize the production iframe bridge",
   );
-  dispatch(resolve, null);
+  dispatch(crossRealmResolve, null);
   assert.deepEqual(resolved, ["resolve-null"]);
 
   for (const data of [
@@ -652,6 +666,8 @@ test("production editor accepts strictly validated null-source Zotero messages",
     { ...resolve, type: "executeArbitraryCommand" },
     { ...resolve, payload: { ...resolve.payload, sources: "forged" } },
     Object.create(resolve),
+    Object.assign(Object.create({ forged: true }), resolve),
+    { ...resolve, payload: window.document.body },
   ]) {
     dispatch(data, null);
   }

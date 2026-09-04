@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import {
   EDITOR_MESSAGE_SOURCE,
   isEditorProtocolMessageForChannel,
@@ -8,8 +9,10 @@ import {
 import {
   WHITEBOARD_MESSAGE_SOURCE,
   WHITEBOARD_PROTOCOL_VERSION,
+  isParentToWhiteboardMessageForChannel,
   isWhiteboardProtocolMessage,
   isWhiteboardProtocolMessageForChannel,
+  isWhiteboardToParentMessageForChannel,
   whiteboardChannel,
   type ParentToWhiteboardMessage,
   type SourceResolutionPriority,
@@ -57,6 +60,334 @@ const quoteSource = {
   attachmentKey: "ATTACH123",
   annotationKey: "ANNOT1234",
 } as const;
+
+const emptyDocument = {
+  version: 2,
+  nodes: [],
+  connections: [],
+  viewport: { x: 0, y: 0, zoom: 1 },
+} as const;
+const literatureAcquisition = {
+  kind: "literature",
+  source: literatureSource,
+  snapshot: {
+    title: "Paper",
+    creators: "Ada Lovelace",
+    year: "1843",
+    publicationTitle: "Notes",
+    tags: ["math"],
+    annotationCount: 2,
+  },
+} as const;
+const noteAcquisition = {
+  kind: "note",
+  source: { ...noteSource, itemKey: "ITEM1234" },
+  sourceSnapshot: { title: "Source note" },
+  content: "Note body",
+} as const;
+const quoteAcquisition = {
+  kind: "quote",
+  source: quoteSource,
+  snapshot: {
+    text: "Quoted text",
+    comment: "Comment",
+    citation: "Citation",
+    pageLabel: "12",
+    color: "#ffd400",
+  },
+} as const;
+
+const protocolBase = {
+  source: WHITEBOARD_MESSAGE_SOURCE,
+  channel: "tab-9:canvas-a",
+  v: WHITEBOARD_PROTOCOL_VERSION,
+} as const;
+
+const activeIframeToHostMessages = [
+  { ...protocolBase, type: "ready" },
+  { ...protocolBase, type: "change", payload: { rev: 4 } },
+  {
+    ...protocolBase,
+    type: "snapshot",
+    payload: { requestId: "snapshot-1", rev: 4, snapshot: emptyDocument },
+  },
+  { ...protocolBase, type: "save" },
+  { ...protocolBase, type: "error", payload: { message: "render failed" } },
+  {
+    ...protocolBase,
+    type: "pickAcademicSource",
+    payload: { requestId: "pick-1", nodeId: "node-1", kind: "literature" },
+  },
+  {
+    ...protocolBase,
+    type: "openItem",
+    payload: { itemID: 1, attachmentID: 2, pdfPage: 3 },
+  },
+  {
+    ...protocolBase,
+    type: "dropAcademicSources",
+    payload: {
+      requestId: "drop-1",
+      nodeId: "node-2",
+      sources: [
+        literatureSource,
+        { library: { type: "group", groupID: 7 }, itemKey: "GROUP123" },
+      ],
+    },
+  },
+  {
+    ...protocolBase,
+    type: "resolveAcademicSources",
+    payload: {
+      requestId: "resolve-1",
+      generation: 2,
+      priority: "selected",
+      sources: [
+        {
+          nodeId: "node-3",
+          source: { kind: "literature", source: literatureSource },
+          refresh: true,
+        },
+        {
+          nodeId: "node-4",
+          source: { kind: "note", source: noteSource },
+        },
+        {
+          nodeId: "node-5",
+          source: { kind: "quote", source: quoteSource },
+        },
+      ],
+    },
+  },
+  {
+    ...protocolBase,
+    type: "listLiteratureAnnotations",
+    payload: { requestId: "annotations-1", source: literatureSource },
+  },
+  {
+    ...protocolBase,
+    type: "refreshZoteroNote",
+    payload: { requestId: "note-1", nodeId: "node-4", source: noteSource },
+  },
+  {
+    ...protocolBase,
+    type: "openAcademicSource",
+    payload: {
+      requestId: "open-1",
+      nodeId: "node-5",
+      source: { kind: "quote", source: quoteSource },
+    },
+  },
+  {
+    ...protocolBase,
+    type: "exportFile",
+    payload: {
+      requestId: "export-1",
+      format: "svg",
+      mimeType: "image/svg+xml",
+      dataUrl: "data:image/svg+xml,canvas",
+      text: "<svg />",
+    },
+  },
+] satisfies Array<
+  Exclude<WhiteboardToParentMessage, { type: "pickItem" | "dropItems" }>
+>;
+
+const activeHostToIframeMessages = [
+  {
+    ...protocolBase,
+    type: "init",
+    payload: { theme: "dark", snapshot: emptyDocument },
+  },
+  { ...protocolBase, type: "setTheme", payload: { theme: "light" } },
+  {
+    ...protocolBase,
+    type: "loadSnapshot",
+    payload: { snapshot: emptyDocument },
+  },
+  {
+    ...protocolBase,
+    type: "requestSnapshot",
+    payload: { requestId: "snapshot-1" },
+  },
+  { ...protocolBase, type: "command", payload: { command: "undo" } },
+  { ...protocolBase, type: "focus" },
+  { ...protocolBase, type: "destroy" },
+  {
+    ...protocolBase,
+    type: "academicSourceAcquired",
+    payload: {
+      requestId: "acquire-1",
+      nodeId: "node-1",
+      acquisition: literatureAcquisition,
+    },
+  },
+  {
+    ...protocolBase,
+    type: "academicSourcesAcquired",
+    payload: {
+      requestId: "batch-1",
+      nodeId: "node-2",
+      successes: [
+        { index: 0, acquisition: literatureAcquisition },
+        { index: 1, acquisition: noteAcquisition },
+      ],
+      failures: [
+        {
+          index: 2,
+          code: "unsupported-attachment",
+          message: "Unsupported attachment",
+        },
+      ],
+    },
+  },
+  {
+    ...protocolBase,
+    type: "academicDropStarted",
+    payload: {
+      requestId: "drop-1",
+      nodeId: "node-3",
+      position: { x: 10, y: 20 },
+      sources: [literatureSource],
+    },
+  },
+  {
+    ...protocolBase,
+    type: "academicDropRejected",
+    payload: { code: "drop-malformed" },
+  },
+  {
+    ...protocolBase,
+    type: "sourceResolutionBatch",
+    payload: {
+      requestId: "resolve-1",
+      generation: 2,
+      results: [
+        {
+          nodeId: "node-4",
+          generation: 2,
+          status: "resolved",
+          acquisition: quoteAcquisition,
+        },
+        {
+          nodeId: "node-5",
+          generation: 2,
+          status: "unavailable",
+          code: "resolution-failed",
+          message: "Unavailable",
+        },
+      ],
+    },
+  },
+  {
+    ...protocolBase,
+    type: "annotationsListed",
+    payload: {
+      requestId: "annotations-1",
+      source: literatureSource,
+      candidates: [
+        {
+          acquisition: quoteAcquisition,
+          attachmentTitle: "Paper.pdf",
+          sortIndex: "0001",
+        },
+      ],
+      failures: [
+        {
+          code: "annotation-unavailable",
+          message: "Missing annotation",
+          attachmentKey: "ATTACH123",
+          annotationKey: "ANNOT1234",
+        },
+      ],
+    },
+  },
+  {
+    ...protocolBase,
+    type: "annotationListFailed",
+    payload: {
+      requestId: "annotations-2",
+      source: literatureSource,
+      failure: {
+        code: "attachment-unavailable",
+        message: "Missing attachment",
+        attachmentKey: "ATTACH123",
+        annotationKey: "ANNOT1234",
+      },
+    },
+  },
+  {
+    ...protocolBase,
+    type: "noteRefreshed",
+    payload: {
+      requestId: "note-1",
+      nodeId: "node-6",
+      acquisition: noteAcquisition,
+    },
+  },
+  {
+    ...protocolBase,
+    type: "academicRequestFailed",
+    payload: {
+      requestId: "request-1",
+      nodeId: "node-7",
+      code: "acquisition-failed",
+      diagnostic: "host diagnostic",
+    },
+  },
+  {
+    ...protocolBase,
+    type: "sourceActionFailed",
+    payload: {
+      requestId: "open-1",
+      nodeId: "node-8",
+      source: { kind: "literature", source: literatureSource },
+      failure: { code: "open-failed", message: "Could not open" },
+    },
+  },
+  {
+    ...protocolBase,
+    type: "sourceActionSucceeded",
+    payload: {
+      requestId: "open-2",
+      nodeId: "node-8",
+      action: "open",
+      source: { kind: "literature", source: literatureSource },
+    },
+  },
+  {
+    ...protocolBase,
+    type: "saveState",
+    payload: { state: "saving" },
+  },
+] satisfies Array<
+  Exclude<ParentToWhiteboardMessage, { type: "itemPicked" | "pickFailed" }>
+>;
+
+type ActiveIframeToHostType = Exclude<
+  WhiteboardToParentMessage,
+  { type: "pickItem" | "dropItems" }
+>["type"];
+type ActiveHostToIframeType = Exclude<
+  ParentToWhiteboardMessage,
+  { type: "itemPicked" | "pickFailed" }
+>["type"];
+type _EveryIframeToHostArmSampled = Assert<
+  Exclude<
+    ActiveIframeToHostType,
+    (typeof activeIframeToHostMessages)[number]["type"]
+  > extends never
+    ? true
+    : false
+>;
+type _EveryHostToIframeArmSampled = Assert<
+  Exclude<
+    ActiveHostToIframeType,
+    (typeof activeHostToIframeMessages)[number]["type"]
+  > extends never
+    ? true
+    : false
+>;
 
 const v2ParentMessages = [
   {
@@ -315,6 +646,25 @@ test("protocol v2 accepts only exact versions and session channels", () => {
   assert.equal(v2IframeMessages.length, 6);
 });
 
+test("closed validators accept every active v2 message arm across realms", () => {
+  for (const message of activeIframeToHostMessages) {
+    const crossRealm = runInNewContext(`(${JSON.stringify(message)})`);
+    assert.equal(
+      isWhiteboardToParentMessageForChannel(crossRealm, "tab-9:canvas-a"),
+      true,
+      `iframe-to-host ${message.type}`,
+    );
+  }
+  for (const message of activeHostToIframeMessages) {
+    const crossRealm = runInNewContext(`(${JSON.stringify(message)})`);
+    assert.equal(
+      isParentToWhiteboardMessageForChannel(crossRealm, "tab-9:canvas-a"),
+      true,
+      `host-to-iframe ${message.type}`,
+    );
+  }
+});
+
 test("rejects markdown editor messages as whiteboard traffic", () => {
   const editorMessage = {
     source: EDITOR_MESSAGE_SOURCE,
@@ -328,12 +678,488 @@ test("rejects markdown editor messages as whiteboard traffic", () => {
   );
 });
 
+test("strict ingress requires own envelope fields and rejects prototype pollution", () => {
+  const inheritedReady = Object.create({
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab:canvas",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "ready",
+  });
+  assert.equal(
+    isWhiteboardToParentMessageForChannel(inheritedReady, "tab:canvas"),
+    false,
+  );
+  assert.equal(isWhiteboardProtocolMessage(inheritedReady), false);
+  const ownButForged = Object.assign(
+    Object.create({ forged: true }),
+    protocolBase,
+    { type: "ready" },
+  );
+  assert.equal(
+    isWhiteboardToParentMessageForChannel(ownButForged, "tab-9:canvas-a"),
+    false,
+  );
+  const accessorReady = { ...protocolBase } as Record<string, unknown>;
+  Object.defineProperty(accessorReady, "type", {
+    enumerable: true,
+    get: () => "ready",
+  });
+  assert.equal(
+    isWhiteboardToParentMessageForChannel(accessorReady, "tab-9:canvas-a"),
+    false,
+  );
+  assert.equal(
+    isWhiteboardToParentMessageForChannel(
+      { ...protocolBase, type: "ready", [Symbol("forged")]: true },
+      "tab-9:canvas-a",
+    ),
+    false,
+  );
+
+  class ForgedPayload {
+    rev = 1;
+  }
+  for (const payload of [
+    null,
+    [],
+    new Date(),
+    new Map(),
+    new ForgedPayload(),
+    () => ({ rev: 1 }),
+  ]) {
+    assert.equal(
+      isWhiteboardToParentMessageForChannel(
+        { ...protocolBase, type: "change", payload },
+        "tab-9:canvas-a",
+      ),
+      false,
+    );
+  }
+  const hostile = new Proxy(
+    {},
+    {
+      getPrototypeOf() {
+        throw new Error("hostile prototype trap");
+      },
+    },
+  );
+  assert.doesNotThrow(() => {
+    assert.equal(
+      isWhiteboardToParentMessageForChannel(hostile, "tab-9:canvas-a"),
+      false,
+    );
+  });
+
+  const pollutedKeys = ["source", "channel", "v", "type", "payload"];
+  const previous = new Map(
+    pollutedKeys.map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(Object.prototype, key),
+    ]),
+  );
+  try {
+    Object.defineProperties(Object.prototype, {
+      source: { configurable: true, value: WHITEBOARD_MESSAGE_SOURCE },
+      channel: { configurable: true, value: "tab:canvas" },
+      v: { configurable: true, value: WHITEBOARD_PROTOCOL_VERSION },
+      type: { configurable: true, value: "ready" },
+      payload: { configurable: true, value: undefined },
+    });
+    assert.equal(
+      isWhiteboardToParentMessageForChannel({}, "tab:canvas"),
+      false,
+    );
+    assert.equal(isWhiteboardProtocolMessage({}), false);
+    assert.equal(
+      isWhiteboardToParentMessageForChannel(
+        {
+          source: WHITEBOARD_MESSAGE_SOURCE,
+          channel: "tab:canvas",
+          v: WHITEBOARD_PROTOCOL_VERSION,
+          type: "ready",
+        },
+        "tab:canvas",
+      ),
+      false,
+      "an inherited payload field must not become part of a payloadless arm",
+    );
+  } finally {
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(Object.prototype, key, descriptor);
+      else Reflect.deleteProperty(Object.prototype, key);
+    }
+  }
+});
+
+test("strict ingress rejects extra keys throughout native academic records", () => {
+  const base = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab:canvas",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+  } as const;
+  const drop = {
+    ...base,
+    type: "dropAcademicSources",
+    payload: {
+      requestId: "drop-1",
+      nodeId: "node-1",
+      sources: [{ library: { type: "user" }, itemKey: "ITEM1234" }],
+    },
+  };
+  assert.equal(isWhiteboardToParentMessageForChannel(drop, "tab:canvas"), true);
+  for (const message of [
+    { ...drop, extra: true },
+    { ...drop, payload: { ...drop.payload, raw: {} } },
+    {
+      ...drop,
+      payload: {
+        ...drop.payload,
+        sources: [{ ...drop.payload.sources[0], itemID: 42 }],
+      },
+    },
+    {
+      ...drop,
+      payload: {
+        ...drop.payload,
+        sources: [
+          {
+            ...drop.payload.sources[0],
+            library: { type: "user", groupID: 7 },
+          },
+        ],
+      },
+    },
+  ]) {
+    assert.equal(
+      isWhiteboardToParentMessageForChannel(message, "tab:canvas"),
+      false,
+    );
+  }
+
+  const acquired = v2ParentMessages[0];
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(acquired, "tab-9:canvas-a"),
+    true,
+  );
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(
+      {
+        ...acquired,
+        payload: {
+          ...acquired.payload,
+          acquisition: { ...acquired.payload.acquisition, extra: true },
+        },
+      },
+      "tab-9:canvas-a",
+    ),
+    false,
+  );
+});
+
+test("null-source init requires complete labels and a canonical canvas document", () => {
+  const source = readFileSync(
+    new URL("../packages/whiteboard/src/model/protocol.ts", import.meta.url),
+    "utf8",
+  );
+  const labelsBody = source.match(
+    /export interface WhiteboardLabels \{([\s\S]*?)\n\}/,
+  )?.[1];
+  assert.ok(labelsBody);
+  const stringKeys = [...labelsBody.matchAll(/^ {2}(\w+): string;$/gm)].map(
+    (match) => match[1],
+  );
+  const labels = Object.fromEntries(stringKeys.map((key) => [key, key])) as
+    Record<string, unknown> | undefined;
+  assert.ok(labels);
+  labels.annotations = { one: "annotation", other: "annotations" };
+  const init = {
+    ...protocolBase,
+    type: "init",
+    payload: { theme: "light", snapshot: emptyDocument, labels },
+  };
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(init, "tab-9:canvas-a"),
+    true,
+  );
+
+  const missingLabel = structuredClone(init);
+  delete missingLabel.payload.labels.selection;
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(missingLabel, "tab-9:canvas-a"),
+    false,
+  );
+  const extraLabel = structuredClone(init);
+  extraLabel.payload.labels.rawHostDiagnostic = "must not cross";
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(extraLabel, "tab-9:canvas-a"),
+    false,
+  );
+  const malformedAnnotations = structuredClone(init);
+  malformedAnnotations.payload.labels.annotations = {
+    one: "annotation",
+    other: "annotations",
+    extra: "forged",
+  };
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(
+      malformedAnnotations,
+      "tab-9:canvas-a",
+    ),
+    false,
+  );
+
+  const repairedCanvas = {
+    ...init,
+    payload: {
+      ...init.payload,
+      snapshot: {
+        ...emptyDocument,
+        nodes: [{ kind: "literature", source: literatureSource }],
+      },
+    },
+  };
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(repairedCanvas, "tab-9:canvas-a"),
+    false,
+  );
+  const extraCanvasKey = {
+    ...init,
+    payload: {
+      ...init.payload,
+      snapshot: { ...emptyDocument, raw: "forged" },
+    },
+  };
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(extraCanvasKey, "tab-9:canvas-a"),
+    false,
+  );
+});
+
+test("closed validators exhaust finite codes, commands, states, and numeric ranges", () => {
+  const requestFailure = activeHostToIframeMessages.find(
+    (message) => message.type === "academicRequestFailed",
+  )!;
+  for (const code of [
+    "picker-cancelled",
+    "picker-failed",
+    "acquisition-failed",
+    "library-missing",
+    "item-missing",
+    "wrong-kind",
+    "parent-mismatch",
+    "note-refresh-failed",
+  ]) {
+    assert.equal(
+      isParentToWhiteboardMessageForChannel(
+        {
+          ...requestFailure,
+          payload: { ...requestFailure.payload, code },
+        },
+        "tab-9:canvas-a",
+      ),
+      true,
+    );
+  }
+
+  const acquisitionBatch = activeHostToIframeMessages.find(
+    (message) => message.type === "academicSourcesAcquired",
+  )!;
+  for (const code of [
+    "item-missing",
+    "unsupported-attachment",
+    "unsupported-kind",
+    "acquisition-failed",
+  ]) {
+    assert.equal(
+      isParentToWhiteboardMessageForChannel(
+        {
+          ...acquisitionBatch,
+          payload: {
+            ...acquisitionBatch.payload,
+            failures: [{ index: 0, code, message: "Unavailable" }],
+          },
+        },
+        "tab-9:canvas-a",
+      ),
+      true,
+    );
+  }
+
+  const resolutionBatch = activeHostToIframeMessages.find(
+    (message) => message.type === "sourceResolutionBatch",
+  )!;
+  for (const code of [
+    "library-missing",
+    "item-missing",
+    "wrong-kind",
+    "parent-mismatch",
+    "resolution-failed",
+  ]) {
+    assert.equal(
+      isParentToWhiteboardMessageForChannel(
+        {
+          ...resolutionBatch,
+          payload: {
+            ...resolutionBatch.payload,
+            results: [
+              {
+                nodeId: "node-1",
+                generation: 2,
+                status: "unavailable",
+                code,
+                message: "Unavailable",
+              },
+            ],
+          },
+        },
+        "tab-9:canvas-a",
+      ),
+      true,
+    );
+  }
+
+  const annotationBatch = activeHostToIframeMessages.find(
+    (message) => message.type === "annotationsListed",
+  )!;
+  for (const code of [
+    "library-missing",
+    "item-missing",
+    "wrong-kind",
+    "parent-mismatch",
+    "attachment-unavailable",
+    "annotation-unavailable",
+    "list-failed",
+  ]) {
+    assert.equal(
+      isParentToWhiteboardMessageForChannel(
+        {
+          ...annotationBatch,
+          payload: {
+            ...annotationBatch.payload,
+            failures: [{ code, message: "Unavailable" }],
+          },
+        },
+        "tab-9:canvas-a",
+      ),
+      true,
+    );
+  }
+
+  const dropRejected = activeHostToIframeMessages.find(
+    (message) => message.type === "academicDropRejected",
+  )!;
+  for (const code of ["drop-malformed", "drop-unsupported"]) {
+    assert.equal(
+      isParentToWhiteboardMessageForChannel(
+        { ...dropRejected, payload: { code } },
+        "tab-9:canvas-a",
+      ),
+      true,
+    );
+  }
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(
+      {
+        ...requestFailure,
+        payload: { ...requestFailure.payload, code: "raw-host-error" },
+      },
+      "tab-9:canvas-a",
+    ),
+    false,
+  );
+
+  const sourceFailure = activeHostToIframeMessages.find(
+    (message) => message.type === "sourceActionFailed",
+  )!;
+  for (const code of [
+    "library-missing",
+    "item-missing",
+    "wrong-kind",
+    "parent-mismatch",
+    "open-failed",
+  ]) {
+    assert.equal(
+      isParentToWhiteboardMessageForChannel(
+        {
+          ...sourceFailure,
+          payload: {
+            ...sourceFailure.payload,
+            failure: { code, message: "Unavailable" },
+          },
+        },
+        "tab-9:canvas-a",
+      ),
+      true,
+    );
+  }
+
+  const exportMessage = activeIframeToHostMessages.find(
+    (message) => message.type === "exportFile",
+  )!;
+  for (const format of ["png", "svg", "md"]) {
+    assert.equal(
+      isWhiteboardToParentMessageForChannel(
+        {
+          ...exportMessage,
+          payload: { ...exportMessage.payload, format },
+        },
+        "tab-9:canvas-a",
+      ),
+      true,
+    );
+  }
+
+  const resolveMessage = activeIframeToHostMessages.find(
+    (message) => message.type === "resolveAcademicSources",
+  )!;
+  for (const priority of ["selected", "visible", "idle"]) {
+    assert.equal(
+      isWhiteboardToParentMessageForChannel(
+        {
+          ...resolveMessage,
+          payload: { ...resolveMessage.payload, priority },
+        },
+        "tab-9:canvas-a",
+      ),
+      true,
+    );
+  }
+  for (const generation of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(
+      isWhiteboardToParentMessageForChannel(
+        {
+          ...resolveMessage,
+          payload: { ...resolveMessage.payload, generation },
+        },
+        "tab-9:canvas-a",
+      ),
+      false,
+    );
+  }
+
+  const openItem = activeIframeToHostMessages.find(
+    (message) => message.type === "openItem",
+  )!;
+  for (const itemID of [-1, 0, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(
+      isWhiteboardToParentMessageForChannel(
+        { ...openItem, payload: { ...openItem.payload, itemID } },
+        "tab-9:canvas-a",
+      ),
+      false,
+    );
+  }
+});
+
 test("protocol source uses CanvasDocument and typed Basic picker payloads", () => {
   const source = readFileSync(
     new URL("../packages/whiteboard/src/model/protocol.ts", import.meta.url),
     "utf8",
   );
-  assert.match(source, /import type \{ CanvasDocument \} from "\.\/document"/);
+  assert.match(
+    source,
+    /import \{ parseCanvasDocument, type CanvasDocument \} from "\.\/document"/,
+  );
   assert.match(source, /type BasicPickerPayload/);
   assert.match(source, /snapshot\?: CanvasDocument \| null/);
   assert.match(source, /priority: SourceResolutionPriority/);

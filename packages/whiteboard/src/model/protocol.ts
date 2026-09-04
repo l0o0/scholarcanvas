@@ -16,7 +16,7 @@ import type {
   QuoteSnapshot,
   QuoteSource,
 } from "./academic";
-import type { CanvasDocument } from "./document";
+import { parseCanvasDocument, type CanvasDocument } from "./document";
 
 export const WHITEBOARD_MESSAGE_SOURCE = "zotero-markdown-whiteboard" as const;
 export const WHITEBOARD_PROTOCOL_VERSION = 2;
@@ -550,16 +550,8 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
 export function isWhiteboardProtocolMessage(
   data: unknown,
 ): data is WhiteboardProtocolMessage & { type: string } {
-  if (!data || typeof data !== "object") return false;
-  const message = data as Partial<WhiteboardProtocolMessage> & {
-    type?: unknown;
-  };
-  return (
-    message.source === WHITEBOARD_MESSAGE_SOURCE &&
-    typeof message.channel === "string" &&
-    message.v === WHITEBOARD_PROTOCOL_VERSION &&
-    typeof message.type === "string"
-  );
+  if (!isPlainRecord(data) || !isNonEmptyString(data.channel)) return false;
+  return hasProtocolEnvelope(data, data.channel);
 }
 
 export function isWhiteboardProtocolMessageForChannel(
@@ -573,12 +565,81 @@ type ProtocolRecord = Record<string, unknown>;
 
 function isPlainRecord(value: unknown): value is ProtocolRecord {
   if (!value || typeof value !== "object") return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Object]")
+      return false;
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== null) {
+      if (Object.getPrototypeOf(prototype) !== null) return false;
+      const constructor = Object.getOwnPropertyDescriptor(
+        prototype,
+        "constructor",
+      );
+      if (
+        !constructor ||
+        !("value" in constructor) ||
+        typeof constructor.value !== "function" ||
+        constructor.value.name !== "Object"
+      ) {
+        return false;
+      }
+    }
+    return Reflect.ownKeys(value).every((key) => {
+      if (typeof key !== "string") return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return !!descriptor && descriptor.enumerable && "value" in descriptor;
+    });
+  } catch {
+    return false;
+  }
+}
+
+function hasOwn(value: ProtocolRecord, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function hasExactKeys(
+  value: ProtocolRecord,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): boolean {
+  const keys = Reflect.ownKeys(value);
+  if (keys.some((key) => typeof key !== "string")) return false;
+  const allowed = new Set([...required, ...optional]);
+  return (
+    required.every((key) => hasOwn(value, key)) &&
+    keys.every((key) => allowed.has(key as string))
+  );
+}
+
+function isArrayOf<T>(
+  value: unknown,
+  predicate: (entry: unknown) => entry is T,
+): value is T[];
+function isArrayOf(
+  value: unknown,
+  predicate: (entry: unknown) => boolean,
+): value is unknown[];
+function isArrayOf(
+  value: unknown,
+  predicate: (entry: unknown) => boolean,
+): value is unknown[] {
+  if (!Array.isArray(value)) return false;
+  if (Reflect.ownKeys(value).length !== value.length + 1) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!hasOwn(value as unknown as ProtocolRecord, String(index)))
+      return false;
+    if (!predicate(value[index])) return false;
+  }
+  return true;
 }
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.length > 0;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -589,18 +650,186 @@ function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || isString(value);
 }
 
-function isOptionalNumber(value: unknown): value is number | undefined {
-  return value === undefined || isFiniteNumber(value);
+function isOptionalOwnString(value: ProtocolRecord, key: string): boolean {
+  return hasOwn(value, key) ? isOptionalString(value[key]) : !(key in value);
+}
+
+function isOptionalPositiveInteger(
+  value: unknown,
+): value is number | undefined {
+  return (
+    value === undefined ||
+    (Number.isSafeInteger(value) && (value as number) > 0)
+  );
+}
+
+function isOptionalOwnPositiveInteger(
+  value: ProtocolRecord,
+  key: string,
+): boolean {
+  return hasOwn(value, key)
+    ? isOptionalPositiveInteger(value[key])
+    : !(key in value);
 }
 
 function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(isString);
+  return isArrayOf(value, isString);
+}
+
+const whiteboardLabelStringKeys: Record<
+  Exclude<keyof WhiteboardLabels, "annotations">,
+  true
+> = {
+  canvas: true,
+  selection: true,
+  select: true,
+  hand: true,
+  addItem: true,
+  addNote: true,
+  addQuestion: true,
+  addClaim: true,
+  addFrame: true,
+  addPdf: true,
+  addFile: true,
+  addText: true,
+  addRect: true,
+  addEllipse: true,
+  addLine: true,
+  addArrow: true,
+  kindLiterature: true,
+  kindQuote: true,
+  kindNote: true,
+  kindQuestion: true,
+  kindClaim: true,
+  kindFrame: true,
+  annotationColor: true,
+  sourceStatus: true,
+  sourceIdle: true,
+  sourceAvailable: true,
+  sourceLoading: true,
+  sourceMissing: true,
+  acquisitionSummary: true,
+  dropMalformed: true,
+  dropUnsupported: true,
+  acquisitionFailed: true,
+  sourceOpenFailed: true,
+  sourceRefreshFailed: true,
+  noteRefreshFailed: true,
+  failureLibraryMissing: true,
+  failureItemMissing: true,
+  failureWrongKind: true,
+  failureParentMismatch: true,
+  failureAttachmentUnavailable: true,
+  failureAnnotationUnavailable: true,
+  failureResolutionFailed: true,
+  failureOpenFailed: true,
+  failureListFailed: true,
+  openSource: true,
+  refreshSource: true,
+  refreshNote: true,
+  viewAnnotations: true,
+  annotationBrowserTitle: true,
+  searchAnnotations: true,
+  annotationsLoading: true,
+  annotationsEmpty: true,
+  annotationsUnavailable: true,
+  annotationsPartialFailure: true,
+  annotationAlreadyAdded: true,
+  focusExistingAnnotation: true,
+  addSelectedAnnotations: true,
+  annotationPage: true,
+  noteOverwriteTitle: true,
+  noteOverwriteBody: true,
+  confirm: true,
+  cancel: true,
+  eraser: true,
+  undo: true,
+  redo: true,
+  save: true,
+  editText: true,
+  copy: true,
+  delete: true,
+  openItem: true,
+  alignLeft: true,
+  alignRight: true,
+  alignTop: true,
+  alignBottom: true,
+  alignHorizontal: true,
+  alignVertical: true,
+  distributeHorizontal: true,
+  distributeVertical: true,
+  fitView: true,
+  autoLayout: true,
+  edgeColor: true,
+  edgeDash: true,
+  edgeArrow: true,
+  saved: true,
+  saving: true,
+  saveFailed: true,
+  exportPng: true,
+  exportSvg: true,
+  exportMarkdown: true,
+  more: true,
+  shortcutsTitle: true,
+  close: true,
+  stroke: true,
+  background: true,
+  style: true,
+  solid: true,
+  dashed: true,
+  corners: true,
+  format: true,
+  color: true,
+  size: true,
+  alignment: true,
+  textAlignment: true,
+  verticalAlignment: true,
+  fontSystem: true,
+  fontGeorgia: true,
+  fontTimes: true,
+  fontInter: true,
+  fontMenlo: true,
+  fontSerifSc: true,
+  weightRegular: true,
+  weightBold: true,
+  commonColors: true,
+  recentColors: true,
+  shortcutSelect: true,
+  shortcutHand: true,
+  shortcutRect: true,
+  shortcutEllipse: true,
+  shortcutArrow: true,
+  shortcutLine: true,
+  shortcutText: true,
+  shortcutQuestion: true,
+  shortcutClaim: true,
+  shortcutFrame: true,
+  shortcutEraser: true,
+  shortcutConstrain: true,
+  shortcutCancel: true,
+  shortcutDelete: true,
+  shortcutUndo: true,
+  shortcutRedo: true,
+};
+
+function isWhiteboardLabels(value: unknown): value is WhiteboardLabels {
+  if (!isPlainRecord(value)) return false;
+  const stringKeys = Object.keys(whiteboardLabelStringKeys);
+  if (!hasExactKeys(value, [...stringKeys, "annotations"])) return false;
+  if (!stringKeys.every((key) => isString(value[key]))) return false;
+  return (
+    isPlainRecord(value.annotations) &&
+    hasExactKeys(value.annotations, ["one", "other"]) &&
+    isString(value.annotations.one) &&
+    isString(value.annotations.other)
+  );
 }
 
 function isLibraryRef(value: unknown): boolean {
   if (!isPlainRecord(value)) return false;
-  if (value.type === "user") return true;
+  if (value.type === "user") return hasExactKeys(value, ["type"]);
   return (
+    hasExactKeys(value, ["type", "groupID"]) &&
     value.type === "group" &&
     Number.isSafeInteger(value.groupID) &&
     (value.groupID as number) > 0
@@ -610,31 +839,45 @@ function isLibraryRef(value: unknown): boolean {
 function isLiteratureSource(value: unknown): boolean {
   return (
     isPlainRecord(value) &&
-    isLibraryRef(value.library) &&
-    isString(value.itemKey)
+    hasExactKeys(value, ["library", "itemKey"]) &&
+    hasLiteratureSourceFields(value)
   );
+}
+
+function hasLiteratureSourceFields(value: ProtocolRecord): boolean {
+  return isLibraryRef(value.library) && isNonEmptyString(value.itemKey);
 }
 
 function isNoteSource(value: unknown): boolean {
   return (
     isPlainRecord(value) &&
+    hasExactKeys(value, ["library", "noteKey"], ["itemKey"]) &&
     isLibraryRef(value.library) &&
-    isString(value.noteKey) &&
-    isOptionalString(value.itemKey)
+    isNonEmptyString(value.noteKey) &&
+    (hasOwn(value, "itemKey")
+      ? value.itemKey === undefined || isNonEmptyString(value.itemKey)
+      : !("itemKey" in value))
   );
 }
 
 function isQuoteSource(value: unknown): boolean {
   if (!isPlainRecord(value)) return false;
   return (
-    isLiteratureSource(value) &&
-    isString(value.attachmentKey) &&
-    isString(value.annotationKey)
+    hasExactKeys(value, [
+      "library",
+      "itemKey",
+      "attachmentKey",
+      "annotationKey",
+    ]) &&
+    hasLiteratureSourceFields(value) &&
+    isNonEmptyString(value.attachmentKey) &&
+    isNonEmptyString(value.annotationKey)
   );
 }
 
 function isAcademicSourceDescriptor(value: unknown): boolean {
   if (!isPlainRecord(value)) return false;
+  if (!hasExactKeys(value, ["kind", "source"])) return false;
   if (value.kind === "literature") return isLiteratureSource(value.source);
   if (value.kind === "note") return isNoteSource(value.source);
   if (value.kind === "quote") return isQuoteSource(value.source);
@@ -644,23 +887,39 @@ function isAcademicSourceDescriptor(value: unknown): boolean {
 function isLiteratureSnapshot(value: unknown): boolean {
   return (
     isPlainRecord(value) &&
+    hasExactKeys(
+      value,
+      ["title"],
+      ["creators", "year", "publicationTitle", "tags", "annotationCount"],
+    ) &&
     isString(value.title) &&
-    isOptionalString(value.creators) &&
-    isOptionalString(value.year) &&
-    isOptionalString(value.publicationTitle) &&
-    (value.tags === undefined || isStringArray(value.tags)) &&
-    isOptionalNumber(value.annotationCount)
+    isOptionalOwnString(value, "creators") &&
+    isOptionalOwnString(value, "year") &&
+    isOptionalOwnString(value, "publicationTitle") &&
+    (hasOwn(value, "tags")
+      ? value.tags === undefined || isStringArray(value.tags)
+      : !("tags" in value)) &&
+    (hasOwn(value, "annotationCount")
+      ? value.annotationCount === undefined ||
+        (Number.isSafeInteger(value.annotationCount) &&
+          (value.annotationCount as number) >= 0)
+      : !("annotationCount" in value))
   );
 }
 
 function isQuoteSnapshot(value: unknown): boolean {
   return (
     isPlainRecord(value) &&
+    hasExactKeys(
+      value,
+      ["text"],
+      ["comment", "citation", "pageLabel", "color"],
+    ) &&
     isString(value.text) &&
-    isOptionalString(value.comment) &&
-    isOptionalString(value.citation) &&
-    isOptionalString(value.pageLabel) &&
-    isOptionalString(value.color)
+    isOptionalOwnString(value, "comment") &&
+    isOptionalOwnString(value, "citation") &&
+    isOptionalOwnString(value, "pageLabel") &&
+    isOptionalOwnString(value, "color")
   );
 }
 
@@ -668,96 +927,157 @@ function isAcademicAcquisition(value: unknown): boolean {
   if (!isPlainRecord(value)) return false;
   if (value.kind === "literature") {
     return (
-      isLiteratureSource(value.source) && isLiteratureSnapshot(value.snapshot)
+      hasExactKeys(value, ["kind", "source", "snapshot"]) &&
+      isLiteratureSource(value.source) &&
+      isLiteratureSnapshot(value.snapshot)
     );
   }
   if (value.kind === "quote") {
-    return isQuoteSource(value.source) && isQuoteSnapshot(value.snapshot);
+    return (
+      hasExactKeys(value, ["kind", "source", "snapshot"]) &&
+      isQuoteSource(value.source) &&
+      isQuoteSnapshot(value.snapshot)
+    );
   }
   return (
     value.kind === "note" &&
+    hasExactKeys(value, ["kind", "source", "content"], ["sourceSnapshot"]) &&
     isNoteSource(value.source) &&
     isString(value.content) &&
-    (value.sourceSnapshot === undefined ||
-      (isPlainRecord(value.sourceSnapshot) &&
-        isOptionalString(value.sourceSnapshot.title)))
+    (hasOwn(value, "sourceSnapshot")
+      ? value.sourceSnapshot === undefined ||
+        (isPlainRecord(value.sourceSnapshot) &&
+          hasExactKeys(value.sourceSnapshot, [], ["title"]) &&
+          isOptionalOwnString(value.sourceSnapshot, "title"))
+      : !("sourceSnapshot" in value))
   );
 }
 
 function isCanvasDocument(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  try {
+    const parsed = parseCanvasDocument(value);
+    return (
+      parsed.issues.length === 0 && hasSameDataShape(value, parsed.document)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasSameDataShape(left: unknown, right: unknown): boolean {
+  if (left === null || right === null) return left === right;
+  if (typeof left !== typeof right) return false;
+  if (
+    typeof left === "string" ||
+    typeof left === "boolean" ||
+    typeof left === "number"
+  ) {
+    return (
+      Object.is(left, right) &&
+      (typeof left !== "number" || Number.isFinite(left))
+    );
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      isArrayOf(left, () => true) &&
+      isArrayOf(right, () => true) &&
+      left.length === right.length &&
+      left.every((entry, index) => hasSameDataShape(entry, right[index]))
+    );
+  }
+  if (!isPlainRecord(left) || !isPlainRecord(right)) return false;
+  const leftKeys = Reflect.ownKeys(left);
+  const rightKeys = Reflect.ownKeys(right);
   return (
-    isPlainRecord(value) &&
-    value.version === 2 &&
-    Array.isArray(value.nodes) &&
-    Array.isArray(value.connections)
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        typeof key === "string" &&
+        hasOwn(right, key) &&
+        hasSameDataShape(left[key], right[key]),
+    )
   );
 }
 
 function isAcademicDropSource(value: unknown): boolean {
   return (
     isPlainRecord(value) &&
+    hasExactKeys(value, ["library", "itemKey"]) &&
     isLibraryRef(value.library) &&
-    isString(value.itemKey)
+    isNonEmptyString(value.itemKey)
   );
 }
 
 function isAcademicSourceRequest(value: unknown): boolean {
   return (
     isPlainRecord(value) &&
-    isString(value.nodeId) &&
+    hasExactKeys(value, ["nodeId", "source"], ["refresh"]) &&
+    isNonEmptyString(value.nodeId) &&
     isAcademicSourceDescriptor(value.source) &&
-    (value.refresh === undefined || typeof value.refresh === "boolean")
+    (hasOwn(value, "refresh")
+      ? value.refresh === undefined || typeof value.refresh === "boolean"
+      : !("refresh" in value))
   );
 }
 
-const acquisitionFailureCodes = new Set<AcademicAcquisitionFailureCode>([
-  "item-missing",
-  "unsupported-attachment",
-  "unsupported-kind",
-  "acquisition-failed",
-]);
-const requestFailureCodes = new Set<AcademicRequestFailureCode>([
-  "picker-cancelled",
-  "picker-failed",
-  "acquisition-failed",
-  "library-missing",
-  "item-missing",
-  "wrong-kind",
-  "parent-mismatch",
-  "note-refresh-failed",
-]);
-const sourceActionFailureCodes = new Set<AcademicSourceActionFailureCode>([
-  "library-missing",
-  "item-missing",
-  "wrong-kind",
-  "parent-mismatch",
-  "open-failed",
-]);
-const resolutionFailureCodes = new Set<SourceResolutionFailureCode>([
-  "library-missing",
-  "item-missing",
-  "wrong-kind",
-  "parent-mismatch",
-  "resolution-failed",
-]);
-const annotationFailureCodes = new Set<AnnotationListFailureCode>([
-  "library-missing",
-  "item-missing",
-  "wrong-kind",
-  "parent-mismatch",
-  "attachment-unavailable",
-  "annotation-unavailable",
-  "list-failed",
-]);
+const acquisitionFailureCodes: Record<AcademicAcquisitionFailureCode, true> = {
+  "item-missing": true,
+  "unsupported-attachment": true,
+  "unsupported-kind": true,
+  "acquisition-failed": true,
+};
+const requestFailureCodes: Record<AcademicRequestFailureCode, true> = {
+  "picker-cancelled": true,
+  "picker-failed": true,
+  "acquisition-failed": true,
+  "library-missing": true,
+  "item-missing": true,
+  "wrong-kind": true,
+  "parent-mismatch": true,
+  "note-refresh-failed": true,
+};
+const sourceActionFailureCodes: Record<AcademicSourceActionFailureCode, true> =
+  {
+    "library-missing": true,
+    "item-missing": true,
+    "wrong-kind": true,
+    "parent-mismatch": true,
+    "open-failed": true,
+  };
+const resolutionFailureCodes: Record<SourceResolutionFailureCode, true> = {
+  "library-missing": true,
+  "item-missing": true,
+  "wrong-kind": true,
+  "parent-mismatch": true,
+  "resolution-failed": true,
+};
+const annotationFailureCodes: Record<AnnotationListFailureCode, true> = {
+  "library-missing": true,
+  "item-missing": true,
+  "wrong-kind": true,
+  "parent-mismatch": true,
+  "attachment-unavailable": true,
+  "annotation-unavailable": true,
+  "list-failed": true,
+};
+
+function hasFiniteCode(
+  codes: Readonly<Record<string, true>>,
+  value: unknown,
+): value is string {
+  return isString(value) && hasOwn(codes, value);
+}
 
 function isFailureWithCode(
   value: unknown,
-  codes: ReadonlySet<string>,
+  codes: Readonly<Record<string, true>>,
+  optional: readonly string[] = [],
 ): boolean {
   return (
     isPlainRecord(value) &&
-    isString(value.code) &&
-    codes.has(value.code) &&
+    hasExactKeys(value, ["code", "message"], optional) &&
+    hasFiniteCode(codes, value.code) &&
     isString(value.message)
   );
 }
@@ -765,6 +1085,7 @@ function isFailureWithCode(
 function isIndexedAcquisition(value: unknown): boolean {
   return (
     isPlainRecord(value) &&
+    hasExactKeys(value, ["index", "acquisition"]) &&
     Number.isSafeInteger(value.index) &&
     (value.index as number) >= 0 &&
     isAcademicAcquisition(value.acquisition)
@@ -774,7 +1095,9 @@ function isIndexedAcquisition(value: unknown): boolean {
 function isAcquisitionFailure(value: unknown): boolean {
   if (!isPlainRecord(value)) return false;
   return (
-    isFailureWithCode(value, acquisitionFailureCodes) &&
+    hasExactKeys(value, ["index", "code", "message"]) &&
+    hasFiniteCode(acquisitionFailureCodes, value.code) &&
+    isString(value.message) &&
     Number.isSafeInteger(value.index) &&
     (value.index as number) >= 0
   );
@@ -787,34 +1110,50 @@ function isSourceActionFailure(value: unknown): boolean {
 function isResolutionResult(value: unknown): boolean {
   if (
     !isPlainRecord(value) ||
-    !isString(value.nodeId) ||
-    !Number.isSafeInteger(value.generation)
+    !isNonEmptyString(value.nodeId) ||
+    !Number.isSafeInteger(value.generation) ||
+    (value.generation as number) < 0
   ) {
     return false;
   }
   if (value.status === "resolved") {
-    return isAcademicAcquisition(value.acquisition);
+    return (
+      hasExactKeys(value, ["nodeId", "generation", "status", "acquisition"]) &&
+      isAcademicAcquisition(value.acquisition)
+    );
   }
   return (
+    hasExactKeys(value, [
+      "nodeId",
+      "generation",
+      "status",
+      "code",
+      "message",
+    ]) &&
     value.status === "unavailable" &&
-    isFailureWithCode(value, resolutionFailureCodes)
+    hasFiniteCode(resolutionFailureCodes, value.code) &&
+    isString(value.message)
   );
 }
 
 function isAnnotationFailure(value: unknown): boolean {
   if (!isPlainRecord(value)) return false;
   return (
-    isFailureWithCode(value, annotationFailureCodes) &&
-    isOptionalString(value.attachmentKey) &&
-    isOptionalString(value.annotationKey)
+    isFailureWithCode(value, annotationFailureCodes, [
+      "attachmentKey",
+      "annotationKey",
+    ]) &&
+    isOptionalOwnString(value, "attachmentKey") &&
+    isOptionalOwnString(value, "annotationKey")
   );
 }
 
 function isAnnotationCandidate(value: unknown): boolean {
   return (
     isPlainRecord(value) &&
-    isString(value.attachmentTitle) &&
-    isString(value.sortIndex) &&
+    hasExactKeys(value, ["acquisition", "attachmentTitle", "sortIndex"]) &&
+    isNonEmptyString(value.attachmentTitle) &&
+    isNonEmptyString(value.sortIndex) &&
     isPlainRecord(value.acquisition) &&
     value.acquisition.kind === "quote" &&
     isAcademicAcquisition(value.acquisition)
@@ -822,19 +1161,25 @@ function isAnnotationCandidate(value: unknown): boolean {
 }
 
 function hasRequestAndNode(payload: ProtocolRecord): boolean {
-  return isString(payload.requestId) && isString(payload.nodeId);
+  return (
+    isNonEmptyString(payload.requestId) && isNonEmptyString(payload.nodeId)
+  );
 }
 
 function hasProtocolEnvelope(
   data: unknown,
   channel: string,
 ): data is ProtocolRecord {
+  if (isPlainRecord(data) && !hasOwn(data, "payload") && "payload" in data) {
+    return false;
+  }
   return (
     isPlainRecord(data) &&
+    hasExactKeys(data, ["source", "channel", "v", "type"], ["payload"]) &&
     data.source === WHITEBOARD_MESSAGE_SOURCE &&
     data.channel === channel &&
     data.v === WHITEBOARD_PROTOCOL_VERSION &&
-    isString(data.type)
+    isNonEmptyString(data.type)
   );
 }
 
@@ -848,77 +1193,115 @@ export function isWhiteboardToParentMessageForChannel(
   switch (data.type) {
     case "ready":
     case "save":
-      return payload === undefined;
+      return !hasOwn(data, "payload");
     case "change":
-      return isPlainRecord(payload) && isFiniteNumber(payload.rev);
+      return (
+        hasOwn(data, "payload") &&
+        isPlainRecord(payload) &&
+        hasExactKeys(payload, ["rev"]) &&
+        Number.isSafeInteger(payload.rev) &&
+        (payload.rev as number) >= 0
+      );
     case "snapshot":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
-        isString(payload.requestId) &&
-        isFiniteNumber(payload.rev) &&
+        hasExactKeys(payload, ["requestId", "rev", "snapshot"]) &&
+        isNonEmptyString(payload.requestId) &&
+        Number.isSafeInteger(payload.rev) &&
+        (payload.rev as number) >= 0 &&
         isCanvasDocument(payload.snapshot)
       );
     case "error":
-      return isPlainRecord(payload) && isString(payload.message);
+      return (
+        hasOwn(data, "payload") &&
+        isPlainRecord(payload) &&
+        hasExactKeys(payload, ["message"]) &&
+        isString(payload.message)
+      );
     case "pickAcademicSource":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["requestId", "nodeId", "kind"]) &&
         hasRequestAndNode(payload) &&
         payload.kind === "literature"
       );
     case "openItem":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
-        isOptionalNumber(payload.itemID) &&
-        isOptionalNumber(payload.attachmentID) &&
-        isOptionalNumber(payload.pdfPage)
+        hasExactKeys(payload, [], ["itemID", "attachmentID", "pdfPage"]) &&
+        isOptionalOwnPositiveInteger(payload, "itemID") &&
+        isOptionalOwnPositiveInteger(payload, "attachmentID") &&
+        isOptionalOwnPositiveInteger(payload, "pdfPage")
       );
     case "dropAcademicSources":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["requestId", "nodeId", "sources"]) &&
         hasRequestAndNode(payload) &&
-        Array.isArray(payload.sources) &&
-        payload.sources.every(isAcademicDropSource)
+        isArrayOf(payload.sources, isAcademicDropSource)
       );
     case "resolveAcademicSources":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
-        isString(payload.requestId) &&
+        hasExactKeys(payload, [
+          "requestId",
+          "generation",
+          "priority",
+          "sources",
+        ]) &&
+        isNonEmptyString(payload.requestId) &&
         Number.isSafeInteger(payload.generation) &&
+        (payload.generation as number) >= 0 &&
         (payload.priority === "selected" ||
           payload.priority === "visible" ||
           payload.priority === "idle") &&
-        Array.isArray(payload.sources) &&
-        payload.sources.every(isAcademicSourceRequest)
+        isArrayOf(payload.sources, isAcademicSourceRequest)
       );
     case "listLiteratureAnnotations":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
-        isString(payload.requestId) &&
+        hasExactKeys(payload, ["requestId", "source"]) &&
+        isNonEmptyString(payload.requestId) &&
         isLiteratureSource(payload.source)
       );
     case "refreshZoteroNote":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["requestId", "nodeId", "source"]) &&
         hasRequestAndNode(payload) &&
         isNoteSource(payload.source)
       );
     case "openAcademicSource":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["requestId", "nodeId", "source"]) &&
         hasRequestAndNode(payload) &&
         isAcademicSourceDescriptor(payload.source)
       );
     case "exportFile":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
-        isString(payload.requestId) &&
+        hasExactKeys(
+          payload,
+          ["requestId", "format", "mimeType"],
+          ["dataUrl", "text"],
+        ) &&
+        isNonEmptyString(payload.requestId) &&
         (payload.format === "png" ||
           payload.format === "svg" ||
           payload.format === "md") &&
-        isString(payload.mimeType) &&
-        isOptionalString(payload.dataUrl) &&
-        isOptionalString(payload.text)
+        isNonEmptyString(payload.mimeType) &&
+        isOptionalOwnString(payload, "dataUrl") &&
+        isOptionalOwnString(payload, "text")
       );
     default:
       return false;
@@ -935,118 +1318,171 @@ export function isParentToWhiteboardMessageForChannel(
   switch (data.type) {
     case "focus":
     case "destroy":
-      return payload === undefined;
+      return !hasOwn(data, "payload");
     case "init":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["theme"], ["snapshot", "labels"]) &&
         (payload.theme === "light" || payload.theme === "dark") &&
-        (payload.snapshot === undefined ||
-          payload.snapshot === null ||
-          isCanvasDocument(payload.snapshot)) &&
-        (payload.labels === undefined || isPlainRecord(payload.labels))
+        (hasOwn(payload, "snapshot")
+          ? payload.snapshot === undefined ||
+            payload.snapshot === null ||
+            isCanvasDocument(payload.snapshot)
+          : !("snapshot" in payload)) &&
+        (hasOwn(payload, "labels")
+          ? payload.labels === undefined || isWhiteboardLabels(payload.labels)
+          : !("labels" in payload))
       );
     case "setTheme":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["theme"]) &&
         (payload.theme === "light" || payload.theme === "dark")
       );
     case "loadSnapshot":
-      return isPlainRecord(payload) && isCanvasDocument(payload.snapshot);
+      return (
+        hasOwn(data, "payload") &&
+        isPlainRecord(payload) &&
+        hasExactKeys(payload, ["snapshot"]) &&
+        isCanvasDocument(payload.snapshot)
+      );
     case "requestSnapshot":
-      return isPlainRecord(payload) && isString(payload.requestId);
+      return (
+        hasOwn(data, "payload") &&
+        isPlainRecord(payload) &&
+        hasExactKeys(payload, ["requestId"]) &&
+        isNonEmptyString(payload.requestId)
+      );
     case "command":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["command"]) &&
         (payload.command === "undo" || payload.command === "redo")
       );
     case "saveState":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["state"]) &&
         (payload.state === "saved" ||
           payload.state === "saving" ||
           payload.state === "error")
       );
     case "academicDropStarted":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["requestId", "nodeId", "position", "sources"]) &&
         hasRequestAndNode(payload) &&
         isPlainRecord(payload.position) &&
+        hasExactKeys(payload.position, ["x", "y"]) &&
         isFiniteNumber(payload.position.x) &&
         isFiniteNumber(payload.position.y) &&
-        Array.isArray(payload.sources) &&
-        payload.sources.every(isAcademicDropSource)
+        isArrayOf(payload.sources, isAcademicDropSource)
       );
     case "academicDropRejected":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["code"]) &&
         (payload.code === "drop-malformed" ||
           payload.code === "drop-unsupported")
       );
     case "academicSourceAcquired":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["requestId", "nodeId", "acquisition"]) &&
         hasRequestAndNode(payload) &&
         isAcademicAcquisition(payload.acquisition)
       );
     case "academicSourcesAcquired":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, [
+          "requestId",
+          "nodeId",
+          "successes",
+          "failures",
+        ]) &&
         hasRequestAndNode(payload) &&
-        Array.isArray(payload.successes) &&
-        payload.successes.every(isIndexedAcquisition) &&
-        Array.isArray(payload.failures) &&
-        payload.failures.every(isAcquisitionFailure)
+        isArrayOf(payload.successes, isIndexedAcquisition) &&
+        isArrayOf(payload.failures, isAcquisitionFailure)
       );
     case "academicRequestFailed":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(
+          payload,
+          ["requestId", "nodeId", "code"],
+          ["diagnostic"],
+        ) &&
         hasRequestAndNode(payload) &&
-        isString(payload.code) &&
-        requestFailureCodes.has(payload.code as AcademicRequestFailureCode) &&
-        isOptionalString(payload.diagnostic)
+        hasFiniteCode(requestFailureCodes, payload.code) &&
+        isOptionalOwnString(payload, "diagnostic")
       );
     case "sourceActionFailed":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["requestId", "nodeId", "source", "failure"]) &&
         hasRequestAndNode(payload) &&
         isAcademicSourceDescriptor(payload.source) &&
         isSourceActionFailure(payload.failure)
       );
     case "sourceActionSucceeded":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["requestId", "nodeId", "action", "source"]) &&
         hasRequestAndNode(payload) &&
         payload.action === "open" &&
         isAcademicSourceDescriptor(payload.source)
       );
     case "sourceResolutionBatch":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
-        isString(payload.requestId) &&
+        hasExactKeys(payload, ["requestId", "generation", "results"]) &&
+        isNonEmptyString(payload.requestId) &&
         Number.isSafeInteger(payload.generation) &&
-        Array.isArray(payload.results) &&
-        payload.results.every(isResolutionResult)
+        (payload.generation as number) >= 0 &&
+        isArrayOf(payload.results, isResolutionResult)
       );
     case "annotationsListed":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
-        isString(payload.requestId) &&
+        hasExactKeys(payload, [
+          "requestId",
+          "source",
+          "candidates",
+          "failures",
+        ]) &&
+        isNonEmptyString(payload.requestId) &&
         isLiteratureSource(payload.source) &&
-        Array.isArray(payload.candidates) &&
-        payload.candidates.every(isAnnotationCandidate) &&
-        Array.isArray(payload.failures) &&
-        payload.failures.every(isAnnotationFailure)
+        isArrayOf(payload.candidates, isAnnotationCandidate) &&
+        isArrayOf(payload.failures, isAnnotationFailure)
       );
     case "annotationListFailed":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
-        isString(payload.requestId) &&
+        hasExactKeys(payload, ["requestId", "source", "failure"]) &&
+        isNonEmptyString(payload.requestId) &&
         isLiteratureSource(payload.source) &&
         isAnnotationFailure(payload.failure)
       );
     case "noteRefreshed":
       return (
+        hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
+        hasExactKeys(payload, ["requestId", "nodeId", "acquisition"]) &&
         hasRequestAndNode(payload) &&
         isPlainRecord(payload.acquisition) &&
         payload.acquisition.kind === "note" &&

@@ -290,3 +290,59 @@ RED result.
   remain transient and do not alter Task 8's single-revision or zero-success
   guarantees.
 - Scope: no Task 9 document was changed.
+
+## Bridge regression follow-up: cross-realm closed validation
+
+The initial nullable-source bridge fix compared every record prototype with the
+validator realm's `Object.prototype`. That accepted local records but rejected
+ordinary records created in the packaged iframe realm. Its field checks also
+read inherited envelope properties and allowed unknown own properties in nested
+academic values.
+
+### Cross-realm RED evidence
+
+- A production `createWhiteboardEditor` test passed a valid `ready` message
+  created by a separate happy-dom window with `source: null`. No `init` reply was
+  posted (`actual: undefined`, `expected: "init"`).
+- Strict-ingress tests failed because inherited/polluted envelope fields and
+  extra envelope, payload, academic-source, and acquisition fields were
+  accepted.
+- A hostile prototype proxy escaped the validator as an exception rather than
+  being rejected as malformed input.
+
+Each failure was observed before changing the corresponding production guard.
+
+### Cross-realm GREEN evidence
+
+- Focused protocol and production-bridge suites: 20 passed, 0 failed.
+- Full `pnpm run test:unit`: 587 passed, 0 failed across 24 suites.
+- `pnpm exec tsc --noEmit`: passed.
+- `pnpm run lint:check`: Prettier and ESLint passed.
+- `git diff --check`: passed.
+
+### Cross-realm self-review
+
+- Data records: ordinary records from local, VM, and happy-dom window realms
+  are accepted without realm identity comparison. Arrays, null, functions,
+  Date, Map, class/DOM instances, custom prototypes, accessors, symbols, and
+  throwing proxy traps are rejected.
+- Envelope ownership: source marker, channel, v2 version, type, and any payload
+  used by an arm must be own data properties. Prototype-pollution tests restore
+  every modified descriptor in `finally`.
+- Closed shapes: every active message arm in both directions has a compile-time
+  exhaustive positive sample. Envelopes and all academic library, source,
+  acquisition, drop, result, candidate, and failure records use exact allowed
+  key sets; user libraries cannot carry `groupID`, and academic values cannot
+  carry integer IDs or raw MIME bags.
+- Finite values: all request, acquisition, source-action, resolution,
+  annotation, and drop failure codes are compile-time-exhaustive records.
+  Commands, priorities, formats, states, indexes, generations, revisions, item
+  IDs, pages, group IDs, positions, and counts are bounded to their protocol
+  domains.
+- Initialization: labels require every protocol-defined key and an exact plural
+  record. Canvas snapshots pass the canonical parser with no repair issues and
+  must retain exactly the parsed data shape, preventing silent field dropping.
+- Source semantics: exact peer windows remain accepted; the Zotero-only null
+  source exception is evaluated only after closed validation. Wrong non-null
+  windows and malformed null-source messages remain inert.
+- Scope: no Task 9 document or report was modified.

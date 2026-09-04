@@ -70,7 +70,12 @@ export function PropertiesPanel(props: {
           <IconEdit />
           <span>{labels.editText}</span>
         </button>
-        {canOpen ? (
+        {hasSource ? (
+          <button type="button" onClick={() => props.onOpen(node)}>
+            <IconOpen />
+            <span>{labels.openSource}</span>
+          </button>
+        ) : canOpen ? (
           <button type="button" onClick={() => props.onOpen(node)}>
             <IconOpen />
             <span>{labels.openItem}</span>
@@ -80,6 +85,12 @@ export function PropertiesPanel(props: {
           <button type="button" onClick={() => props.onRefreshSource(node)}>
             <IconOpen />
             <span>{labels.refreshNote}</span>
+          </button>
+        ) : null}
+        {model.kind === "literature" || model.kind === "quote" ? (
+          <button type="button" onClick={() => props.onRefreshSource(node)}>
+            <IconOpen />
+            <span>{labels.refreshSource}</span>
           </button>
         ) : null}
         {model.kind === "literature" ? (

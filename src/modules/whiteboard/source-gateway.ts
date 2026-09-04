@@ -393,6 +393,7 @@ function quoteForSource(
   if (!item.isAnnotation()) throw new SourceIntegrityError("wrong-kind");
   const { attachment, literature } = validatedQuote(item);
   if (
+    item.key !== source.annotationKey ||
     attachment.key !== source.attachmentKey ||
     literature.key !== source.itemKey
   ) {
@@ -582,14 +583,11 @@ function productionDependencies(): GatewayDependencies {
     openNote: async (item) =>
       void (await zotero.getMainWindow().ZoteroPane.openNote(item.id)),
     openAnnotation: async (attachment, annotation) => {
-      try {
-        await zotero.Reader.open(attachment.id, {
-          annotationKey: annotation.key,
-        });
-        return true;
-      } catch {
-        return false;
-      }
+      if (typeof zotero.Reader?.open !== "function") return false;
+      await zotero.Reader.open(attachment.id, {
+        annotationID: annotation.key,
+      });
+      return true;
     },
     openAttachmentPage: async (attachment, pageIndex) =>
       void (await zotero.Reader.open(

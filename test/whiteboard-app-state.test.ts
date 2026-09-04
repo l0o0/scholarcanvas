@@ -5,6 +5,7 @@ import { MarkerType } from "@xyflow/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PropertiesPanel } from "../packages/whiteboard/src/chrome/PropertiesPanel.tsx";
+import { quoteSourceIdentity } from "../packages/whiteboard/src/model/academic.ts";
 import {
   parseCanvasDocument,
   type CanvasDocument,
@@ -15,6 +16,7 @@ import {
 } from "../packages/whiteboard/src/model/canvas-file.ts";
 import {
   beginNodeEditing,
+  applySourceResolutionResults,
   CanvasDocumentHistory,
   canvasDocumentToFlow,
   flowNodeText,
@@ -45,8 +47,15 @@ import {
   createNoteRefreshRuntime,
   requestConfirmedNoteRefresh,
 } from "../packages/whiteboard/src/whiteboard/noteRefresh.ts";
-import { applyResolvedAcquisition } from "../packages/whiteboard/src/whiteboard/sourceState.ts";
-import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
+import {
+  applyResolvedAcquisition,
+  createQuoteBatchRuntime,
+  createSourceRefreshRuntime,
+} from "../packages/whiteboard/src/whiteboard/sourceState.ts";
+import type {
+  AnnotationCandidate,
+  WhiteboardLabels,
+} from "../packages/whiteboard/src/model/protocol.ts";
 
 type Assert<T extends true> = T;
 type _RuntimeLoadsCanvasDocument = Assert<
@@ -142,6 +151,27 @@ function academicDocument(): CanvasDocument {
         color: "#2563eb",
       },
     ],
+  };
+}
+
+function annotationCandidate(
+  attachmentKey: string,
+  annotationKey: string,
+  text: string,
+): AnnotationCandidate {
+  return {
+    attachmentTitle: `${attachmentKey}.pdf`,
+    sortIndex: annotationKey,
+    acquisition: {
+      kind: "quote",
+      source: {
+        library: { type: "user" },
+        itemKey: "ITEM1234",
+        attachmentKey,
+        annotationKey,
+      },
+      snapshot: { text },
+    },
   };
 }
 
@@ -303,6 +333,266 @@ test("background Note resolution updates source title without overwriting local 
   );
 });
 
+test("selected annotations become one undoable Quote batch without automatic connections", () => {
+  const existing = annotationCandidate("PDF-A", "SAME-KEY", "Existing");
+  const first = annotationCandidate("PDF-B", "SAME-KEY", "First");
+  const duplicateFirst = annotationCandidate(
+    "PDF-B",
+    "SAME-KEY",
+    "Duplicate payload",
+  );
+  const second = annotationCandidate("PDF-B", "SECOND", "Second");
+  let live: CanvasDocument = {
+    ...academicDocument(),
+    nodes: [
+      ...academicDocument().nodes,
+      {
+        id: "existing-quote",
+        kind: "quote",
+        position: { x: 400, y: 36 },
+        width: 280,
+        height: 192,
+        source: existing.acquisition.source,
+        snapshot: existing.acquisition.snapshot,
+      },
+    ],
+  };
+  const before = structuredClone(live);
+  const changes: number[] = [];
+  const history = new CanvasDocumentHistory((revision) =>
+    changes.push(revision),
+  );
+  const ids = ["quote-added-1", "quote-added-2"];
+  const batch = createQuoteBatchRuntime({
+    getWorkingDocument: () => live,
+    getHistoryDocument: () => live,
+    applyDocument: (document) => {
+      live = document;
+    },
+    commitHistory: (document) => history.commit(document),
+    createNodeId: () => ids.shift()!,
+  });
+  const selected = new Set(
+    [first, duplicateFirst, second].map((candidate) =>
+      quoteSourceIdentity(candidate.acquisition.source),
+    ),
+  );
+
+  const addedNodeIds = batch.add(
+    "literature-1",
+    [existing, first, duplicateFirst, second],
+    selected,
+  );
+
+  assert.deepEqual(addedNodeIds, ["quote-added-1", "quote-added-2"]);
+  assert.equal(live.nodes.filter((node) => node.kind === "quote").length, 3);
+  assert.deepEqual(
+    live.nodes
+      .filter((node) => addedNodeIds.includes(node.id))
+      .map((node) => ({
+        kind: node.kind,
+        position: node.position,
+        source: node.kind === "quote" ? node.source : undefined,
+        snapshot: node.kind === "quote" ? node.snapshot : undefined,
+      })),
+    [
+      {
+        kind: "quote",
+        position: { x: 328, y: 252 },
+        source: first.acquisition.source,
+        snapshot: { text: "First" },
+      },
+      {
+        kind: "quote",
+        position: { x: 632, y: 252 },
+        source: second.acquisition.source,
+        snapshot: { text: "Second" },
+      },
+    ],
+  );
+  assert.deepEqual(live.connections, before.connections);
+  assert.equal(JSON.stringify(live).includes("attachmentTitle"), false);
+  assert.equal(JSON.stringify(live).includes("sortIndex"), false);
+  assert.equal(history.revision, 1);
+  assert.deepEqual(changes, [1]);
+
+  const undone = history.undo(live);
+  assert.deepEqual(undone, before);
+  assert.equal(history.undo(undone!), undefined);
+});
+
+test("an empty or duplicate-only Quote batch creates no history or save revision", () => {
+  const existing = annotationCandidate("PDF-A", "SAME-KEY", "Existing");
+  let live: CanvasDocument = {
+    ...academicDocument(),
+    nodes: [
+      ...academicDocument().nodes,
+      {
+        id: "existing-quote",
+        kind: "quote",
+        position: { x: 400, y: 36 },
+        width: 280,
+        height: 192,
+        source: existing.acquisition.source,
+        snapshot: existing.acquisition.snapshot,
+      },
+    ],
+  };
+  const changes: number[] = [];
+  const history = new CanvasDocumentHistory((revision) =>
+    changes.push(revision),
+  );
+  const batch = createQuoteBatchRuntime({
+    getWorkingDocument: () => live,
+    getHistoryDocument: () => live,
+    applyDocument: (document) => {
+      live = document;
+    },
+    commitHistory: (document) => history.commit(document),
+    createNodeId: () => "must-not-be-created",
+  });
+
+  assert.deepEqual(
+    batch.add(
+      "literature-1",
+      [existing, existing],
+      new Set([quoteSourceIdentity(existing.acquisition.source)]),
+    ),
+    [],
+  );
+  assert.equal(history.revision, 0);
+  assert.deepEqual(changes, []);
+});
+
+test("explicit Quote refresh changes the save revision once without adding undo history", () => {
+  const quote = annotationCandidate("PDF-A", "ANN-A", "Persisted excerpt");
+  let nodes = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "quote-1",
+        kind: "quote",
+        position: { x: 10, y: 20 },
+        width: 280,
+        height: 192,
+        source: quote.acquisition.source,
+        snapshot: quote.acquisition.snapshot,
+      },
+    ],
+  }).nodes;
+  const changes: number[] = [];
+  const history = new CanvasDocumentHistory((revision) =>
+    changes.push(revision),
+  );
+  const refresh = createSourceRefreshRuntime({
+    getNodes: () => nodes,
+    applyResolutionBatch: (generation, results) => {
+      nodes = applySourceResolutionResults(nodes, generation, results);
+    },
+    changed: () => history.changed(),
+  });
+  const descriptor = refresh.request(nodes[0]);
+  assert.deepEqual(descriptor, {
+    nodeId: "quote-1",
+    source: { kind: "quote", source: quote.acquisition.source },
+  });
+
+  refresh.apply(3, [
+    {
+      nodeId: "quote-1",
+      generation: 3,
+      status: "resolved",
+      acquisition: {
+        ...quote.acquisition,
+        snapshot: { text: "Current Zotero excerpt", pageLabel: "14" },
+      },
+    },
+  ]);
+
+  assert.equal(
+    nodes[0].data.model.kind === "quote" && nodes[0].data.model.snapshot.text,
+    "Current Zotero excerpt",
+  );
+  assert.equal(history.revision, 1);
+  assert.deepEqual(changes, [1]);
+  assert.equal(
+    history.undo(flowToCanvasDocument(nodes, [], { x: 0, y: 0, zoom: 1 })),
+    undefined,
+    "refresh must not create an undo entry",
+  );
+
+  refresh.request(nodes[0]);
+  refresh.apply(3, [
+    {
+      nodeId: "quote-1",
+      generation: 3,
+      status: "resolved",
+      acquisition: {
+        ...quote.acquisition,
+        snapshot: { text: "Current Zotero excerpt", pageLabel: "14" },
+      },
+    },
+  ]);
+  refresh.request(nodes[0]);
+  refresh.apply(3, [
+    {
+      nodeId: "quote-1",
+      generation: 3,
+      status: "unavailable",
+      code: "item-missing",
+      message: "Missing",
+    },
+  ]);
+  assert.equal(history.revision, 1);
+  assert.deepEqual(changes, [1]);
+});
+
+test("background Quote resolution stays outside save and undo history", () => {
+  const quote = annotationCandidate("PDF-A", "ANN-A", "Persisted excerpt");
+  let nodes = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "quote-1",
+        kind: "quote",
+        position: { x: 10, y: 20 },
+        width: 280,
+        height: 192,
+        source: quote.acquisition.source,
+        snapshot: quote.acquisition.snapshot,
+      },
+    ],
+  }).nodes;
+  const history = new CanvasDocumentHistory(() =>
+    assert.fail("background resolution must not change save history"),
+  );
+  const refresh = createSourceRefreshRuntime({
+    getNodes: () => nodes,
+    applyResolutionBatch: (generation, results) => {
+      nodes = applySourceResolutionResults(nodes, generation, results);
+    },
+    changed: () => history.changed(),
+  });
+
+  refresh.apply(5, [
+    {
+      nodeId: "quote-1",
+      generation: 5,
+      status: "resolved",
+      acquisition: {
+        ...quote.acquisition,
+        snapshot: { text: "Background excerpt" },
+      },
+    },
+  ]);
+
+  assert.equal(
+    nodes[0].data.model.kind === "quote" && nodes[0].data.model.snapshot.text,
+    "Background excerpt",
+  );
+  assert.equal(history.revision, 0);
+});
+
 test("only source-backed Notes expose refresh in properties", () => {
   const makeNode = (source: boolean) =>
     canvasDocumentToFlow({
@@ -362,6 +652,49 @@ test("only source-backed Notes expose refresh in properties", () => {
   );
   assert.equal(unavailable.includes("Source unavailable"), true);
   assert.equal(unavailable.includes('title="Item missing"'), true);
+});
+
+test("Literature and Quote properties expose native source open and refresh actions", () => {
+  const literature = canvasDocumentToFlow(academicDocument()).nodes[0];
+  const quote = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "quote-1",
+        kind: "quote",
+        position: { x: 0, y: 0 },
+        width: 280,
+        height: 192,
+        source: {
+          library: { type: "user" },
+          itemKey: "ITEM1234",
+          attachmentKey: "PDF12345",
+          annotationKey: "ANN12345",
+        },
+        snapshot: { text: "Evidence" },
+      },
+    ],
+  }).nodes[0];
+  const renderActions = (node: typeof literature) =>
+    renderToStaticMarkup(
+      createElement(PropertiesPanel, {
+        labels: { ...({} as WhiteboardLabels), ...noteActionLabels },
+        node,
+        sourceState: { status: "resolved" },
+        onEdit: () => undefined,
+        onOpen: () => undefined,
+        onRefreshSource: () => undefined,
+        onViewAnnotations: () => undefined,
+        onCopy: () => undefined,
+        onDelete: () => undefined,
+      }),
+    );
+
+  for (const markup of [renderActions(literature), renderActions(quote)]) {
+    assert.equal(markup.includes("Open source"), true);
+    assert.equal(markup.includes("Refresh source"), true);
+    assert.equal(markup.includes("Open item"), false);
+  }
 });
 
 test("cancelled Note refresh posts nothing and uses the localized warning once", () => {
@@ -587,7 +920,6 @@ test("Note refresh preserves a pending acquisition until its later reply resolve
   };
   let { nodes, edges } = canvasDocumentToFlow(initial);
   const history = new CanvasDocumentHistory(() => undefined);
-  let acquisition: ReturnType<typeof createAcademicAcquisitionRuntime>;
   const liveDocument = () =>
     flowToCanvasDocument(nodes, edges, { x: 0, y: 0, zoom: 1 });
   const canonicalDocument = () =>
@@ -595,7 +927,7 @@ test("Note refresh preserves a pending acquisition until its later reply resolve
       liveDocument(),
       acquisition.pendingNodeIds(),
     );
-  acquisition = createAcademicAcquisitionRuntime({
+  const acquisition = createAcademicAcquisitionRuntime({
     getNodes: () => nodes,
     setNodes: (next) => {
       nodes = next;
@@ -979,13 +1311,12 @@ test("Literature placement requests the academic picker and commits once", () =>
   let changes = 0;
   const picks: unknown[] = [];
   const history = new CanvasDocumentHistory(() => {});
-  let acquisitionRuntime: ReturnType<typeof createAcademicAcquisitionRuntime>;
   const canonical = () =>
     runtimeModule.omitAcademicPlaceholders(
       flowToCanvasDocument(nodes, edges, { x: 0, y: 0, zoom: 1 }),
       acquisitionRuntime.pendingNodeIds(),
     );
-  acquisitionRuntime = createAcademicAcquisitionRuntime({
+  const acquisitionRuntime = createAcademicAcquisitionRuntime({
     getNodes: () => nodes,
     setNodes: (next: typeof nodes) => {
       nodes = next;

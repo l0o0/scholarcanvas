@@ -120,7 +120,15 @@ export function createWhiteboardEditor(
       requestId: string,
       generation: number,
       priority: SourceResolutionPriority,
-      sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>,
+      sources: Array<{
+        nodeId: string;
+        source: AcademicSourceDescriptor;
+        refresh?: boolean;
+      }>,
+    ) => void;
+    onOpenAcademicSource?: (
+      requestId: string,
+      source: AcademicSourceDescriptor,
     ) => void;
     onRefreshZoteroNote?: (
       requestId: string,
@@ -277,6 +285,12 @@ export function createWhiteboardEditor(
           data.payload.generation,
           data.payload.priority,
           data.payload.sources,
+        );
+        break;
+      case "openAcademicSource":
+        options.onOpenAcademicSource?.(
+          data.payload.requestId,
+          data.payload.source,
         );
         break;
       case "refreshZoteroNote":

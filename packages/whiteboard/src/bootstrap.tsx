@@ -35,6 +35,7 @@ function postToParent(message: {
     | "error"
     | "pickAcademicSource"
     | "resolveAcademicSources"
+    | "openAcademicSource"
     | "openItem"
     | "dropAcademicSources"
     | "listLiteratureAnnotations"
@@ -189,6 +190,12 @@ function boot() {
         postToParent({
           type: "resolveAcademicSources",
           payload: { requestId, generation, priority, sources },
+        })
+      }
+      onOpenAcademicSource={(requestId, source) =>
+        postToParent({
+          type: "openAcademicSource",
+          payload: { requestId, source },
         })
       }
       onListLiteratureAnnotations={(requestId, source) =>

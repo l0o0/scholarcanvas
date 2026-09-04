@@ -200,6 +200,14 @@ export function AnnotationBrowser(props: {
       ? filterAnnotationCandidates(props.state.candidates, props.query)
       : [];
   const groups = groupAnnotationCandidates(candidates);
+  const hasEligibleSelection =
+    props.state.status === "ready" &&
+    props.state.candidates.some(({ acquisition }) => {
+      const identity = quoteSourceIdentity(acquisition.source);
+      return (
+        props.selectedKeys.has(identity) && !props.existingKeys.has(identity)
+      );
+    });
 
   return (
     <div
@@ -343,7 +351,7 @@ export function AnnotationBrowser(props: {
           <button
             type="button"
             onClick={props.onAddSelected}
-            disabled={!props.selectedKeys.size}
+            disabled={!hasEligibleSelection}
           >
             {props.labels.addSelected}
           </button>

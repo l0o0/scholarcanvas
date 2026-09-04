@@ -9,7 +9,11 @@ import {
   type LiteratureSource,
   type NoteSource,
 } from "./snapshot";
-import { whiteboardChannel, type AnnotationListFailure } from "./protocol";
+import {
+  whiteboardChannel,
+  type AcademicSourceDescriptor,
+  type AnnotationListFailure,
+} from "./protocol";
 import { WhiteboardSaveCoordinator } from "./save-coordinator";
 import { whiteboardRegistry, type WhiteboardSession } from "./session-registry";
 import { WHITEBOARD_TAB_TYPE } from "./tabHooks";
@@ -359,6 +363,19 @@ export async function handleListLiteratureAnnotations(
                 : "Zotero annotations could not be loaded.",
           },
     );
+  }
+}
+
+export async function handleOpenAcademicSource(
+  session: WhiteboardSession,
+  _requestId: string,
+  source: AcademicSourceDescriptor,
+  gateway: Pick<ZoteroSourceGateway, "open"> = createZoteroSourceGateway(),
+) {
+  try {
+    await gateway.open(source);
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -735,8 +752,9 @@ function mountWhiteboardUI(
         }
         session.sourceGeneration = generation;
       }
-      for (const { nodeId, source } of sources) {
+      for (const { nodeId, source, refresh } of sources) {
         const cacheKey = sourceCacheKey(source);
+        if (refresh) scheduler.invalidate(cacheKey);
         scheduler.promote(cacheKey, priority);
         scheduler.enqueue({
           nodeId,
@@ -749,6 +767,9 @@ function mountWhiteboardUI(
     },
     onRefreshZoteroNote(requestId, nodeId, source) {
       void handleRefreshZoteroNote(session, requestId, nodeId, source);
+    },
+    onOpenAcademicSource(requestId, source) {
+      void handleOpenAcademicSource(session, requestId, source, gateway);
     },
     onListLiteratureAnnotations(requestId, source) {
       void handleListLiteratureAnnotations(session, requestId, source);

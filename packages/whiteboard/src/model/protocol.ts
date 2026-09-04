@@ -361,7 +361,11 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
           requestId: string;
           generation: number;
           priority: SourceResolutionPriority;
-          sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>;
+          sources: Array<{
+            nodeId: string;
+            source: AcademicSourceDescriptor;
+            refresh?: boolean;
+          }>;
         };
       }
     | {

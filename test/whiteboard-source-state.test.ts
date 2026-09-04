@@ -16,6 +16,7 @@ import {
   prioritizedSourceRequests,
   sourceCacheKey,
   sourceDescriptor,
+  sourceSnapshotChanged,
   updateSourceResolutionStates,
   visibleSourceNodeIds,
 } from "../packages/whiteboard/src/whiteboard/sourceState.ts";
@@ -261,6 +262,38 @@ test("background Note resolution updates only the source title", () => {
   assert.deepEqual(
     next.data.model.kind === "note" && next.data.model.sourceSnapshot,
     { title: "Current Zotero title" },
+  );
+});
+
+test("snapshot change detection requires the same full Quote source identity", () => {
+  const quote = canvasDocumentToFlow(DOCUMENT).nodes[1];
+  const source =
+    quote.data.model.kind === "quote" ? quote.data.model.source : undefined;
+  assert.ok(source);
+
+  assert.equal(
+    sourceSnapshotChanged(quote, {
+      kind: "quote",
+      source,
+      snapshot: { text: "Current excerpt", pageLabel: "4" },
+    }),
+    true,
+  );
+  assert.equal(
+    sourceSnapshotChanged(quote, {
+      kind: "quote",
+      source,
+      snapshot: { text: "Persisted excerpt", pageLabel: "3" },
+    }),
+    false,
+  );
+  assert.equal(
+    sourceSnapshotChanged(quote, {
+      kind: "quote",
+      source: { ...source, attachmentKey: "OTHER-PDF" },
+      snapshot: { text: "Retargeted excerpt" },
+    }),
+    false,
   );
 });
 

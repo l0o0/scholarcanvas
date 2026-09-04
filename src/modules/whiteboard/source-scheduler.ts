@@ -103,6 +103,11 @@ export class ProgressiveSourceScheduler {
     this.schedulePump();
   }
 
+  invalidate(cacheKey: string): void {
+    if (this.disposed) return;
+    this.completed.delete(cacheKey);
+  }
+
   cancelGeneration(generation: number): void {
     if (this.disposed) return;
     this.cancelledGenerations.add(generation);

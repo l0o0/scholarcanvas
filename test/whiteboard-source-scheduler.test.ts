@@ -206,6 +206,27 @@ test("promotes queued cache keys without disturbing priority FIFO", async () => 
   assert.deepEqual(started, ["blocker", "promoted"]);
 });
 
+test("invalidating a completed source makes explicit refresh perform a fresh lookup", async () => {
+  let runs = 0;
+  const emitted: SourceResolutionResult[] = [];
+  const scheduler = new ProgressiveSourceScheduler({
+    run: async (next) => {
+      runs += 1;
+      return resolved(next);
+    },
+    emit: (results) => emitted.push(...results),
+  });
+
+  scheduler.enqueue(job("refresh-me", "visible"));
+  await flushMicrotasks();
+  scheduler.invalidate("refresh-me");
+  scheduler.enqueue(job("refresh-me", "selected"));
+  await flushMicrotasks();
+
+  assert.equal(runs, 2);
+  assert.equal(emitted.length, 2);
+});
+
 test("a rejected lookup fans out unavailable results and continues the queue", async () => {
   const emitted: SourceResolutionResult[] = [];
   const started: string[] = [];

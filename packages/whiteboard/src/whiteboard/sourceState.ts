@@ -1,8 +1,17 @@
-import type { CanvasNode } from "../model/academic";
+import {
+  ACADEMIC_SOURCE_CARD_SIZE,
+  createAcademicNode,
+  literatureSourceIdentity,
+  quoteSourceIdentity,
+  type CanvasNode,
+} from "../model/academic";
+import type { CanvasDocument } from "../model/document";
 import type {
   AcademicAcquisition,
   AcademicSourceDescriptor,
+  AnnotationCandidate,
   SourceResolutionPriority,
+  SourceResolutionResult,
 } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 
@@ -17,7 +26,42 @@ export type SourceResolutionStateUpdate =
 export interface SourceResolutionRequest {
   nodeId: string;
   source: AcademicSourceDescriptor;
+  refresh?: boolean;
 }
+
+export interface QuoteBatchRuntimeBindings {
+  getWorkingDocument: () => CanvasDocument;
+  getHistoryDocument: () => CanvasDocument;
+  applyDocument: (document: CanvasDocument) => void;
+  commitHistory: (document: CanvasDocument) => void;
+  createNodeId: (candidate: AnnotationCandidate, index: number) => string;
+}
+
+export interface QuoteBatchRuntime {
+  add(
+    literatureNodeId: string,
+    candidates: readonly AnnotationCandidate[],
+    selectedKeys: ReadonlySet<string>,
+  ): string[];
+}
+
+export interface SourceRefreshRuntimeBindings {
+  getNodes: () => CanvasFlowNode[];
+  applyResolutionBatch: (
+    generation: number,
+    results: SourceResolutionResult[],
+  ) => void;
+  changed: () => void;
+}
+
+export interface SourceRefreshRuntime {
+  request(node: CanvasFlowNode): SourceResolutionRequest | undefined;
+  apply(generation: number, results: SourceResolutionResult[]): void;
+  clear(): void;
+}
+
+const QUOTE_LAYOUT_COLUMNS = 2;
+const QUOTE_LAYOUT_GAP = 24;
 
 export function sourceDescriptor(
   node: CanvasNode,
@@ -74,6 +118,144 @@ export function applyResolvedAcquisition(
     return node;
   }
   return { ...node, data: { ...node.data, model: resolved } };
+}
+
+export function sourceSnapshotChanged(
+  node: CanvasFlowNode,
+  acquisition: AcademicAcquisition,
+): boolean {
+  const current = sourceDescriptor(node.data.model);
+  const incoming = descriptorForAcquisition(acquisition);
+  if (
+    !current ||
+    sourceCacheKey(current) !== sourceCacheKey(incoming) ||
+    current.kind !== incoming.kind
+  ) {
+    return false;
+  }
+  const model = node.data.model;
+  if (model.kind === "literature" && acquisition.kind === "literature") {
+    return !literatureSnapshotsEqual(model.snapshot, acquisition.snapshot);
+  }
+  if (model.kind === "quote" && acquisition.kind === "quote") {
+    return !quoteSnapshotsEqual(model.snapshot, acquisition.snapshot);
+  }
+  return false;
+}
+
+export function createQuoteBatchRuntime(
+  bindings: QuoteBatchRuntimeBindings,
+): QuoteBatchRuntime {
+  return {
+    add(literatureNodeId, candidates, selectedKeys) {
+      const document = bindings.getWorkingDocument();
+      const literature = document.nodes.find(
+        (node) => node.id === literatureNodeId && node.kind === "literature",
+      );
+      if (!literature || literature.kind !== "literature") return [];
+
+      const literatureIdentity = literatureSourceIdentity(literature.source);
+      const seen = new Set(
+        document.nodes.flatMap((node) =>
+          node.kind === "quote" ? [quoteSourceIdentity(node.source)] : [],
+        ),
+      );
+      const accepted: AnnotationCandidate[] = [];
+      for (const candidate of candidates) {
+        const source = candidate.acquisition.source;
+        const identity = quoteSourceIdentity(source);
+        if (
+          !selectedKeys.has(identity) ||
+          seen.has(identity) ||
+          literatureSourceIdentity(source) !== literatureIdentity
+        ) {
+          continue;
+        }
+        seen.add(identity);
+        accepted.push(candidate);
+      }
+      if (!accepted.length) return [];
+
+      const existingRows = Math.ceil(
+        document.nodes.filter(
+          (node) =>
+            node.kind === "quote" &&
+            literatureSourceIdentity(node.source) === literatureIdentity,
+        ).length / QUOTE_LAYOUT_COLUMNS,
+      );
+      const added = accepted.map((candidate, index) => {
+        const column = index % QUOTE_LAYOUT_COLUMNS;
+        const row = existingRows + Math.floor(index / QUOTE_LAYOUT_COLUMNS);
+        return createAcademicNode(
+          "quote",
+          {
+            x:
+              literature.position.x +
+              literature.width +
+              QUOTE_LAYOUT_GAP +
+              column *
+                (ACADEMIC_SOURCE_CARD_SIZE.quote.width + QUOTE_LAYOUT_GAP),
+            y:
+              literature.position.y +
+              row * (ACADEMIC_SOURCE_CARD_SIZE.quote.height + QUOTE_LAYOUT_GAP),
+          },
+          bindings.createNodeId(candidate, index),
+          {
+            source: candidate.acquisition.source,
+            snapshot: candidate.acquisition.snapshot,
+          },
+        );
+      });
+      bindings.commitHistory(bindings.getHistoryDocument());
+      bindings.applyDocument({
+        ...document,
+        nodes: [...document.nodes, ...added],
+      });
+      return added.map((node) => node.id);
+    },
+  };
+}
+
+export function createSourceRefreshRuntime(
+  bindings: SourceRefreshRuntimeBindings,
+): SourceRefreshRuntime {
+  const pending = new Map<string, string>();
+  return {
+    request(node) {
+      const source = sourceDescriptor(node.data.model);
+      if (!source || source.kind === "note") return undefined;
+      pending.set(node.id, sourceCacheKey(source));
+      return { nodeId: node.id, source };
+    },
+    apply(generation, results) {
+      const before = bindings.getNodes();
+      let changedSnapshots = 0;
+      for (const result of results) {
+        if (result.generation !== generation) continue;
+        const expected = pending.get(result.nodeId);
+        if (!expected) continue;
+        pending.delete(result.nodeId);
+        if (result.status !== "resolved") continue;
+        const node = before.find((candidate) => candidate.id === result.nodeId);
+        const descriptor = node && sourceDescriptor(node.data.model);
+        if (
+          node &&
+          descriptor &&
+          sourceCacheKey(descriptor) === expected &&
+          sourceSnapshotChanged(node, result.acquisition)
+        ) {
+          changedSnapshots += 1;
+        }
+      }
+      bindings.applyResolutionBatch(generation, results);
+      for (let index = 0; index < changedSnapshots; index += 1) {
+        bindings.changed();
+      }
+    },
+    clear() {
+      pending.clear();
+    },
+  };
 }
 
 export function createSourceResolutionStates(
@@ -156,4 +338,40 @@ function descriptorForAcquisition(
     kind: acquisition.kind,
     source: acquisition.source,
   } as AcademicSourceDescriptor;
+}
+
+function literatureSnapshotsEqual(
+  left: Extract<CanvasNode, { kind: "literature" }>["snapshot"],
+  right: Extract<AcademicAcquisition, { kind: "literature" }>["snapshot"],
+): boolean {
+  return (
+    left.title === right.title &&
+    left.creators === right.creators &&
+    left.year === right.year &&
+    left.publicationTitle === right.publicationTitle &&
+    left.annotationCount === right.annotationCount &&
+    stringArraysEqual(left.tags, right.tags)
+  );
+}
+
+function quoteSnapshotsEqual(
+  left: Extract<CanvasNode, { kind: "quote" }>["snapshot"],
+  right: Extract<AcademicAcquisition, { kind: "quote" }>["snapshot"],
+): boolean {
+  return (
+    left.text === right.text &&
+    left.comment === right.comment &&
+    left.citation === right.citation &&
+    left.pageLabel === right.pageLabel &&
+    left.color === right.color
+  );
+}
+
+function stringArraysEqual(
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }

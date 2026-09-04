@@ -674,7 +674,7 @@ test("converts Zotero note HTML and falls back to DOM text content only after ut
   );
 });
 
-test("opens quotes through exact annotation navigation or the position page fallback", async () => {
+test("opens a Quote by exact annotation before considering a page fallback", async () => {
   const regular = item("regular", { key: "ITEM" });
   const attachment = item("attachment", {
     key: "PDF",
@@ -685,6 +685,48 @@ test("opens quotes through exact annotation navigation or the position page fall
     key: "ANNOTATION",
     parentItem: attachment,
     annotationPosition: '{"pageIndex":7}',
+    annotationType: "highlight",
+    annotationText: "Text",
+  });
+  const { deps, pages } = dependencies([regular, attachment, annotation]);
+  const exact: Array<{ attachmentKey: string; annotationKey: string }> = [];
+  deps.openAnnotation = async (resolvedAttachment, resolvedAnnotation) => {
+    exact.push({
+      attachmentKey: resolvedAttachment.key,
+      annotationKey: resolvedAnnotation.key,
+    });
+    return true;
+  };
+  const gateway = createZoteroSourceGateway(deps);
+
+  await gateway.open({
+    kind: "quote",
+    source: {
+      library: { type: "user" },
+      itemKey: "ITEM",
+      attachmentKey: "PDF",
+      annotationKey: "ANNOTATION",
+    },
+  });
+
+  assert.deepEqual(exact, [
+    { attachmentKey: "PDF", annotationKey: "ANNOTATION" },
+  ]);
+  assert.deepEqual(pages, []);
+});
+
+test("uses the resolved annotation page only when exact navigation is unavailable", async () => {
+  const regular = item("regular", { key: "ITEM" });
+  const attachment = item("attachment", {
+    key: "PDF",
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+  });
+  const annotation = item("annotation", {
+    key: "ANNOTATION",
+    parentItem: attachment,
+    annotationPosition: '{"pageIndex":7}',
+    annotationPageLabel: "99",
     annotationType: "highlight",
     annotationText: "Text",
   });
@@ -702,4 +744,227 @@ test("opens quotes through exact annotation navigation or the position page fall
   });
 
   assert.deepEqual(pages, [{ key: "PDF", pageIndex: 7 }]);
+});
+
+test("opens the attachment without a claimed page when no exact page exists", async () => {
+  const regular = item("regular", { key: "ITEM" });
+  const attachment = item("attachment", {
+    key: "PDF",
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+  });
+  const annotation = item("annotation", {
+    key: "ANNOTATION",
+    parentItem: attachment,
+    annotationPosition: "not-json",
+    annotationPageLabel: "27",
+    annotationType: "highlight",
+    annotationText: "Text",
+  });
+  const { deps, pages } = dependencies([regular, attachment, annotation]);
+
+  await createZoteroSourceGateway(deps).open({
+    kind: "quote",
+    source: {
+      library: { type: "user" },
+      itemKey: "ITEM",
+      attachmentKey: "PDF",
+      annotationKey: "ANNOTATION",
+    },
+  });
+
+  assert.deepEqual(pages, [{ key: "PDF", pageIndex: undefined }]);
+});
+
+test("an exact Reader failure propagates without an arbitrary page retry", async () => {
+  const regular = item("regular", { key: "ITEM" });
+  const attachment = item("attachment", {
+    key: "PDF",
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+  });
+  const annotation = item("annotation", {
+    key: "ANNOTATION",
+    parentItem: attachment,
+    annotationPosition: '{"pageIndex":7}',
+    annotationType: "highlight",
+    annotationText: "Text",
+  });
+  const { deps, pages } = dependencies([regular, attachment, annotation]);
+  deps.openAnnotation = async () => {
+    throw new Error("Reader failed after accepting exact navigation");
+  };
+
+  await assert.rejects(
+    createZoteroSourceGateway(deps).open({
+      kind: "quote",
+      source: {
+        library: { type: "user" },
+        itemKey: "ITEM",
+        attachmentKey: "PDF",
+        annotationKey: "ANNOTATION",
+      },
+    }),
+    /Reader failed after accepting exact navigation/,
+  );
+  assert.deepEqual(pages, []);
+});
+
+test("opening a Quote rejects a lookup result with the wrong annotation key", async () => {
+  const regular = item("regular", { key: "ITEM" });
+  const attachment = item("attachment", {
+    key: "PDF",
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+  });
+  const wrongAnnotation = item("annotation", {
+    key: "OTHER-ANNOTATION",
+    parentItem: attachment,
+    annotationType: "highlight",
+    annotationText: "Wrong annotation",
+  });
+  const { deps, pages } = dependencies();
+  let exactAttempts = 0;
+  deps.getByLibraryAndKey = () => wrongAnnotation as Zotero.Item;
+  deps.openAnnotation = async () => {
+    exactAttempts += 1;
+    return true;
+  };
+
+  await assert.rejects(
+    createZoteroSourceGateway(deps).open({
+      kind: "quote",
+      source: {
+        library: { type: "user" },
+        itemKey: "ITEM",
+        attachmentKey: "PDF",
+        annotationKey: "EXPECTED-ANNOTATION",
+      },
+    }),
+    /parent-mismatch/,
+  );
+  assert.equal(exactAttempts, 0);
+  assert.deepEqual(pages, []);
+});
+
+test("production dependencies use Zotero Reader's supported annotation location", async (t) => {
+  const regular = item("regular", { id: 10, key: "ITEM" });
+  const attachment = item("attachment", {
+    id: 11,
+    key: "PDF",
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+  });
+  const annotation = item("annotation", {
+    id: 12,
+    key: "ANNOTATION",
+    parentItem: attachment,
+    annotationPosition: '{"pageIndex":7}',
+    annotationType: "highlight",
+    annotationText: "Text",
+  });
+  const byKey = new Map(
+    [regular, attachment, annotation].map((value) => [value.key, value]),
+  );
+  const calls: unknown[][] = [];
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "Zotero");
+  Object.defineProperty(globalThis, "Zotero", {
+    configurable: true,
+    value: {
+      Libraries: { userLibraryID: 1, get: () => ({ libraryType: "user" }) },
+      Groups: { get: () => null },
+      Items: {
+        getByLibraryAndKey: (_libraryID: number, key: string) =>
+          byKey.get(key) ?? null,
+        get: () => null,
+      },
+      Utilities: {
+        cleanTags: (html: string) => html,
+        unescapeHTML: (html: string) => html,
+      },
+      Reader: {
+        open: async (...args: unknown[]) => {
+          calls.push(args);
+        },
+      },
+      getMainWindow: () => ({ ZoteroPane: {} }),
+    },
+  });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, "Zotero", previous);
+    else Reflect.deleteProperty(globalThis, "Zotero");
+  });
+
+  await createZoteroSourceGateway().open({
+    kind: "quote",
+    source: {
+      library: { type: "user" },
+      itemKey: "ITEM",
+      attachmentKey: "PDF",
+      annotationKey: "ANNOTATION",
+    },
+  });
+
+  assert.deepEqual(calls, [[11, { annotationID: "ANNOTATION" }]]);
+});
+
+test("production exact Reader failures are not converted into page fallback", async (t) => {
+  const regular = item("regular", { id: 10, key: "ITEM" });
+  const attachment = item("attachment", {
+    id: 11,
+    key: "PDF",
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+  });
+  const annotation = item("annotation", {
+    id: 12,
+    key: "ANNOTATION",
+    parentItem: attachment,
+    annotationPosition: '{"pageIndex":7}',
+    annotationType: "highlight",
+    annotationText: "Text",
+  });
+  const calls: unknown[][] = [];
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "Zotero");
+  Object.defineProperty(globalThis, "Zotero", {
+    configurable: true,
+    value: {
+      Libraries: { userLibraryID: 1, get: () => ({ libraryType: "user" }) },
+      Groups: { get: () => null },
+      Items: {
+        getByLibraryAndKey: (_libraryID: number, key: string) =>
+          key === "ANNOTATION" ? annotation : null,
+        get: () => null,
+      },
+      Utilities: {
+        cleanTags: (html: string) => html,
+        unescapeHTML: (html: string) => html,
+      },
+      Reader: {
+        open: async (...args: unknown[]) => {
+          calls.push(args);
+          throw new Error("Reader rejected navigation");
+        },
+      },
+      getMainWindow: () => ({ ZoteroPane: {} }),
+    },
+  });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, "Zotero", previous);
+    else Reflect.deleteProperty(globalThis, "Zotero");
+  });
+
+  await assert.rejects(
+    createZoteroSourceGateway().open({
+      kind: "quote",
+      source: {
+        library: { type: "user" },
+        itemKey: "ITEM",
+        attachmentKey: "PDF",
+        annotationKey: "ANNOTATION",
+      },
+    }),
+    /Reader rejected navigation/,
+  );
+  assert.deepEqual(calls, [[11, { annotationID: "ANNOTATION" }]]);
 });

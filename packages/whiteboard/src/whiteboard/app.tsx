@@ -123,9 +123,13 @@ import {
   type AcademicAcquisitionRuntime,
 } from "./runtime";
 import {
+  createQuoteBatchRuntime,
+  createSourceRefreshRuntime,
   createSourceResolutionStates,
   prioritizedSourceRequests,
+  sourceDescriptor,
   updateSourceResolutionStates,
+  type SourceRefreshRuntime,
   type SourceResolutionRequest,
 } from "./sourceState";
 import {
@@ -277,7 +281,11 @@ export interface WhiteboardAppProps {
     requestId: string,
     generation: number,
     priority: SourceResolutionPriority,
-    sources: Array<{ nodeId: string; source: AcademicSourceDescriptor }>,
+    sources: SourceResolutionRequest[],
+  ) => void;
+  onOpenAcademicSource?: (
+    requestId: string,
+    source: AcademicSourceDescriptor,
   ) => void;
   onRefreshZoteroNote: (
     requestId: string,
@@ -416,6 +424,7 @@ function createCanvasNode(
 
 function hasOpenTarget(node: CanvasFlowNode): boolean {
   const model = node.data.model;
+  if (sourceDescriptor(model)) return true;
   if (!("data" in model)) return false;
   return (
     ("itemID" in model.data && Boolean(model.data.itemID)) ||
@@ -449,6 +458,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     null,
   );
   const noteRefreshRuntimeRef = useRef<NoteRefreshRuntime | null>(null);
+  const sourceRefreshRuntimeRef = useRef<SourceRefreshRuntime | null>(null);
   const documentRuntime = useCanvasDocumentRuntime(
     initial,
     (revision) => propsRef.current.onChange(revision),
@@ -513,6 +523,14 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     });
   }
   const noteRefreshRuntime = noteRefreshRuntimeRef.current;
+  if (!sourceRefreshRuntimeRef.current) {
+    sourceRefreshRuntimeRef.current = createSourceRefreshRuntime({
+      getNodes: () => nodesRef.current,
+      applyResolutionBatch: applyDocumentSourceResolutionBatch,
+      changed: bump,
+    });
+  }
+  const sourceRefreshRuntime = sourceRefreshRuntimeRef.current;
   const [activeTool, setActiveTool] = useState<CanvasTool>("select");
   const eraser = activeTool === "eraser";
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">(
@@ -529,6 +547,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     useState<AnnotationBrowserSession | null>(null);
   const annotationBrowserRef = useRef<AnnotationBrowserSession | null>(null);
   annotationBrowserRef.current = annotationBrowser;
+  const annotationBrowserOriginNodeIdRef = useRef<string | null>(null);
   const viewAnnotationsRef = useRef<HTMLButtonElement | null>(null);
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
   const holdEditFocusRef = useRef(false);
@@ -555,9 +574,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       generation = sourceGenerationRef.current,
     ) => {
       if (generation !== sourceGenerationRef.current) return;
-      const requested = sources.filter(({ nodeId }) => {
+      const requested = sources.filter(({ nodeId, refresh }) => {
         const previous = sourcePrioritiesRef.current.get(nodeId);
         if (
+          !refresh &&
           previous &&
           SOURCE_PRIORITY_ORDER[previous] <= SOURCE_PRIORITY_ORDER[priority]
         ) {
@@ -629,6 +649,8 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       );
       setAnnotationBrowser(annotationBrowserRef.current);
       noteRefreshRuntimeRef.current?.clear();
+      sourceRefreshRuntimeRef.current?.clear();
+      annotationBrowserOriginNodeIdRef.current = null;
       sourceGenerationRef.current += 1;
       sourcePrioritiesRef.current.clear();
       sourceStatesRef.current = createSourceResolutionStates(value.nodes);
@@ -658,9 +680,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         ),
       );
       renderSourceState((revision) => revision + 1);
-      applyDocumentSourceResolutionBatch(generation, current);
+      sourceRefreshRuntime.apply(generation, current);
     },
-    [applyDocumentSourceResolutionBatch],
+    [sourceRefreshRuntime],
   );
 
   const refreshNoteSource = useCallback(
@@ -668,6 +690,23 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       noteRefreshRuntime.request(node, labels);
     },
     [labels, noteRefreshRuntime],
+  );
+
+  const refreshAcademicSource = useCallback(
+    (node: CanvasFlowNode) => {
+      const request = sourceRefreshRuntime.request(node);
+      if (!request) return;
+      requestSources("selected", [{ ...request, refresh: true }]);
+    },
+    [requestSources, sourceRefreshRuntime],
+  );
+
+  const refreshNodeSource = useCallback(
+    (node: CanvasFlowNode) => {
+      if (node.data.model.kind === "note") refreshNoteSource(node);
+      else refreshAcademicSource(node);
+    },
+    [refreshAcademicSource, refreshNoteSource],
   );
 
   const applyNoteRefresh = useCallback(
@@ -692,6 +731,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     if (model.kind !== "literature" || annotationBrowserRef.current) return;
     const requestId = newId("annotations");
     const session = openAnnotationBrowserSession(requestId, model.source);
+    annotationBrowserOriginNodeIdRef.current = node.id;
     annotationBrowserRef.current = session;
     setAnnotationBrowser(session);
     propsRef.current.onListLiteratureAnnotations?.(requestId, model.source);
@@ -741,7 +781,46 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       annotationBrowserRef.current,
     );
     setAnnotationBrowser(annotationBrowserRef.current);
+    annotationBrowserOriginNodeIdRef.current = null;
   }, []);
+
+  const addSelectedAnnotations = useCallback(() => {
+    const session = annotationBrowserRef.current;
+    const literatureNodeId = annotationBrowserOriginNodeIdRef.current;
+    if (!session || !literatureNodeId || session.state.status !== "ready") {
+      closeAnnotationBrowser();
+      return;
+    }
+    const addedNodeIds = createQuoteBatchRuntime({
+      getWorkingDocument: workingSnapshot,
+      getHistoryDocument: snapshotNow,
+      applyDocument,
+      commitHistory: (document) => documentHistory.commit(document),
+      createNodeId: () => newId("quote"),
+    }).add(literatureNodeId, session.state.candidates, session.selectedKeys);
+    if (addedNodeIds.length) {
+      setNodes((current) =>
+        current.map((node) => ({
+          ...node,
+          selected: node.id === literatureNodeId,
+        })),
+      );
+      sourceStatesRef.current = updateSourceResolutionStates(
+        sourceStatesRef.current,
+        addedNodeIds.map((nodeId) => ({ nodeId, status: "idle" })),
+      );
+      renderSourceState((revision) => revision + 1);
+      setSourceCycle((cycle) => cycle + 1);
+    }
+    closeAnnotationBrowser();
+  }, [
+    applyDocument,
+    closeAnnotationBrowser,
+    documentHistory,
+    setNodes,
+    snapshotNow,
+    workingSnapshot,
+  ]);
 
   const focusExistingAnnotation = useCallback(
     (annotationIdentity: string) => {
@@ -1161,7 +1240,16 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const openNode = useCallback(
     (node: CanvasFlowNode) => {
       const model = node.data.model;
-      if (model.kind === "pdf" && model.data.attachmentID) {
+      const academicSource = sourceDescriptor(model);
+      if (academicSource) {
+        requestSources("selected", [
+          { nodeId: node.id, source: academicSource },
+        ]);
+        propsRef.current.onOpenAcademicSource?.(
+          newId("open-source"),
+          academicSource,
+        );
+      } else if (model.kind === "pdf" && model.data.attachmentID) {
         propsRef.current.onOpenItem({
           attachmentID: model.data.attachmentID,
           pdfPage: model.data.pdfPage,
@@ -1176,7 +1264,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         startEdit(node.id);
       }
     },
-    [startEdit],
+    [requestSources, startEdit],
   );
 
   const commitEdit = useCallback(() => {
@@ -1645,7 +1733,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           }
           onEdit={startEdit}
           onOpen={openNode}
-          onRefreshSource={refreshNoteSource}
+          onRefreshSource={refreshNodeSource}
           onViewAnnotations={openAnnotationBrowser}
           viewAnnotationsRef={viewAnnotationsRef}
           onCopy={copyNode}
@@ -1692,7 +1780,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             }
             onClose={closeAnnotationBrowser}
             onFocusExisting={focusExistingAnnotation}
-            onAddSelected={() => undefined}
+            onAddSelected={addSelectedAnnotations}
           />
         ) : null}
         <ReactFlow<CanvasFlowNode, CanvasFlowEdge>
@@ -1752,7 +1840,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 return;
               }
             }
-            if (isLibraryKind(kind)) {
+            if (
+              isLibraryKind(kind) ||
+              kind === "literature" ||
+              kind === "quote"
+            ) {
               openNode(node);
               return;
             }

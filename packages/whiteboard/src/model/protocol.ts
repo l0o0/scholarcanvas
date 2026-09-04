@@ -569,6 +569,539 @@ export function isWhiteboardProtocolMessageForChannel(
   return isWhiteboardProtocolMessage(data) && data.channel === channel;
 }
 
+type ProtocolRecord = Record<string, unknown>;
+
+function isPlainRecord(value: unknown): value is ProtocolRecord {
+  if (!value || typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || isString(value);
+}
+
+function isOptionalNumber(value: unknown): value is number | undefined {
+  return value === undefined || isFiniteNumber(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(isString);
+}
+
+function isLibraryRef(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  if (value.type === "user") return true;
+  return (
+    value.type === "group" &&
+    Number.isSafeInteger(value.groupID) &&
+    (value.groupID as number) > 0
+  );
+}
+
+function isLiteratureSource(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    isLibraryRef(value.library) &&
+    isString(value.itemKey)
+  );
+}
+
+function isNoteSource(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    isLibraryRef(value.library) &&
+    isString(value.noteKey) &&
+    isOptionalString(value.itemKey)
+  );
+}
+
+function isQuoteSource(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  return (
+    isLiteratureSource(value) &&
+    isString(value.attachmentKey) &&
+    isString(value.annotationKey)
+  );
+}
+
+function isAcademicSourceDescriptor(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  if (value.kind === "literature") return isLiteratureSource(value.source);
+  if (value.kind === "note") return isNoteSource(value.source);
+  if (value.kind === "quote") return isQuoteSource(value.source);
+  return false;
+}
+
+function isLiteratureSnapshot(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    isString(value.title) &&
+    isOptionalString(value.creators) &&
+    isOptionalString(value.year) &&
+    isOptionalString(value.publicationTitle) &&
+    (value.tags === undefined || isStringArray(value.tags)) &&
+    isOptionalNumber(value.annotationCount)
+  );
+}
+
+function isQuoteSnapshot(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    isString(value.text) &&
+    isOptionalString(value.comment) &&
+    isOptionalString(value.citation) &&
+    isOptionalString(value.pageLabel) &&
+    isOptionalString(value.color)
+  );
+}
+
+function isAcademicAcquisition(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  if (value.kind === "literature") {
+    return (
+      isLiteratureSource(value.source) && isLiteratureSnapshot(value.snapshot)
+    );
+  }
+  if (value.kind === "quote") {
+    return isQuoteSource(value.source) && isQuoteSnapshot(value.snapshot);
+  }
+  return (
+    value.kind === "note" &&
+    isNoteSource(value.source) &&
+    isString(value.content) &&
+    (value.sourceSnapshot === undefined ||
+      (isPlainRecord(value.sourceSnapshot) &&
+        isOptionalString(value.sourceSnapshot.title)))
+  );
+}
+
+function isCanvasDocument(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    value.version === 2 &&
+    Array.isArray(value.nodes) &&
+    Array.isArray(value.connections)
+  );
+}
+
+function isAcademicDropSource(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    isLibraryRef(value.library) &&
+    isString(value.itemKey)
+  );
+}
+
+function isAcademicSourceRequest(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    isString(value.nodeId) &&
+    isAcademicSourceDescriptor(value.source) &&
+    (value.refresh === undefined || typeof value.refresh === "boolean")
+  );
+}
+
+const acquisitionFailureCodes = new Set<AcademicAcquisitionFailureCode>([
+  "item-missing",
+  "unsupported-attachment",
+  "unsupported-kind",
+  "acquisition-failed",
+]);
+const requestFailureCodes = new Set<AcademicRequestFailureCode>([
+  "picker-cancelled",
+  "picker-failed",
+  "acquisition-failed",
+  "library-missing",
+  "item-missing",
+  "wrong-kind",
+  "parent-mismatch",
+  "note-refresh-failed",
+]);
+const sourceActionFailureCodes = new Set<AcademicSourceActionFailureCode>([
+  "library-missing",
+  "item-missing",
+  "wrong-kind",
+  "parent-mismatch",
+  "open-failed",
+]);
+const resolutionFailureCodes = new Set<SourceResolutionFailureCode>([
+  "library-missing",
+  "item-missing",
+  "wrong-kind",
+  "parent-mismatch",
+  "resolution-failed",
+]);
+const annotationFailureCodes = new Set<AnnotationListFailureCode>([
+  "library-missing",
+  "item-missing",
+  "wrong-kind",
+  "parent-mismatch",
+  "attachment-unavailable",
+  "annotation-unavailable",
+  "list-failed",
+]);
+
+function isFailureWithCode(
+  value: unknown,
+  codes: ReadonlySet<string>,
+): boolean {
+  return (
+    isPlainRecord(value) &&
+    isString(value.code) &&
+    codes.has(value.code) &&
+    isString(value.message)
+  );
+}
+
+function isIndexedAcquisition(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    Number.isSafeInteger(value.index) &&
+    (value.index as number) >= 0 &&
+    isAcademicAcquisition(value.acquisition)
+  );
+}
+
+function isAcquisitionFailure(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  return (
+    isFailureWithCode(value, acquisitionFailureCodes) &&
+    Number.isSafeInteger(value.index) &&
+    (value.index as number) >= 0
+  );
+}
+
+function isSourceActionFailure(value: unknown): boolean {
+  return isFailureWithCode(value, sourceActionFailureCodes);
+}
+
+function isResolutionResult(value: unknown): boolean {
+  if (
+    !isPlainRecord(value) ||
+    !isString(value.nodeId) ||
+    !Number.isSafeInteger(value.generation)
+  ) {
+    return false;
+  }
+  if (value.status === "resolved") {
+    return isAcademicAcquisition(value.acquisition);
+  }
+  return (
+    value.status === "unavailable" &&
+    isFailureWithCode(value, resolutionFailureCodes)
+  );
+}
+
+function isAnnotationFailure(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false;
+  return (
+    isFailureWithCode(value, annotationFailureCodes) &&
+    isOptionalString(value.attachmentKey) &&
+    isOptionalString(value.annotationKey)
+  );
+}
+
+function isAnnotationCandidate(value: unknown): boolean {
+  return (
+    isPlainRecord(value) &&
+    isString(value.attachmentTitle) &&
+    isString(value.sortIndex) &&
+    isPlainRecord(value.acquisition) &&
+    value.acquisition.kind === "quote" &&
+    isAcademicAcquisition(value.acquisition)
+  );
+}
+
+function hasRequestAndNode(payload: ProtocolRecord): boolean {
+  return isString(payload.requestId) && isString(payload.nodeId);
+}
+
+function hasProtocolEnvelope(
+  data: unknown,
+  channel: string,
+): data is ProtocolRecord {
+  return (
+    isPlainRecord(data) &&
+    data.source === WHITEBOARD_MESSAGE_SOURCE &&
+    data.channel === channel &&
+    data.v === WHITEBOARD_PROTOCOL_VERSION &&
+    isString(data.type)
+  );
+}
+
+/** Closed runtime validator for messages handled by the Zotero host. */
+export function isWhiteboardToParentMessageForChannel(
+  data: unknown,
+  channel: string,
+): data is WhiteboardToParentMessage {
+  if (!hasProtocolEnvelope(data, channel)) return false;
+  const payload = data.payload;
+  switch (data.type) {
+    case "ready":
+    case "save":
+      return payload === undefined;
+    case "change":
+      return isPlainRecord(payload) && isFiniteNumber(payload.rev);
+    case "snapshot":
+      return (
+        isPlainRecord(payload) &&
+        isString(payload.requestId) &&
+        isFiniteNumber(payload.rev) &&
+        isCanvasDocument(payload.snapshot)
+      );
+    case "error":
+      return isPlainRecord(payload) && isString(payload.message);
+    case "pickAcademicSource":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        payload.kind === "literature"
+      );
+    case "openItem":
+      return (
+        isPlainRecord(payload) &&
+        isOptionalNumber(payload.itemID) &&
+        isOptionalNumber(payload.attachmentID) &&
+        isOptionalNumber(payload.pdfPage)
+      );
+    case "dropAcademicSources":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        Array.isArray(payload.sources) &&
+        payload.sources.every(isAcademicDropSource)
+      );
+    case "resolveAcademicSources":
+      return (
+        isPlainRecord(payload) &&
+        isString(payload.requestId) &&
+        Number.isSafeInteger(payload.generation) &&
+        (payload.priority === "selected" ||
+          payload.priority === "visible" ||
+          payload.priority === "idle") &&
+        Array.isArray(payload.sources) &&
+        payload.sources.every(isAcademicSourceRequest)
+      );
+    case "listLiteratureAnnotations":
+      return (
+        isPlainRecord(payload) &&
+        isString(payload.requestId) &&
+        isLiteratureSource(payload.source)
+      );
+    case "refreshZoteroNote":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        isNoteSource(payload.source)
+      );
+    case "openAcademicSource":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        isAcademicSourceDescriptor(payload.source)
+      );
+    case "exportFile":
+      return (
+        isPlainRecord(payload) &&
+        isString(payload.requestId) &&
+        (payload.format === "png" ||
+          payload.format === "svg" ||
+          payload.format === "md") &&
+        isString(payload.mimeType) &&
+        isOptionalString(payload.dataUrl) &&
+        isOptionalString(payload.text)
+      );
+    default:
+      return false;
+  }
+}
+
+/** Closed runtime validator for messages handled by the whiteboard iframe. */
+export function isParentToWhiteboardMessageForChannel(
+  data: unknown,
+  channel: string,
+): data is ParentToWhiteboardMessage {
+  if (!hasProtocolEnvelope(data, channel)) return false;
+  const payload = data.payload;
+  switch (data.type) {
+    case "focus":
+    case "destroy":
+      return payload === undefined;
+    case "init":
+      return (
+        isPlainRecord(payload) &&
+        (payload.theme === "light" || payload.theme === "dark") &&
+        (payload.snapshot === undefined ||
+          payload.snapshot === null ||
+          isCanvasDocument(payload.snapshot)) &&
+        (payload.labels === undefined || isPlainRecord(payload.labels))
+      );
+    case "setTheme":
+      return (
+        isPlainRecord(payload) &&
+        (payload.theme === "light" || payload.theme === "dark")
+      );
+    case "loadSnapshot":
+      return isPlainRecord(payload) && isCanvasDocument(payload.snapshot);
+    case "requestSnapshot":
+      return isPlainRecord(payload) && isString(payload.requestId);
+    case "command":
+      return (
+        isPlainRecord(payload) &&
+        (payload.command === "undo" || payload.command === "redo")
+      );
+    case "saveState":
+      return (
+        isPlainRecord(payload) &&
+        (payload.state === "saved" ||
+          payload.state === "saving" ||
+          payload.state === "error")
+      );
+    case "academicDropStarted":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        isPlainRecord(payload.position) &&
+        isFiniteNumber(payload.position.x) &&
+        isFiniteNumber(payload.position.y) &&
+        Array.isArray(payload.sources) &&
+        payload.sources.every(isAcademicDropSource)
+      );
+    case "academicDropRejected":
+      return (
+        isPlainRecord(payload) &&
+        (payload.code === "drop-malformed" ||
+          payload.code === "drop-unsupported")
+      );
+    case "academicSourceAcquired":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        isAcademicAcquisition(payload.acquisition)
+      );
+    case "academicSourcesAcquired":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        Array.isArray(payload.successes) &&
+        payload.successes.every(isIndexedAcquisition) &&
+        Array.isArray(payload.failures) &&
+        payload.failures.every(isAcquisitionFailure)
+      );
+    case "academicRequestFailed":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        isString(payload.code) &&
+        requestFailureCodes.has(payload.code as AcademicRequestFailureCode) &&
+        isOptionalString(payload.diagnostic)
+      );
+    case "sourceActionFailed":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        isAcademicSourceDescriptor(payload.source) &&
+        isSourceActionFailure(payload.failure)
+      );
+    case "sourceActionSucceeded":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        payload.action === "open" &&
+        isAcademicSourceDescriptor(payload.source)
+      );
+    case "sourceResolutionBatch":
+      return (
+        isPlainRecord(payload) &&
+        isString(payload.requestId) &&
+        Number.isSafeInteger(payload.generation) &&
+        Array.isArray(payload.results) &&
+        payload.results.every(isResolutionResult)
+      );
+    case "annotationsListed":
+      return (
+        isPlainRecord(payload) &&
+        isString(payload.requestId) &&
+        isLiteratureSource(payload.source) &&
+        Array.isArray(payload.candidates) &&
+        payload.candidates.every(isAnnotationCandidate) &&
+        Array.isArray(payload.failures) &&
+        payload.failures.every(isAnnotationFailure)
+      );
+    case "annotationListFailed":
+      return (
+        isPlainRecord(payload) &&
+        isString(payload.requestId) &&
+        isLiteratureSource(payload.source) &&
+        isAnnotationFailure(payload.failure)
+      );
+    case "noteRefreshed":
+      return (
+        isPlainRecord(payload) &&
+        hasRequestAndNode(payload) &&
+        isPlainRecord(payload.acquisition) &&
+        payload.acquisition.kind === "note" &&
+        isAcademicAcquisition(payload.acquisition)
+      );
+    default:
+      return false;
+  }
+}
+
+type WhiteboardMessageEvent = Pick<MessageEvent, "data" | "source">;
+
+function isExpectedPeerSource(
+  source: MessageEventSource | null,
+  peer: MessageEventSource | null,
+): boolean {
+  // Zotero chrome can strip MessageEvent.source in both bridge directions.
+  // The exact per-tab channel and closed schema are validated before this
+  // narrow null exception. Non-null sources must retain object identity.
+  return peer !== null && (source === null || source === peer);
+}
+
+export function isWhiteboardToParentMessageEvent(
+  event: WhiteboardMessageEvent,
+  peer: MessageEventSource | null,
+  channel: string,
+): event is WhiteboardMessageEvent & { data: WhiteboardToParentMessage } {
+  return (
+    isWhiteboardToParentMessageForChannel(event.data, channel) &&
+    isExpectedPeerSource(event.source, peer)
+  );
+}
+
+export function isParentToWhiteboardMessageEvent(
+  event: WhiteboardMessageEvent,
+  peer: MessageEventSource | null,
+  channel: string,
+): event is WhiteboardMessageEvent & { data: ParentToWhiteboardMessage } {
+  return (
+    isParentToWhiteboardMessageForChannel(event.data, channel) &&
+    isExpectedPeerSource(event.source, peer)
+  );
+}
+
+export function dispatchWhiteboardParentMessageEvent(
+  event: WhiteboardMessageEvent,
+  peer: MessageEventSource | null,
+  channel: string,
+  accept: (message: ParentToWhiteboardMessage) => void,
+): boolean {
+  if (!isParentToWhiteboardMessageEvent(event, peer, channel)) return false;
+  accept(event.data);
+  return true;
+}
+
 export function whiteboardChannel(tabID: string, canvasId: string) {
   return `${tabID}:${canvasId}`;
 }

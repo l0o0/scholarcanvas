@@ -9,6 +9,7 @@ import {
 import {
   WHITEBOARD_MESSAGE_SOURCE,
   WHITEBOARD_PROTOCOL_VERSION,
+  dispatchWhiteboardParentMessageEvent,
   type AcademicAcquisition,
   type AnnotationCandidate,
   type ParentToWhiteboardMessage,
@@ -296,18 +297,75 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
   );
 });
 
-test("both bridge listeners require the exact peer window and protocol channel", () => {
-  assert.match(bootstrap, /event\.source !== window\.parent/);
-  assert.match(
-    bootstrap,
-    /isWhiteboardProtocolMessageForChannel\(event\.data, channel\)/,
-  );
-  assert.match(editor, /event\.source !== iframe\.contentWindow/);
+test("both bridge listeners validate their envelope before allowing a null Zotero chrome source", () => {
+  assert.match(bootstrap, /dispatchWhiteboardParentMessageEvent/);
+  assert.match(bootstrap, /window\.parent/);
   assert.match(
     editor,
-    /isWhiteboardProtocolMessageForChannel\(event\.data, channel\)/,
+    /isWhiteboardToParentMessageEvent\(event, iframe\.contentWindow, channel\)/,
   );
   assert.match(bootstrap, /reactRoot\?\.unmount\(\)/);
+});
+
+test("iframe ingress accepts validated null-source parent messages and rejects forged traffic", () => {
+  const parent = {} as WindowProxy;
+  const accepted: ParentToWhiteboardMessage[] = [];
+  const init: ParentToWhiteboardMessage = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-1:canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "init",
+    payload: { theme: "dark", snapshot: null },
+  };
+
+  assert.equal(
+    dispatchWhiteboardParentMessageEvent(
+      { source: null, data: init },
+      parent,
+      "tab-1:canvas-1",
+      (message) => accepted.push(message),
+    ),
+    true,
+  );
+  assert.deepEqual(accepted, [init]);
+
+  for (const data of [
+    { ...init, source: "forged" },
+    { ...init, channel: "other" },
+    { ...init, v: 1 },
+    { ...init, type: "executeArbitraryCommand" },
+    { ...init, payload: { theme: "sepia" } },
+    Object.create({ ...init }),
+  ]) {
+    assert.equal(
+      dispatchWhiteboardParentMessageEvent(
+        { source: null, data },
+        parent,
+        "tab-1:canvas-1",
+        (message) => accepted.push(message),
+      ),
+      false,
+    );
+  }
+  assert.equal(
+    dispatchWhiteboardParentMessageEvent(
+      { source: {} as WindowProxy, data: init },
+      parent,
+      "tab-1:canvas-1",
+      (message) => accepted.push(message),
+    ),
+    false,
+  );
+  assert.equal(
+    dispatchWhiteboardParentMessageEvent(
+      { source: parent, data: init },
+      parent,
+      "tab-1:canvas-1",
+      (message) => accepted.push(message),
+    ),
+    true,
+  );
+  assert.deepEqual(accepted, [init, init]);
 });
 
 test("host-owned iframe drop capture emits native refs and cleans up listeners", async () => {
@@ -403,7 +461,9 @@ test("native drop capture converts resolver exceptions into typed diagnostics", 
   cleanup();
 });
 
-test("production editor rebinds native drop ownership on iframe reload and releases it on destroy", (t) => {
+function installProductionEditorWindow(t: {
+  after(callback: () => void): void;
+}) {
   const window = new Window({ url: "https://example.test" });
   const globalKeys = [
     "addon",
@@ -461,6 +521,11 @@ test("production editor rebinds native drop ownership on iframe reload and relea
     }
     window.close();
   });
+  return window;
+}
+
+test("production editor rebinds native drop ownership on iframe reload and releases it on destroy", (t) => {
+  const window = installProductionEditorWindow(t);
   const parent = window.document.createElement("div");
   window.document.body.append(parent);
   let resolveCount = 0;
@@ -517,4 +582,98 @@ test("production editor rebinds native drop ownership on iframe reload and relea
   dispatchDrop();
   assert.equal(resolveCount, 2, "destroy must detach the active document");
   assert.equal(parent.childElementCount, 0);
+});
+
+test("production editor accepts strictly validated null-source Zotero messages", (t) => {
+  const window = installProductionEditorWindow(t);
+  const wrongWindow = new Window({ url: "https://forged.example" });
+  t.after(() => {
+    wrongWindow.close();
+  });
+
+  const parent = window.document.createElement("div");
+  window.document.body.append(parent);
+  const resolved: string[] = [];
+  const handle = createWhiteboardEditor(parent as unknown as HTMLElement, {
+    win: window as unknown as globalThis.Window,
+    channel: "tab-1:canvas-1",
+    onResolveAcademicSources: (requestId) => resolved.push(requestId),
+  });
+  const iframe = parent.querySelector("iframe")!;
+  const posted: unknown[] = [];
+  iframe.contentWindow!.postMessage = ((message: unknown) => {
+    posted.push(message);
+  }) as typeof iframe.contentWindow.postMessage;
+  const ready = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-1:canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "ready",
+  };
+  const resolve = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-1:canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "resolveAcademicSources",
+    payload: {
+      requestId: "resolve-null",
+      generation: 3,
+      priority: "selected",
+      sources: [
+        {
+          nodeId: "node-1",
+          source: {
+            kind: "literature",
+            source: {
+              library: { type: "user" },
+              itemKey: "ITEM1234",
+            },
+          },
+        },
+      ],
+    },
+  };
+  const dispatch = (data: unknown, source: WindowProxy | null) =>
+    window.dispatchEvent(new window.MessageEvent("message", { data, source }));
+
+  dispatch(ready, null);
+  assert.equal(
+    (posted[0] as { type?: string } | undefined)?.type,
+    "init",
+    "null-source ready must initialize the production iframe bridge",
+  );
+  dispatch(resolve, null);
+  assert.deepEqual(resolved, ["resolve-null"]);
+
+  for (const data of [
+    { ...resolve, source: "forged" },
+    { ...resolve, channel: "other" },
+    { ...resolve, v: 1 },
+    { ...resolve, type: "executeArbitraryCommand" },
+    { ...resolve, payload: { ...resolve.payload, sources: "forged" } },
+    Object.create(resolve),
+  ]) {
+    dispatch(data, null);
+  }
+  dispatch(resolve, wrongWindow as unknown as WindowProxy);
+  assert.deepEqual(resolved, ["resolve-null"]);
+
+  dispatch(
+    {
+      ...resolve,
+      payload: { ...resolve.payload, requestId: "resolve-exact" },
+    },
+    iframe.contentWindow,
+  );
+  assert.deepEqual(resolved, ["resolve-null", "resolve-exact"]);
+
+  handle.destroy();
+  dispatch(
+    {
+      ...resolve,
+      payload: { ...resolve.payload, requestId: "resolve-after-destroy" },
+    },
+    null,
+  );
+  assert.deepEqual(resolved, ["resolve-null", "resolve-exact"]);
 });

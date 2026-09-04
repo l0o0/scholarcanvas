@@ -8,7 +8,7 @@ import { WhiteboardApp, type WhiteboardRuntime } from "./whiteboard/app";
 import {
   WHITEBOARD_MESSAGE_SOURCE,
   WHITEBOARD_PROTOCOL_VERSION,
-  isWhiteboardProtocolMessageForChannel,
+  dispatchWhiteboardParentMessageEvent,
   type ParentToWhiteboardMessage,
   type WhiteboardTheme,
 } from "./model/protocol";
@@ -135,10 +135,13 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
 }
 
 function onWindowMessage(event: MessageEvent) {
-  if (event.source !== window.parent) return;
-  if (!isWhiteboardProtocolMessageForChannel(event.data, channel)) return;
   try {
-    handleParentMessage(event.data as ParentToWhiteboardMessage);
+    dispatchWhiteboardParentMessageEvent(
+      event,
+      window.parent,
+      channel,
+      handleParentMessage,
+    );
   } catch (error) {
     postToParent({
       type: "error",

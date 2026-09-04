@@ -6,7 +6,7 @@ import { ensureDOMGlobals } from "../../utils/dom";
 import {
   WHITEBOARD_MESSAGE_SOURCE,
   WHITEBOARD_PROTOCOL_VERSION,
-  isWhiteboardProtocolMessageForChannel,
+  isWhiteboardToParentMessageEvent,
   type AcademicAcquisition,
   type AcademicAcquisitionFailure,
   type AcademicDropFailureCode,
@@ -347,10 +347,10 @@ export function createWhiteboardEditor(
 
   const onMessage = (event: MessageEvent) => {
     if (destroyed) return;
-    if (event.source !== iframe.contentWindow) return;
-    if (!isWhiteboardProtocolMessageForChannel(event.data, channel)) return;
+    if (!isWhiteboardToParentMessageEvent(event, iframe.contentWindow, channel))
+      return;
 
-    const data = event.data as WhiteboardToParentMessage;
+    const data: WhiteboardToParentMessage = event.data;
     switch (data.type) {
       case "ready": {
         iframeReady = true;

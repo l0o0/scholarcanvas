@@ -116,6 +116,68 @@ function dependencies(items: ItemFixture[] = []) {
   return { deps, opened, pages, byLibraryAndKey };
 }
 
+async function withProductionQuoteZotero(
+  options: {
+    annotationPosition?: string;
+    reader?: { open?: (...args: unknown[]) => Promise<void> };
+  },
+  run: (fixture: {
+    attachment: ItemFixture;
+    fileHandlerCalls: unknown[][];
+  }) => Promise<void>,
+): Promise<void> {
+  const regular = item("regular", { id: 10, key: "ITEM" });
+  const attachment = item("attachment", {
+    id: 11,
+    key: "PDF",
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+  });
+  const annotation = item("annotation", {
+    id: 12,
+    key: "ANNOTATION",
+    parentItem: attachment,
+    annotationPosition: options.annotationPosition,
+    annotationType: "highlight",
+    annotationText: "Text",
+  });
+  const byKey = new Map(
+    [regular, attachment, annotation].map((value) => [value.key, value]),
+  );
+  const fileHandlerCalls: unknown[][] = [];
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "Zotero");
+  Object.defineProperty(globalThis, "Zotero", {
+    configurable: true,
+    value: {
+      Libraries: { userLibraryID: 1, get: () => ({ libraryType: "user" }) },
+      Groups: { get: () => null },
+      Items: {
+        getByLibraryAndKey: (_libraryID: number, key: string) =>
+          byKey.get(key) ?? null,
+        get: () => null,
+      },
+      Utilities: {
+        cleanTags: (html: string) => html,
+        unescapeHTML: (html: string) => html,
+      },
+      ...(options.reader ? { Reader: options.reader } : {}),
+      FileHandlers: {
+        open: async (...args: unknown[]) => {
+          fileHandlerCalls.push(args);
+          return true;
+        },
+      },
+      getMainWindow: () => ({ ZoteroPane: {} }),
+    },
+  });
+  try {
+    await run({ attachment, fileHandlerCalls });
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "Zotero", previous);
+    else Reflect.deleteProperty(globalThis, "Zotero");
+  }
+}
+
 test("acquires regular items with native group keys and a normalized snapshot", () => {
   const regular = item("regular", {
     key: "ITEMKEY",
@@ -906,6 +968,51 @@ test("production dependencies use Zotero Reader's supported annotation location"
   });
 
   assert.deepEqual(calls, [[11, { annotationID: "ANNOTATION" }]]);
+});
+
+test("production dependencies use FileHandlers page location when Reader is absent", async () => {
+  await withProductionQuoteZotero(
+    { annotationPosition: '{"pageIndex":7}' },
+    async ({ attachment, fileHandlerCalls }) => {
+      await createZoteroSourceGateway().open({
+        kind: "quote",
+        source: {
+          library: { type: "user" },
+          itemKey: "ITEM",
+          attachmentKey: "PDF",
+          annotationKey: "ANNOTATION",
+        },
+      });
+
+      assert.deepEqual(fileHandlerCalls, [
+        [attachment, { location: { pageIndex: 7 } }],
+      ]);
+    },
+  );
+});
+
+test("production dependencies open the attachment without location when no page can be derived", async () => {
+  for (const fixture of [
+    { annotationPosition: undefined, reader: {} },
+    { annotationPosition: "not-json", reader: undefined },
+  ]) {
+    await withProductionQuoteZotero(
+      fixture,
+      async ({ attachment, fileHandlerCalls }) => {
+        await createZoteroSourceGateway().open({
+          kind: "quote",
+          source: {
+            library: { type: "user" },
+            itemKey: "ITEM",
+            attachmentKey: "PDF",
+            annotationKey: "ANNOTATION",
+          },
+        });
+
+        assert.deepEqual(fileHandlerCalls, [[attachment]]);
+      },
+    );
+  }
 });
 
 test("production exact Reader failures are not converted into page fallback", async (t) => {

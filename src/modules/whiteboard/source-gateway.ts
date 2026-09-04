@@ -589,10 +589,14 @@ function productionDependencies(): GatewayDependencies {
       });
       return true;
     },
-    openAttachmentPage: async (attachment, pageIndex) =>
-      void (await zotero.Reader.open(
-        attachment.id,
-        pageIndex === undefined ? undefined : { pageIndex },
-      )),
+    openAttachmentPage: async (attachment, pageIndex) => {
+      if (pageIndex === undefined) {
+        await zotero.FileHandlers.open(attachment);
+        return;
+      }
+      await zotero.FileHandlers.open(attachment, {
+        location: { pageIndex },
+      });
+    },
   };
 }

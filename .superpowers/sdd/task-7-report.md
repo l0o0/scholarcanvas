@@ -152,3 +152,57 @@ multi-Literature ownership behavior was added.
 No blocking concerns remain. Real Zotero Reader navigation is still an
 appropriate host-runtime smoke test in addition to the production dependency
 contract exercised by the Node suite.
+
+## Important review fix — Independent Reader fallback
+
+The review found that the production adapter correctly reported missing
+`Zotero.Reader.open` as unavailable, but its fallback immediately called the
+same missing Reader API. Quote opening therefore threw a `TypeError` instead of
+opening the resolved attachment.
+
+Local `zotero-types` 4.1.3 defines the project-supported independent entrypoint
+as:
+
+```ts
+Zotero.FileHandlers.open(item, {
+  location: { pageIndex },
+});
+```
+
+The existing whiteboard host also uses `Zotero.FileHandlers.open(attachment)`
+as its default attachment opener. The production gateway now uses this entrypoint
+for capability fallback. A valid zero-based annotation page is passed through
+the typed `location.pageIndex`; missing or invalid position data opens only the
+attachment and does not claim page or annotation navigation.
+
+### Review-fix RED / GREEN
+
+Production-adapter tests were added before changing the adapter. The first
+source-gateway run reported 20 tests: 18 passed and 2 failed. With `Reader`
+absent, the valid-page test failed with
+`Cannot read properties of undefined (reading 'open')`; with `Reader.open`
+absent, the no-page test failed with `Reader.open is not a function`. Neither
+case reached the expected independent attachment opener.
+
+After switching only the fallback dependency to `FileHandlers.open`, the same
+gateway suite passed 20/20. The new tests prove:
+
+- missing `Reader` plus `{"pageIndex":7}` calls
+  `FileHandlers.open(attachment, { location: { pageIndex: 7 } })` exactly once;
+- missing `Reader.open` plus absent position, and missing `Reader` plus invalid
+  position, each call `FileHandlers.open(attachment)` exactly once;
+- the existing production exact-annotation test still calls
+  `Reader.open(attachment.id, { annotationID })`; and
+- a rejected exact Reader call still propagates and never invokes fallback.
+
+Fresh review-fix verification:
+
+- Task 7 focused app/state/gateway/export/canvas-file/file-I/O suite: 126 passed,
+  0 failed.
+- Full `pnpm test:unit`, run once for this fix: 558 passed, 0 failed.
+- `pnpm exec tsc --noEmit`: passed.
+- ESLint and Prettier over both changed TypeScript files: passed.
+- `git diff --check`: passed.
+
+The fix does not alter source identity resolution, Quote acquisition/history,
+snapshot persistence, explicit refresh scheduling, or Task 8 behavior.

@@ -6,6 +6,11 @@ import {
   SourceGatewayError,
   type SourceGatewayDependencies,
 } from "../src/modules/whiteboard/source-gateway.ts";
+import {
+  WHITEBOARD_MESSAGE_SOURCE,
+  WHITEBOARD_PROTOCOL_VERSION,
+  isParentToWhiteboardMessageForChannel,
+} from "../src/modules/whiteboard/protocol.ts";
 
 type Kind = "regular" | "note" | "annotation" | "attachment" | "other";
 
@@ -499,7 +504,7 @@ test("lists only non-empty PDF highlight and underline annotations in determinis
     parentItem: first,
     annotationType: "underline",
     annotationText: "Earlier",
-    annotationSortIndex: "00001",
+    annotationSortIndex: "",
   });
   const excluded = item("annotation", {
     key: "EMPTY",
@@ -561,6 +566,26 @@ test("lists only non-empty PDF highlight and underline annotations in determinis
   assert.deepEqual(
     result.candidates.map((candidate) => candidate.attachmentTitle),
     ["First PDF", "First PDF", "Second PDF"],
+  );
+  assert.equal(result.candidates[0].sortIndex, "");
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(
+      {
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        channel: "tab:canvas",
+        v: WHITEBOARD_PROTOCOL_VERSION,
+        type: "annotationsListed",
+        payload: {
+          requestId: "annotations-empty-sort-index",
+          source: { library: { type: "user" }, itemKey: "ITEM" },
+          candidates: result.candidates,
+          failures: result.failures,
+        },
+      },
+      "tab:canvas",
+    ),
+    true,
+    "gateway annotations may legitimately have an empty sort index",
   );
   assert.equal(JSON.stringify(result).includes('"id"'), false);
 });

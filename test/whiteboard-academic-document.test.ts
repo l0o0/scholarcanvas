@@ -487,6 +487,33 @@ test("requires non-empty Zotero keys", () => {
   );
 });
 
+test("requires positive safe integer Zotero group identifiers", () => {
+  const groupLiterature = (id: string, groupID: number) => ({
+    ...literature(id, "ITEM1234"),
+    source: { library: { type: "group", groupID }, itemKey: "ITEM1234" },
+  });
+  const result = parseCanvasDocument({
+    version: 2,
+    nodes: [
+      groupLiterature("negative-group", -1),
+      groupLiterature("zero-group", 0),
+      groupLiterature("fractional-group", 1.5),
+      groupLiterature("unsafe-group", Number.MAX_SAFE_INTEGER + 1),
+      groupLiterature("valid-group", 42),
+    ],
+    connections: [],
+  });
+
+  assert.deepEqual(
+    result.document.nodes.map((node) => node.id),
+    ["valid-group"],
+  );
+  assert.deepEqual(
+    result.issues.map((issue) => issue.code),
+    ["malformed-node", "malformed-node", "malformed-node", "malformed-node"],
+  );
+});
+
 test("parses all six academic node payloads", () => {
   const result = parseCanvasDocument({
     version: 2,

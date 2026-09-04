@@ -248,7 +248,7 @@ export function flowToCanvasDocument(
   viewport: Viewport,
   shell: CanvasDocumentShell = {},
 ): CanvasDocument {
-  return {
+  return omitUndefinedRecordFields({
     version: 2,
     viewport,
     ...(shell.metadata ? { metadata: shell.metadata } : {}),
@@ -275,23 +275,32 @@ export function flowToCanvasDocument(
         source: edge.source,
         target: edge.target,
       };
+      const {
+        sourceHandle: _sourceHandle,
+        targetHandle: _targetHandle,
+        label: _label,
+        color: _color,
+        dashed: _dashed,
+        arrow: _arrow,
+        ...persistentConnection
+      } = connection;
+      const label = typeof edge.label === "string" ? edge.label : undefined;
+      const color =
+        typeof edge.style?.stroke === "string" ? edge.style.stroke : undefined;
       return {
-        ...connection,
+        ...persistentConnection,
         id: edge.id,
         source: edge.source,
         target: edge.target,
         sourceHandle: edge.sourceHandle ?? null,
         targetHandle: edge.targetHandle ?? null,
-        label: typeof edge.label === "string" ? edge.label : undefined,
+        ...(label !== undefined ? { label } : {}),
         dashed: Boolean(edge.style?.strokeDasharray),
-        color:
-          typeof edge.style?.stroke === "string"
-            ? edge.style.stroke
-            : undefined,
+        ...(color !== undefined ? { color } : {}),
         arrow: Boolean(edge.markerEnd),
       };
     }),
-  };
+  });
 }
 
 export function updateFlowNodeModel(
@@ -449,6 +458,38 @@ export class CanvasDocumentHistory {
 
 function numericStyleDimension(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function omitUndefinedRecordFields<T>(
+  value: T,
+  seen = new WeakMap<object, unknown>(),
+): T {
+  if (value === null || typeof value !== "object") return value;
+  const prior = seen.get(value);
+  if (prior !== undefined) return prior as T;
+  const prototype = Object.getPrototypeOf(value);
+  if (
+    !Array.isArray(value) &&
+    prototype !== Object.prototype &&
+    prototype !== null
+  ) {
+    return value;
+  }
+  const clone = Array.isArray(value)
+    ? new Array(value.length)
+    : Object.create(prototype);
+  seen.set(value, clone);
+  for (const key of Reflect.ownKeys(value)) {
+    if (Array.isArray(value) && key === "length") continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor) continue;
+    if ("value" in descriptor) {
+      if (!Array.isArray(value) && descriptor.value === undefined) continue;
+      descriptor.value = omitUndefinedRecordFields(descriptor.value, seen);
+    }
+    Object.defineProperty(clone, key, descriptor);
+  }
+  return clone as T;
 }
 
 function updateCanvasNodeText(model: CanvasNode, text: string): CanvasNode {

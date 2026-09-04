@@ -9,6 +9,7 @@ import {
 import {
   WHITEBOARD_MESSAGE_SOURCE,
   WHITEBOARD_PROTOCOL_VERSION,
+  dispatchWhiteboardParentMessageEvent,
   isParentToWhiteboardMessageForChannel,
   isWhiteboardProtocolMessage,
   isWhiteboardProtocolMessageForChannel,
@@ -364,31 +365,6 @@ const activeHostToIframeMessages = [
   Exclude<ParentToWhiteboardMessage, { type: "itemPicked" | "pickFailed" }>
 >;
 
-type ActiveIframeToHostType = Exclude<
-  WhiteboardToParentMessage,
-  { type: "pickItem" | "dropItems" }
->["type"];
-type ActiveHostToIframeType = Exclude<
-  ParentToWhiteboardMessage,
-  { type: "itemPicked" | "pickFailed" }
->["type"];
-type _EveryIframeToHostArmSampled = Assert<
-  Exclude<
-    ActiveIframeToHostType,
-    (typeof activeIframeToHostMessages)[number]["type"]
-  > extends never
-    ? true
-    : false
->;
-type _EveryHostToIframeArmSampled = Assert<
-  Exclude<
-    ActiveHostToIframeType,
-    (typeof activeHostToIframeMessages)[number]["type"]
-  > extends never
-    ? true
-    : false
->;
-
 const v2ParentMessages = [
   {
     source: WHITEBOARD_MESSAGE_SOURCE,
@@ -699,6 +675,51 @@ test("strict ingress requires own envelope fields and rejects prototype pollutio
     isWhiteboardToParentMessageForChannel(ownButForged, "tab-9:canvas-a"),
     false,
   );
+  const forgedPrototype = Object.create(null) as Record<string, unknown>;
+  Object.defineProperty(forgedPrototype, "constructor", {
+    configurable: true,
+    value: Object,
+    writable: true,
+  });
+  const forgedNullParent = Object.assign(
+    Object.create(forgedPrototype),
+    protocolBase,
+    { type: "ready" },
+  );
+  assert.equal(
+    isWhiteboardToParentMessageForChannel(forgedNullParent, "tab-9:canvas-a"),
+    false,
+  );
+  const selfConsistentPrototype = Object.create(null) as Record<
+    string,
+    unknown
+  >;
+  const ForgedObject = function Object() {};
+  ForgedObject.prototype = selfConsistentPrototype;
+  Object.defineProperty(selfConsistentPrototype, "constructor", {
+    configurable: true,
+    value: ForgedObject,
+    writable: true,
+  });
+  const selfConsistentForgery = Object.assign(
+    Object.create(selfConsistentPrototype),
+    protocolBase,
+    { type: "ready" },
+  );
+  assert.equal(
+    isWhiteboardToParentMessageForChannel(
+      selfConsistentForgery,
+      "tab-9:canvas-a",
+    ),
+    false,
+  );
+  const nullPrototypeReady = Object.assign(Object.create(null), protocolBase, {
+    type: "ready",
+  });
+  assert.equal(
+    isWhiteboardToParentMessageForChannel(nullPrototypeReady, "tab-9:canvas-a"),
+    true,
+  );
   const accessorReady = { ...protocolBase } as Record<string, unknown>;
   Object.defineProperty(accessorReady, "type", {
     enumerable: true,
@@ -789,6 +810,112 @@ test("strict ingress requires own envelope fields and rejects prototype pollutio
       else Reflect.deleteProperty(Object.prototype, key);
     }
   }
+});
+
+test("all public protocol boundaries reject hostile reflective values without throwing", () => {
+  const batch = activeHostToIframeMessages.find(
+    (message) => message.type === "sourceResolutionBatch",
+  )!;
+  const throwingOwnKeys = new Proxy([], {
+    ownKeys() {
+      throw new Error("ownKeys trap");
+    },
+  });
+  const throwingLength = new Proxy([], {
+    get(target, key, receiver) {
+      if (key === "length") throw new Error("length trap");
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const throwingElement = new Proxy([batch.payload.results[0]], {
+    get(target, key, receiver) {
+      if (key === "0") throw new Error("element trap");
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const iteratorTarget: unknown[] = [];
+  Object.defineProperty(iteratorTarget, Symbol.iterator, {
+    configurable: true,
+    get() {
+      throw new Error("iterator trap");
+    },
+  });
+  const accessorArray: unknown[] = new Array(1);
+  Object.defineProperty(accessorArray, "0", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      throw new Error("array accessor trap");
+    },
+  });
+  const throwingDescriptor = new Proxy([], {
+    getOwnPropertyDescriptor() {
+      throw new Error("descriptor trap");
+    },
+  });
+  const throwingRecordGet = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error("record get trap");
+      },
+    },
+  );
+  for (const [results, expected] of [
+    [throwingOwnKeys, false],
+    // Descriptor-based validation does not invoke these hostile getters, so
+    // the otherwise-valid indexed array remains safe to accept.
+    [throwingLength, true],
+    [throwingElement, true],
+    [iteratorTarget, false],
+    [accessorArray, false],
+    [throwingDescriptor, false],
+  ] as const) {
+    const hostile = {
+      ...batch,
+      payload: { ...batch.payload, results },
+    };
+    assert.doesNotThrow(() => {
+      assert.equal(
+        isParentToWhiteboardMessageForChannel(hostile, "tab-9:canvas-a"),
+        expected,
+      );
+      assert.equal(
+        isWhiteboardProtocolMessageForChannel(hostile, "tab-9:canvas-a"),
+        true,
+      );
+    });
+  }
+  assert.doesNotThrow(() => {
+    assert.equal(
+      isParentToWhiteboardMessageForChannel(
+        { ...batch, payload: throwingRecordGet },
+        "tab-9:canvas-a",
+      ),
+      false,
+    );
+  });
+
+  const hostileEvent = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error("event getter trap");
+      },
+    },
+  );
+  const peer = {} as WindowProxy;
+  assert.doesNotThrow(() => {
+    assert.equal(
+      dispatchWhiteboardParentMessageEvent(
+        hostileEvent as Pick<MessageEvent, "data" | "source">,
+        peer,
+        "tab-9:canvas-a",
+        () => assert.fail("hostile event must not dispatch"),
+      ),
+      false,
+    );
+  });
 });
 
 test("strict ingress rejects extra keys throughout native academic records", () => {

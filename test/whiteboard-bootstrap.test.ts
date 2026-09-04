@@ -15,6 +15,10 @@ import {
   type ParentToWhiteboardMessage,
 } from "../packages/whiteboard/src/model/protocol.ts";
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
+import {
+  canvasDocumentToFlow,
+  flowToCanvasDocument,
+} from "../packages/whiteboard/src/whiteboard/document.ts";
 import { createWhiteboardEditor } from "../src/modules/whiteboard/editor.ts";
 
 const bootstrap = readFileSync(
@@ -656,7 +660,27 @@ test("production editor accepts strictly validated null-source Zotero messages",
     "init",
     "null-source ready must initialize the production iframe bridge",
   );
+  assert.equal(
+    Object.hasOwn(
+      (posted[0] as { payload: Record<string, unknown> }).payload,
+      "labels",
+    ),
+    false,
+    "optional undefined init fields must not cross the protocol boundary",
+  );
   dispatch(crossRealmResolve, null);
+  assert.deepEqual(resolved, ["resolve-null"]);
+
+  let typeReads = 0;
+  const statefulHostileMessage = new Proxy(resolve, {
+    get(target, key, receiver) {
+      if (key === "type" && ++typeReads > 2) {
+        throw new Error("stateful post-validation getter");
+      }
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  assert.doesNotThrow(() => dispatch(statefulHostileMessage, null));
   assert.deepEqual(resolved, ["resolve-null"]);
 
   for (const data of [
@@ -692,4 +716,140 @@ test("production editor accepts strictly validated null-source Zotero messages",
     null,
   );
   assert.deepEqual(resolved, ["resolve-null", "resolve-exact"]);
+});
+
+test("flow snapshots with ordinary unlabeled edges resolve host snapshot requests and save", async (t) => {
+  const window = installProductionEditorWindow(t);
+  const parent = window.document.createElement("div");
+  window.document.body.append(parent);
+  let saves = 0;
+  const handle = createWhiteboardEditor(parent as unknown as HTMLElement, {
+    win: window as unknown as globalThis.Window,
+    channel: "tab-1:canvas-1",
+    onSave: () => {
+      saves += 1;
+    },
+  });
+  t.after(() => handle.destroy());
+  const iframe = parent.querySelector("iframe")!;
+  const posted: unknown[] = [];
+  const clearedSnapshotTimers: number[] = [];
+  const nativeClearTimeout = window.clearTimeout.bind(window);
+  window.clearTimeout = ((timeoutId: number) => {
+    clearedSnapshotTimers.push(timeoutId);
+    nativeClearTimeout(timeoutId);
+  }) as typeof window.clearTimeout;
+  iframe.contentWindow!.postMessage = ((message: unknown) => {
+    posted.push(message);
+  }) as typeof iframe.contentWindow.postMessage;
+  const initial = {
+    version: 2,
+    nodes: [
+      {
+        id: "claim-1",
+        kind: "claim",
+        position: { x: 0, y: 0 },
+        width: 240,
+        height: 120,
+        content: "Claim one",
+      },
+      {
+        id: "claim-2",
+        kind: "claim",
+        position: { x: 320, y: 0 },
+        width: 240,
+        height: 120,
+        content: "Claim two",
+      },
+    ],
+    connections: [
+      {
+        id: "edge-1",
+        kind: "basic",
+        source: "claim-1",
+        target: "claim-2",
+      },
+    ],
+    viewport: { x: 0, y: 0, zoom: 1 },
+  } as const;
+  const flow = canvasDocumentToFlow(initial);
+  flow.nodes[0] = {
+    ...flow.nodes[0],
+    data: {
+      ...flow.nodes[0].data,
+      model: {
+        ...flow.nodes[0].data.model,
+        style: undefined,
+        extensions: undefined,
+      },
+    },
+  };
+  flow.edges[0] = {
+    ...flow.edges[0],
+    data: {
+      ...flow.edges[0].data!,
+      connection: {
+        ...flow.edges[0].data!.connection,
+        extensions: undefined,
+      },
+    },
+  };
+  const snapshot = flowToCanvasDocument(flow.nodes, flow.edges, {
+    x: 0,
+    y: 0,
+    zoom: 1,
+  });
+  assert.equal(Object.hasOwn(snapshot.nodes[0], "style"), false);
+  assert.equal(Object.hasOwn(snapshot.nodes[0], "extensions"), false);
+  assert.equal(Object.hasOwn(snapshot.connections[0], "label"), false);
+  assert.equal(Object.hasOwn(snapshot.connections[0], "extensions"), false);
+
+  const requested = handle.requestSnapshot();
+  const request = posted.at(-1) as Extract<
+    ParentToWhiteboardMessage,
+    { type: "requestSnapshot" }
+  >;
+  assert.equal(request.type, "requestSnapshot");
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      source: null,
+      data: {
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        channel: "tab-1:canvas-1",
+        v: WHITEBOARD_PROTOCOL_VERSION,
+        type: "snapshot",
+        payload: { requestId: request.payload.requestId, rev: 3, snapshot },
+      },
+    }),
+  );
+  const resolved = await Promise.race([
+    requested,
+    new Promise<"pending">((resolve) =>
+      window.setTimeout(() => resolve("pending"), 20),
+    ),
+  ]);
+  assert.notEqual(
+    resolved,
+    "pending",
+    "valid snapshots must not wait for timeout",
+  );
+  assert.deepEqual(resolved, { rev: 3, snapshot });
+  assert.equal(
+    clearedSnapshotTimers.length,
+    1,
+    "a resolved snapshot must release its pending timeout",
+  );
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      source: null,
+      data: {
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        channel: "tab-1:canvas-1",
+        v: WHITEBOARD_PROTOCOL_VERSION,
+        type: "save",
+      },
+    }),
+  );
+  assert.equal(saves, 1);
 });

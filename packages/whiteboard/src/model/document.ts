@@ -546,8 +546,12 @@ function parseNoteSource(value: unknown): NoteSource | undefined {
 function parseLibrary(value: unknown): ZoteroLibraryRef | undefined {
   if (!isRecord(value)) return undefined;
   if (value.type === "user") return { type: "user" };
-  if (value.type === "group" && isFiniteNumber(value.groupID)) {
-    return { type: "group", groupID: value.groupID };
+  if (
+    value.type === "group" &&
+    Number.isSafeInteger(value.groupID) &&
+    (value.groupID as number) > 0
+  ) {
+    return { type: "group", groupID: value.groupID as number };
   }
   return undefined;
 }

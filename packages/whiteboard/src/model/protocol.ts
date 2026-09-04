@@ -547,21 +547,83 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
       }
   );
 
+type ActiveWhiteboardToParentType = Exclude<
+  WhiteboardToParentMessage,
+  { type: "pickItem" | "dropItems" }
+>["type"];
+type ActiveParentToWhiteboardType = Exclude<
+  ParentToWhiteboardMessage,
+  { type: "itemPicked" | "pickFailed" }
+>["type"];
+
+// These production maps make protocol growth fail typechecking until ingress
+// explicitly classifies the new message arm. Retired v1 picker/drop arms stay
+// excluded from the v2 bridge.
+const activeWhiteboardToParentTypes = {
+  ready: true,
+  change: true,
+  snapshot: true,
+  save: true,
+  error: true,
+  pickAcademicSource: true,
+  openItem: true,
+  dropAcademicSources: true,
+  resolveAcademicSources: true,
+  listLiteratureAnnotations: true,
+  refreshZoteroNote: true,
+  openAcademicSource: true,
+  exportFile: true,
+} satisfies Record<ActiveWhiteboardToParentType, true>;
+
+const activeParentToWhiteboardTypes = {
+  init: true,
+  setTheme: true,
+  loadSnapshot: true,
+  requestSnapshot: true,
+  command: true,
+  focus: true,
+  destroy: true,
+  academicSourceAcquired: true,
+  academicSourcesAcquired: true,
+  academicDropStarted: true,
+  academicDropRejected: true,
+  sourceResolutionBatch: true,
+  annotationsListed: true,
+  annotationListFailed: true,
+  noteRefreshed: true,
+  academicRequestFailed: true,
+  sourceActionFailed: true,
+  sourceActionSucceeded: true,
+  saveState: true,
+} satisfies Record<ActiveParentToWhiteboardType, true>;
+
 export function isWhiteboardProtocolMessage(
   data: unknown,
 ): data is WhiteboardProtocolMessage & { type: string } {
-  if (!isPlainRecord(data) || !isNonEmptyString(data.channel)) return false;
-  return hasProtocolEnvelope(data, data.channel);
+  return safelyValidate(() => {
+    if (!isPlainRecord(data) || !isNonEmptyString(data.channel)) return false;
+    return hasProtocolEnvelope(data, data.channel);
+  });
 }
 
 export function isWhiteboardProtocolMessageForChannel(
   data: unknown,
   channel: string,
 ): data is WhiteboardProtocolMessage & { type: string } {
-  return isWhiteboardProtocolMessage(data) && data.channel === channel;
+  return safelyValidate(
+    () => isWhiteboardProtocolMessage(data) && data.channel === channel,
+  );
 }
 
 type ProtocolRecord = Record<string, unknown>;
+
+function safelyValidate(validate: () => boolean): boolean {
+  try {
+    return validate();
+  } catch {
+    return false;
+  }
+}
 
 function isPlainRecord(value: unknown): value is ProtocolRecord {
   if (!value || typeof value !== "object") return false;
@@ -579,7 +641,9 @@ function isPlainRecord(value: unknown): value is ProtocolRecord {
         !constructor ||
         !("value" in constructor) ||
         typeof constructor.value !== "function" ||
-        constructor.value.name !== "Object"
+        constructor.value.name !== "Object" ||
+        constructor.value.prototype !== prototype ||
+        !isNativeObjectConstructor(constructor.value)
       ) {
         return false;
       }
@@ -594,8 +658,14 @@ function isPlainRecord(value: unknown): value is ProtocolRecord {
   }
 }
 
+function isNativeObjectConstructor(value: Function): boolean {
+  return /^function Object\(\)\s*\{\s*\[native code\]\s*\}$/.test(
+    Function.prototype.toString.call(value),
+  );
+}
+
 function hasOwn(value: ProtocolRecord, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
+  return safelyValidate(() => Object.prototype.hasOwnProperty.call(value, key));
 }
 
 function hasExactKeys(
@@ -603,13 +673,15 @@ function hasExactKeys(
   required: readonly string[],
   optional: readonly string[] = [],
 ): boolean {
-  const keys = Reflect.ownKeys(value);
-  if (keys.some((key) => typeof key !== "string")) return false;
-  const allowed = new Set([...required, ...optional]);
-  return (
-    required.every((key) => hasOwn(value, key)) &&
-    keys.every((key) => allowed.has(key as string))
-  );
+  return safelyValidate(() => {
+    const keys = Reflect.ownKeys(value);
+    if (keys.some((key) => typeof key !== "string")) return false;
+    const allowed = new Set([...required, ...optional]);
+    return (
+      required.every((key) => hasOwn(value, key)) &&
+      keys.every((key) => allowed.has(key as string))
+    );
+  });
 }
 
 function isArrayOf<T>(
@@ -624,14 +696,20 @@ function isArrayOf(
   value: unknown,
   predicate: (entry: unknown) => boolean,
 ): value is unknown[] {
-  if (!Array.isArray(value)) return false;
-  if (Reflect.ownKeys(value).length !== value.length + 1) return false;
-  for (let index = 0; index < value.length; index += 1) {
-    if (!hasOwn(value as unknown as ProtocolRecord, String(index)))
+  return safelyValidate(() => {
+    if (!Array.isArray(value)) return false;
+    const length = Object.getOwnPropertyDescriptor(value, "length");
+    if (!length || !("value" in length) || !Number.isSafeInteger(length.value))
       return false;
-    if (!predicate(value[index])) return false;
-  }
-  return true;
+    if (Reflect.ownKeys(value).length !== length.value + 1) return false;
+    for (let index = 0; index < length.value; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable)
+        return false;
+      if (!predicate(descriptor.value)) return false;
+    }
+    return true;
+  });
 }
 
 function isString(value: unknown): value is string {
@@ -966,6 +1044,10 @@ function isCanvasDocument(value: unknown): boolean {
 }
 
 function hasSameDataShape(left: unknown, right: unknown): boolean {
+  return safelyValidate(() => hasSameDataShapeUnchecked(left, right));
+}
+
+function hasSameDataShapeUnchecked(left: unknown, right: unknown): boolean {
   if (left === null || right === null) return left === right;
   if (typeof left !== typeof right) return false;
   if (
@@ -979,12 +1061,24 @@ function hasSameDataShape(left: unknown, right: unknown): boolean {
     );
   }
   if (Array.isArray(left) || Array.isArray(right)) {
-    return (
-      isArrayOf(left, () => true) &&
-      isArrayOf(right, () => true) &&
-      left.length === right.length &&
-      left.every((entry, index) => hasSameDataShape(entry, right[index]))
-    );
+    if (!isArrayOf(left, () => true) || !isArrayOf(right, () => true))
+      return false;
+    const leftLength = Object.getOwnPropertyDescriptor(left, "length")?.value;
+    const rightLength = Object.getOwnPropertyDescriptor(right, "length")?.value;
+    if (!Number.isSafeInteger(leftLength) || leftLength !== rightLength)
+      return false;
+    for (let index = 0; index < (leftLength as number); index += 1) {
+      const leftEntry = Object.getOwnPropertyDescriptor(
+        left,
+        String(index),
+      )?.value;
+      const rightEntry = Object.getOwnPropertyDescriptor(
+        right,
+        String(index),
+      )?.value;
+      if (!hasSameDataShape(leftEntry, rightEntry)) return false;
+    }
+    return true;
   }
   if (!isPlainRecord(left) || !isPlainRecord(right)) return false;
   const leftKeys = Reflect.ownKeys(left);
@@ -1062,10 +1156,10 @@ const annotationFailureCodes: Record<AnnotationListFailureCode, true> = {
   "list-failed": true,
 };
 
-function hasFiniteCode(
-  codes: Readonly<Record<string, true>>,
+function hasFiniteCode<Code extends string>(
+  codes: Readonly<Record<Code, true>>,
   value: unknown,
-): value is string {
+): value is Code {
   return isString(value) && hasOwn(codes, value);
 }
 
@@ -1153,7 +1247,7 @@ function isAnnotationCandidate(value: unknown): boolean {
     isPlainRecord(value) &&
     hasExactKeys(value, ["acquisition", "attachmentTitle", "sortIndex"]) &&
     isNonEmptyString(value.attachmentTitle) &&
-    isNonEmptyString(value.sortIndex) &&
+    isString(value.sortIndex) &&
     isPlainRecord(value.acquisition) &&
     value.acquisition.kind === "quote" &&
     isAcademicAcquisition(value.acquisition)
@@ -1170,27 +1264,28 @@ function hasProtocolEnvelope(
   data: unknown,
   channel: string,
 ): data is ProtocolRecord {
-  if (isPlainRecord(data) && !hasOwn(data, "payload") && "payload" in data) {
-    return false;
-  }
-  return (
-    isPlainRecord(data) &&
-    hasExactKeys(data, ["source", "channel", "v", "type"], ["payload"]) &&
-    data.source === WHITEBOARD_MESSAGE_SOURCE &&
-    data.channel === channel &&
-    data.v === WHITEBOARD_PROTOCOL_VERSION &&
-    isNonEmptyString(data.type)
+  return safelyValidate(
+    () =>
+      isPlainRecord(data) &&
+      !(!hasOwn(data, "payload") && "payload" in data) &&
+      hasExactKeys(data, ["source", "channel", "v", "type"], ["payload"]) &&
+      data.source === WHITEBOARD_MESSAGE_SOURCE &&
+      data.channel === channel &&
+      data.v === WHITEBOARD_PROTOCOL_VERSION &&
+      isNonEmptyString(data.type),
   );
 }
 
 /** Closed runtime validator for messages handled by the Zotero host. */
-export function isWhiteboardToParentMessageForChannel(
+function validateWhiteboardToParentMessageForChannel(
   data: unknown,
   channel: string,
-): data is WhiteboardToParentMessage {
+): boolean {
   if (!hasProtocolEnvelope(data, channel)) return false;
   const payload = data.payload;
-  switch (data.type) {
+  const type = data.type;
+  if (!hasFiniteCode(activeWhiteboardToParentTypes, type)) return false;
+  switch (type) {
     case "ready":
     case "save":
       return !hasOwn(data, "payload");
@@ -1304,18 +1399,29 @@ export function isWhiteboardToParentMessageForChannel(
         isOptionalOwnString(payload, "text")
       );
     default:
-      return false;
+      return rejectUnhandledProtocolType(type);
   }
 }
 
-/** Closed runtime validator for messages handled by the whiteboard iframe. */
-export function isParentToWhiteboardMessageForChannel(
+export function isWhiteboardToParentMessageForChannel(
   data: unknown,
   channel: string,
-): data is ParentToWhiteboardMessage {
+): data is WhiteboardToParentMessage {
+  return safelyValidate(() =>
+    validateWhiteboardToParentMessageForChannel(data, channel),
+  );
+}
+
+/** Closed runtime validator for messages handled by the whiteboard iframe. */
+function validateParentToWhiteboardMessageForChannel(
+  data: unknown,
+  channel: string,
+): boolean {
   if (!hasProtocolEnvelope(data, channel)) return false;
   const payload = data.payload;
-  switch (data.type) {
+  const type = data.type;
+  if (!hasFiniteCode(activeParentToWhiteboardTypes, type)) return false;
+  switch (type) {
     case "focus":
     case "destroy":
       return !hasOwn(data, "payload");
@@ -1489,8 +1595,21 @@ export function isParentToWhiteboardMessageForChannel(
         isAcademicAcquisition(payload.acquisition)
       );
     default:
-      return false;
+      return rejectUnhandledProtocolType(type);
   }
+}
+
+export function isParentToWhiteboardMessageForChannel(
+  data: unknown,
+  channel: string,
+): data is ParentToWhiteboardMessage {
+  return safelyValidate(() =>
+    validateParentToWhiteboardMessageForChannel(data, channel),
+  );
+}
+
+function rejectUnhandledProtocolType(_type: never): false {
+  return false;
 }
 
 type WhiteboardMessageEvent = Pick<MessageEvent, "data" | "source">;
@@ -1510,9 +1629,10 @@ export function isWhiteboardToParentMessageEvent(
   peer: MessageEventSource | null,
   channel: string,
 ): event is WhiteboardMessageEvent & { data: WhiteboardToParentMessage } {
-  return (
-    isWhiteboardToParentMessageForChannel(event.data, channel) &&
-    isExpectedPeerSource(event.source, peer)
+  return safelyValidate(
+    () =>
+      isWhiteboardToParentMessageForChannel(event.data, channel) &&
+      isExpectedPeerSource(event.source, peer),
   );
 }
 
@@ -1521,9 +1641,10 @@ export function isParentToWhiteboardMessageEvent(
   peer: MessageEventSource | null,
   channel: string,
 ): event is WhiteboardMessageEvent & { data: ParentToWhiteboardMessage } {
-  return (
-    isParentToWhiteboardMessageForChannel(event.data, channel) &&
-    isExpectedPeerSource(event.source, peer)
+  return safelyValidate(
+    () =>
+      isParentToWhiteboardMessageForChannel(event.data, channel) &&
+      isExpectedPeerSource(event.source, peer),
   );
 }
 
@@ -1533,9 +1654,11 @@ export function dispatchWhiteboardParentMessageEvent(
   channel: string,
   accept: (message: ParentToWhiteboardMessage) => void,
 ): boolean {
-  if (!isParentToWhiteboardMessageEvent(event, peer, channel)) return false;
-  accept(event.data);
-  return true;
+  return safelyValidate(() => {
+    if (!isParentToWhiteboardMessageEvent(event, peer, channel)) return false;
+    accept(event.data);
+    return true;
+  });
 }
 
 export function whiteboardChannel(tabID: string, canvasId: string) {

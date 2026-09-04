@@ -346,3 +346,92 @@ Each failure was observed before changing the corresponding production guard.
   source exception is evaluated only after closed validation. Wrong non-null
   windows and malformed null-source messages remain inert.
 - Scope: no Task 9 document or report was modified.
+
+## Bridge regression follow-up: canonical snapshots and hostile ingress
+
+This follow-up closes the remaining schema/bridge mismatch found during real
+save verification. `flowToCanvasDocument` no longer materializes optional
+connection `label` or `color` properties with `undefined` values. An ordinary
+unlabelled React Flow edge therefore remains byte-for-byte compatible with the
+canonical parser and the closed protocol validator. The production host test
+now exercises the complete flow conversion, null-source `snapshot` reply,
+`requestSnapshot` waiter, and `save` event. A correlated snapshot reply clears
+its timeout immediately; destroy also clears and rejects all pending waiters.
+
+Protocol ingress is now total over hostile input: every public validator and
+event dispatcher has a full exception boundary, reflective record/array
+helpers reject trap failures, and indexed arrays are inspected through own data
+descriptors without invoking accessors, element getters, `length` getters, or
+iterators. The host listener adds a final guard against a stateful value that
+changes after validation. Genuine ordinary records from other realms and
+null-prototype dictionaries remain supported, while a custom null-parent
+prototype forged with an `Object` constructor is rejected by the realm-neutral
+`constructor.prototype === prototype` invariant.
+
+The canonical document parser now shares the protocol's positive safe-integer
+domain for group library IDs. Annotation candidates accept the gateway's real
+empty-string `sortIndex` fallback. Finally, production TypeScript owns closed
+maps for every active message type in both directions and switches end in a
+`never` assertion, so adding a union arm without validator classification fails
+typechecking. Optional host-produced labels and diagnostics are omitted instead
+of crossing as explicit `undefined`.
+
+### Canonical/hostile RED evidence
+
+- The first focused run reported 66 tests: 61 passed and 5 failed. The failures
+  independently reproduced `label: undefined` persistence rejection, invalid
+  group IDs accepted by the canonical parser, a custom-prototype record
+  accepted as plain, a throwing nested-array `ownKeys` trap escaping validation,
+  and a real gateway annotation with empty `sortIndex` rejected by the bridge.
+- A dedicated snapshot-timer RED test passed the reply but failed because its
+  eight-second timeout was not cancelled (`actual: 0`, `expected: 1` cleared
+  timers); the process stayed alive for about 8.3 seconds.
+- A production-init RED test showed an omitted labels option still crossed as
+  an own `labels: undefined` property.
+- Independent review then found two broader cases. New RED tests proved that
+  node `style`/`extensions` and connection `extensions` could still cross as
+  own `undefined` fields, and that a custom prototype with a self-consistent
+  fake `function Object()` constructor could satisfy the first structural
+  check. Both tests failed before recursive producer normalization and the
+  native-constructor invariant were added.
+
+All failures were observed before their corresponding production changes.
+
+### Canonical/hostile GREEN evidence
+
+- Focused protocol/document/gateway/production-bridge suites: 66 passed,
+  0 failed.
+- The focused snapshot test completes in about 0.28 seconds rather than waiting
+  for the eight-second fallback timer.
+- Full `pnpm run test:unit`: 590 passed, 0 failed across 24 suites.
+- `pnpm exec tsc --noEmit`: passed.
+- `pnpm run lint:check`: Prettier and ESLint passed.
+- `pnpm run whiteboard:build`: package typecheck and Vite production build
+  passed.
+- `pnpm run build`: Zotero plugin production build and root typecheck passed.
+- `git diff --check`: passed.
+
+### Canonical/hostile self-review
+
+- Snapshot boundary: the producer removes stale optional connection fields
+  before rebuilding them, then recursively omits undefined record fields from
+  nodes, connections, styles, snapshots, and extensions. An existing
+  `undefined` therefore cannot leak through a nested spread; null handles,
+  array positions, and explicit boolean edge settings remain canonical.
+- Waiter lifecycle: only the matching request clears/resolves its timeout;
+  unrelated and stale replies remain inert, while destruction releases every
+  remaining timer and waiter.
+- Hostile safety: root and nested own-key, descriptor, getter, iterator,
+  length, and element cases are covered. Data-descriptor reads avoid executing
+  accessors; all remaining reflective operations are contained by a false-on-
+  exception public boundary.
+- Realm compatibility: VM/happy-dom ordinary records, local ordinary records,
+  and null-prototype records are accepted. Arrays, browser objects, class
+  instances, accessors, symbols, exotic prototypes, and custom-prototype
+  forgeries remain rejected.
+- Producer compatibility: the integration suite covers an unlabelled snapshot,
+  empty annotation sort index, empty failure arrays, absent labels/diagnostics,
+  and canonical group library references.
+- Scope: no Task 9 document or report was modified.
+- Independent re-review found no remaining Critical or Important issues after
+  the broader undefined-shape and forged-prototype regressions were fixed.

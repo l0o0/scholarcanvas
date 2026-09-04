@@ -309,7 +309,11 @@ export function createWhiteboardEditor(
   const pending: PendingCommand[] = [];
   const snapshotWaiters = new Map<
     string,
-    (value: { rev: number; snapshot: CanvasDocument }) => void
+    {
+      resolve: (value: { rev: number; snapshot: CanvasDocument }) => void;
+      reject: (reason: Error) => void;
+      timeoutId?: number;
+    }
   >();
 
   let resolveReady!: () => void;
@@ -346,95 +350,108 @@ export function createWhiteboardEditor(
   };
 
   const onMessage = (event: MessageEvent) => {
-    if (destroyed) return;
-    if (!isWhiteboardToParentMessageEvent(event, iframe.contentWindow, channel))
-      return;
+    try {
+      if (destroyed) return;
+      if (
+        !isWhiteboardToParentMessageEvent(event, iframe.contentWindow, channel)
+      )
+        return;
 
-    const data: WhiteboardToParentMessage = event.data;
-    switch (data.type) {
-      case "ready": {
-        iframeReady = true;
-        post({
-          source: WHITEBOARD_MESSAGE_SOURCE,
-          type: "init",
-          payload: {
-            theme: resolveEditorTheme(ownerWin),
-            snapshot: pendingSnapshot,
-            labels: options.labels,
-          },
-        });
-        for (const cmd of pending.splice(0, pending.length)) post(cmd);
-        resolveReady();
-        break;
+      const data: WhiteboardToParentMessage = event.data;
+      switch (data.type) {
+        case "ready": {
+          iframeReady = true;
+          post({
+            source: WHITEBOARD_MESSAGE_SOURCE,
+            type: "init",
+            payload: {
+              theme: resolveEditorTheme(ownerWin),
+              snapshot: pendingSnapshot,
+              ...(options.labels ? { labels: options.labels } : {}),
+            },
+          });
+          for (const cmd of pending.splice(0, pending.length)) post(cmd);
+          resolveReady();
+          break;
+        }
+        case "change":
+          options.onChange?.(data.payload.rev);
+          break;
+        case "snapshot": {
+          const waiter = snapshotWaiters.get(data.payload.requestId);
+          snapshotWaiters.delete(data.payload.requestId);
+          if (waiter) {
+            if (waiter.timeoutId !== undefined) {
+              ownerWin?.clearTimeout(waiter.timeoutId);
+            }
+            waiter.resolve({
+              rev: data.payload.rev,
+              snapshot: data.payload.snapshot,
+            });
+          }
+          break;
+        }
+        case "save":
+          options.onSave?.();
+          break;
+        case "pickAcademicSource":
+          options.onPickAcademicSource?.(
+            data.payload.requestId,
+            data.payload.nodeId,
+            data.payload.kind,
+          );
+          break;
+        case "openItem":
+          options.onOpenItem?.(data.payload);
+          break;
+        case "dropAcademicSources":
+          options.onDropAcademicSources?.(
+            data.payload.requestId,
+            data.payload.nodeId,
+            data.payload.sources,
+          );
+          break;
+        case "resolveAcademicSources":
+          options.onResolveAcademicSources?.(
+            data.payload.requestId,
+            data.payload.generation,
+            data.payload.priority,
+            data.payload.sources,
+          );
+          break;
+        case "openAcademicSource":
+          options.onOpenAcademicSource?.(
+            data.payload.requestId,
+            data.payload.nodeId,
+            data.payload.source,
+          );
+          break;
+        case "refreshZoteroNote":
+          options.onRefreshZoteroNote?.(
+            data.payload.requestId,
+            data.payload.nodeId,
+            data.payload.source,
+          );
+          break;
+        case "listLiteratureAnnotations":
+          options.onListLiteratureAnnotations?.(
+            data.payload.requestId,
+            data.payload.source,
+          );
+          break;
+        case "exportFile":
+          options.onExportFile?.(data.payload);
+          break;
+        case "error":
+          options.onError?.(data.payload.message);
+          break;
+        default:
+          break;
       }
-      case "change":
-        options.onChange?.(data.payload.rev);
-        break;
-      case "snapshot": {
-        const waiter = snapshotWaiters.get(data.payload.requestId);
-        snapshotWaiters.delete(data.payload.requestId);
-        waiter?.({
-          rev: data.payload.rev,
-          snapshot: data.payload.snapshot,
-        });
-        break;
-      }
-      case "save":
-        options.onSave?.();
-        break;
-      case "pickAcademicSource":
-        options.onPickAcademicSource?.(
-          data.payload.requestId,
-          data.payload.nodeId,
-          data.payload.kind,
-        );
-        break;
-      case "openItem":
-        options.onOpenItem?.(data.payload);
-        break;
-      case "dropAcademicSources":
-        options.onDropAcademicSources?.(
-          data.payload.requestId,
-          data.payload.nodeId,
-          data.payload.sources,
-        );
-        break;
-      case "resolveAcademicSources":
-        options.onResolveAcademicSources?.(
-          data.payload.requestId,
-          data.payload.generation,
-          data.payload.priority,
-          data.payload.sources,
-        );
-        break;
-      case "openAcademicSource":
-        options.onOpenAcademicSource?.(
-          data.payload.requestId,
-          data.payload.nodeId,
-          data.payload.source,
-        );
-        break;
-      case "refreshZoteroNote":
-        options.onRefreshZoteroNote?.(
-          data.payload.requestId,
-          data.payload.nodeId,
-          data.payload.source,
-        );
-        break;
-      case "listLiteratureAnnotations":
-        options.onListLiteratureAnnotations?.(
-          data.payload.requestId,
-          data.payload.source,
-        );
-        break;
-      case "exportFile":
-        options.onExportFile?.(data.payload);
-        break;
-      case "error":
-        options.onError?.(data.payload.message);
-        break;
-      default:
-        break;
+    } catch {
+      // Treat hostile/stateful message objects as rejected ingress. Valid
+      // browser postMessage data is already structured-cloned ordinary data.
+      return;
     }
   };
 
@@ -496,6 +513,13 @@ export function createWhiteboardEditor(
       ownerWin?.removeEventListener("message", onMessage);
       iframe.removeEventListener("load", attachDropListeners);
       detachDropListeners();
+      for (const waiter of snapshotWaiters.values()) {
+        if (waiter.timeoutId !== undefined) {
+          ownerWin?.clearTimeout(waiter.timeoutId);
+        }
+        waiter.reject(new Error("whiteboard destroyed"));
+      }
+      snapshotWaiters.clear();
       post({ source: WHITEBOARD_MESSAGE_SOURCE, type: "destroy" });
       iframe.remove();
       wrap.remove();
@@ -522,13 +546,18 @@ export function createWhiteboardEditor(
           reject(new Error("whiteboard destroyed"));
           return;
         }
-        snapshotWaiters.set(requestId, resolve);
+        const waiter = { resolve, reject } as {
+          resolve: (value: { rev: number; snapshot: CanvasDocument }) => void;
+          reject: (reason: Error) => void;
+          timeoutId?: number;
+        };
+        snapshotWaiters.set(requestId, waiter);
         post({
           source: WHITEBOARD_MESSAGE_SOURCE,
           type: "requestSnapshot",
           payload: { requestId },
         });
-        ownerWin?.setTimeout?.(() => {
+        waiter.timeoutId = ownerWin?.setTimeout?.(() => {
           if (snapshotWaiters.delete(requestId)) {
             reject(new Error("snapshot timeout"));
           }
@@ -560,7 +589,12 @@ export function createWhiteboardEditor(
       sendOrQueue({
         source: WHITEBOARD_MESSAGE_SOURCE,
         type: "academicRequestFailed",
-        payload: { requestId, nodeId, code, diagnostic },
+        payload: {
+          requestId,
+          nodeId,
+          code,
+          ...(diagnostic !== undefined ? { diagnostic } : {}),
+        },
       });
     },
     rejectSourceAction(requestId, nodeId, source, failure) {

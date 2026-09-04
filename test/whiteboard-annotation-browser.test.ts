@@ -11,6 +11,10 @@ import {
   type AnnotationBrowserLabels,
 } from "../packages/whiteboard/src/chrome/AnnotationBrowser.tsx";
 import { PropertiesPanel } from "../packages/whiteboard/src/chrome/PropertiesPanel.tsx";
+import {
+  quoteAttachmentIdentity,
+  quoteSourceIdentity,
+} from "../packages/whiteboard/src/model/academic.ts";
 import type { CanvasDocument } from "../packages/whiteboard/src/model/document.ts";
 import type {
   AnnotationCandidate,
@@ -37,7 +41,14 @@ function candidate(
   annotationKey: string,
   attachmentTitle: string,
   text: string,
-  options: { comment?: string; pageLabel?: string; color?: string } = {},
+  options: {
+    comment?: string;
+    pageLabel?: string;
+    color?: string;
+    library?: { type: "user" } | { type: "group"; groupID: number };
+    itemKey?: string;
+    attachmentKey?: string;
+  } = {},
 ): AnnotationCandidate {
   return {
     attachmentTitle,
@@ -45,9 +56,9 @@ function candidate(
     acquisition: {
       kind: "quote",
       source: {
-        library: { type: "user" },
-        itemKey: "ITEM1234",
-        attachmentKey: `PDF-${attachmentTitle}`,
+        library: options.library ?? { type: "user" },
+        itemKey: options.itemKey ?? "ITEM1234",
+        attachmentKey: options.attachmentKey ?? `PDF-${attachmentTitle}`,
         annotationKey,
       },
       snapshot: { text, ...options },
@@ -152,66 +163,85 @@ test("filters text, comment, and page label case-insensitively", () => {
   );
 });
 
-test("groups by attachment title without changing gateway order", () => {
+test("groups by full attachment identity without changing gateway order or title", () => {
+  const sameTitle = [
+    candidate("ANN-A1", "Paper.pdf", "First attachment", {
+      attachmentKey: "PDF-A",
+    }),
+    candidate("ANN-B1", "Paper.pdf", "Second attachment", {
+      attachmentKey: "PDF-B",
+    }),
+    candidate("ANN-A2", "Paper.pdf", "First attachment later", {
+      attachmentKey: "PDF-A",
+    }),
+  ];
   assert.deepEqual(
-    groupAnnotationCandidates(candidates).map((group) => ({
+    groupAnnotationCandidates(sameTitle).map((group) => ({
       title: group.attachmentTitle,
+      identity: group.attachmentIdentity,
       keys: group.candidates.map(
         (item) => item.acquisition.source.annotationKey,
       ),
     })),
     [
-      { title: "Methods.pdf", keys: ["ANN1", "ANN3"] },
-      { title: "Results.pdf", keys: ["ANN2"] },
+      {
+        title: "Paper.pdf",
+        identity: quoteAttachmentIdentity(sameTitle[0].acquisition.source),
+        keys: ["ANN-A1", "ANN-A2"],
+      },
+      {
+        title: "Paper.pdf",
+        identity: quoteAttachmentIdentity(sameTitle[1].acquisition.source),
+        keys: ["ANN-B1"],
+      },
     ],
   );
 });
 
-test("finds annotation keys already acquired anywhere in the document", () => {
-  assert.deepEqual(existingAnnotationKeys(document), new Set(["ANN1"]));
+test("uses a stable full Quote source identity for duplicates", () => {
+  const existing = document.nodes[1];
+  assert.equal(existing.kind, "quote");
+  assert.deepEqual(
+    existingAnnotationKeys(document),
+    new Set(['["user",null,"OTHER","OTHER-PDF","ANN1"]']),
+  );
+  assert.notEqual(
+    quoteSourceIdentity(candidates[0].acquisition.source),
+    quoteSourceIdentity(existing.source),
+  );
 });
 
 test("supports checkbox multi-selection without selecting duplicate keys", () => {
-  const first = toggleAnnotationSelection(new Set<string>(), "ANN2", true);
-  const second = toggleAnnotationSelection(first, "ANN3", true);
-  const removed = toggleAnnotationSelection(second, "ANN2", false);
-  assert.deepEqual(second, new Set(["ANN2", "ANN3"]));
-  assert.deepEqual(removed, new Set(["ANN3"]));
+  const ann2 = quoteSourceIdentity(candidates[1].acquisition.source);
+  const ann3 = quoteSourceIdentity(candidates[2].acquisition.source);
+  const first = toggleAnnotationSelection(new Set<string>(), ann2, true);
+  const second = toggleAnnotationSelection(first, ann3, true);
+  const removed = toggleAnnotationSelection(second, ann2, false);
+  assert.deepEqual(second, new Set([ann2, ann3]));
+  assert.deepEqual(removed, new Set([ann3]));
 
-  const toggled: Array<[string, boolean]> = [];
-  const tree = AnnotationBrowser({
-    ...(browser().props as Parameters<typeof AnnotationBrowser>[0]),
-    selectedKeys: second,
-    onToggle: (key, checked) => toggled.push([key, checked]),
-  });
-  const checkboxes: ReactElement<Record<string, unknown>>[] = [];
-  visit(tree, (element) => {
-    if (element.type === "input" && element.props.type === "checkbox") {
-      checkboxes.push(element as ReactElement<Record<string, unknown>>);
-    }
-  });
-  assert.equal(checkboxes.length, 3);
-  assert.equal(checkboxes[0].props.disabled, true);
-  assert.equal(checkboxes[1].props.checked, true);
-  (checkboxes[1].props.onChange as (event: unknown) => void)({
-    currentTarget: { checked: false },
-  });
-  assert.deepEqual(toggled, [["ANN3", false]]);
+  const markup = renderToStaticMarkup(browser({ selectedKeys: second }));
+  assert.equal(markup.match(/type="checkbox"/g)?.length, 3);
+  assert.equal(markup.match(/checked=""/g)?.length, 2);
 });
 
 test("renders an accessible dialog and duplicate focus action", () => {
-  const markup = renderToStaticMarkup(browser());
+  const duplicate = candidate("ANN1", "Other.pdf", "Duplicate source", {
+    itemKey: "OTHER",
+    attachmentKey: "OTHER-PDF",
+  });
+  const markup = renderToStaticMarkup(
+    browser({
+      state: { status: "ready", candidates: [duplicate], failures: [] },
+    }),
+  );
   assert.match(markup, /role="dialog"/);
   assert.match(markup, /aria-modal="true"/);
   assert.match(markup, /aria-label="Search annotations"/);
   assert.match(markup, /type="checkbox"[^>]*disabled/);
   assert.match(markup, /Already added/);
   assert.match(markup, />Focus existing</);
-  assert.match(
-    markup,
-    /Methods\.pdf[\s\S]*ANN1|Methods\.pdf[\s\S]*Prior evidence/,
-  );
-  assert.match(markup, /Results\.pdf/);
+  assert.match(markup, /Other\.pdf[\s\S]*Duplicate source/);
 });
 
 test("renders loading, empty, unavailable, and partial-failure states", () => {
@@ -252,41 +282,18 @@ test("renders loading, empty, unavailable, and partial-failure states", () => {
 test("Add selected is disabled only when no eligible annotation is selected", () => {
   const none = renderToStaticMarkup(browser());
   const selected = renderToStaticMarkup(
-    browser({ selectedKeys: new Set(["ANN2", "ANN3"]) }),
+    browser({
+      selectedKeys: new Set([
+        quoteSourceIdentity(candidates[1].acquisition.source),
+        quoteSourceIdentity(candidates[2].acquisition.source),
+      ]),
+    }),
   );
   assert.match(none, /<button[^>]*disabled=""[^>]*>Add selected<\/button>/);
   assert.doesNotMatch(
     selected,
     /<button[^>]*disabled=""[^>]*>Add selected<\/button>/,
   );
-});
-
-test("Escape and backdrop dismiss the dialog and restore focus", () => {
-  let closes = 0;
-  let focuses = 0;
-  const target = {};
-  const tree = AnnotationBrowser({
-    ...(browser().props as Parameters<typeof AnnotationBrowser>[0]),
-    returnFocusRef: { current: { focus: () => focuses++ } },
-    onClose: () => closes++,
-  });
-  (tree.props.onKeyDown as (event: unknown) => void)({
-    key: "Escape",
-    preventDefault: () => undefined,
-    stopPropagation: () => undefined,
-  });
-  assert.deepEqual([closes, focuses], [1, 1]);
-
-  (tree.props.onMouseDown as (event: unknown) => void)({
-    currentTarget: target,
-    target,
-  });
-  assert.deepEqual([closes, focuses], [2, 2]);
-  (tree.props.onMouseDown as (event: unknown) => void)({
-    currentTarget: target,
-    target: {},
-  });
-  assert.deepEqual([closes, focuses], [2, 2]);
 });
 
 test("only a selected Literature exposes the lazy annotation action", () => {

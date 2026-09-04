@@ -210,11 +210,20 @@ export type AnnotationListFailureCode =
   | "item-missing"
   | "wrong-kind"
   | "parent-mismatch"
+  | "attachment-unavailable"
+  | "annotation-unavailable"
   | "list-failed";
 
 export interface AnnotationListFailure {
   code: AnnotationListFailureCode;
   message: string;
+  attachmentKey?: string;
+  annotationKey?: string;
+}
+
+export interface AnnotationListResult {
+  candidates: AnnotationCandidate[];
+  failures: AnnotationListFailure[];
 }
 
 export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &

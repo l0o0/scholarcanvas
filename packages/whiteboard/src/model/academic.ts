@@ -29,6 +29,36 @@ export interface NoteSource {
   itemKey?: string;
 }
 
+function sourceLibraryIdentity(
+  library: ZoteroLibraryRef,
+): [string, number | null] {
+  return library.type === "user" ? ["user", null] : ["group", library.groupID];
+}
+
+export function literatureSourceIdentity(source: LiteratureSource): string {
+  return JSON.stringify([
+    ...sourceLibraryIdentity(source.library),
+    source.itemKey,
+  ]);
+}
+
+export function quoteAttachmentIdentity(source: QuoteSource): string {
+  return JSON.stringify([
+    ...sourceLibraryIdentity(source.library),
+    source.itemKey,
+    source.attachmentKey,
+  ]);
+}
+
+export function quoteSourceIdentity(source: QuoteSource): string {
+  return JSON.stringify([
+    ...sourceLibraryIdentity(source.library),
+    source.itemKey,
+    source.attachmentKey,
+    source.annotationKey,
+  ]);
+}
+
 export interface LiteratureSnapshot {
   title: string;
   creators?: string;

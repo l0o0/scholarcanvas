@@ -30,6 +30,7 @@ import "./board.css";
 import {
   createAcademicNode,
   effectiveCanvasNodeUiTextStyle,
+  quoteSourceIdentity,
   type CanvasNode,
   type CanvasNodeKind,
   type LiteratureSource,
@@ -57,7 +58,6 @@ import {
   AnnotationBrowser,
   existingAnnotationKeys,
   toggleAnnotationSelection,
-  type AnnotationBrowserState,
 } from "../chrome/AnnotationBrowser";
 import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
@@ -84,6 +84,14 @@ import {
   type AlignMode,
 } from "./layout";
 import { buildCanvasMarkdown, buildCanvasSvg, svgToPngDataUrl } from "./export";
+import {
+  acceptAnnotationListFailure,
+  acceptAnnotationListResult,
+  closeAnnotationBrowserSession,
+  openAnnotationBrowserSession,
+  replaceDocumentAnnotationBrowserSession,
+  type AnnotationBrowserSession,
+} from "./annotationBrowserState";
 import {
   beginNodeEditing,
   canvasDocumentToFlow,
@@ -353,14 +361,6 @@ interface DrawSession {
   pointerId: number;
 }
 
-interface AnnotationBrowserSession {
-  requestId: string;
-  source: LiteratureSource;
-  state: AnnotationBrowserState;
-  query: string;
-  selectedKeys: Set<string>;
-}
-
 function nodeSize(node: CanvasFlowNode) {
   return {
     width:
@@ -531,6 +531,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const annotationBrowserRef = useRef<AnnotationBrowserSession | null>(null);
   annotationBrowserRef.current = annotationBrowser;
   const viewAnnotationsRef = useRef<HTMLButtonElement | null>(null);
+  const canvasHostRef = useRef<HTMLDivElement | null>(null);
   const holdEditFocusRef = useRef(false);
 
   const runtimeRef = useRef<WhiteboardRuntime | null>(null);
@@ -624,6 +625,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const loadSnapshot = useCallback(
     (value: CanvasDocument) => {
       cancelIdleResolution();
+      annotationBrowserRef.current = replaceDocumentAnnotationBrowserSession(
+        annotationBrowserRef.current,
+      );
+      setAnnotationBrowser(annotationBrowserRef.current);
       noteRefreshRuntimeRef.current?.clear();
       sourceGenerationRef.current += 1;
       sourcePrioritiesRef.current.clear();
@@ -687,13 +692,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const model = node.data.model;
     if (model.kind !== "literature" || annotationBrowserRef.current) return;
     const requestId = newId("annotations");
-    const session: AnnotationBrowserSession = {
-      requestId,
-      source: model.source,
-      state: { status: "loading" },
-      query: "",
-      selectedKeys: new Set(),
-    };
+    const session = openAnnotationBrowserSession(requestId, model.source);
     annotationBrowserRef.current = session;
     setAnnotationBrowser(session);
     propsRef.current.onListLiteratureAnnotations?.(requestId, model.source);
@@ -702,16 +701,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const applyAnnotationCandidates = useCallback(
     (
       requestId: string,
-      _source: LiteratureSource,
+      source: LiteratureSource,
       candidates: AnnotationCandidate[],
       failures: AnnotationListFailure[],
     ) => {
       setAnnotationBrowser((current) => {
-        if (!current || current.requestId !== requestId) return current;
-        const next = {
-          ...current,
-          state: { status: "ready", candidates, failures } as const,
-        };
+        const next = acceptAnnotationListResult(current, requestId, source, {
+          candidates,
+          failures,
+        });
         annotationBrowserRef.current = next;
         return next;
       });
@@ -722,15 +720,16 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const rejectAnnotationList = useCallback(
     (
       requestId: string,
-      _source: LiteratureSource,
+      source: LiteratureSource,
       failure: AnnotationListFailure,
     ) => {
       setAnnotationBrowser((current) => {
-        if (!current || current.requestId !== requestId) return current;
-        const next = {
-          ...current,
-          state: { status: "unavailable", failure } as const,
-        };
+        const next = acceptAnnotationListFailure(
+          current,
+          requestId,
+          source,
+          failure,
+        );
         annotationBrowserRef.current = next;
         return next;
       });
@@ -739,16 +738,18 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   );
 
   const closeAnnotationBrowser = useCallback(() => {
-    annotationBrowserRef.current = null;
-    setAnnotationBrowser(null);
+    annotationBrowserRef.current = closeAnnotationBrowserSession(
+      annotationBrowserRef.current,
+    );
+    setAnnotationBrowser(annotationBrowserRef.current);
   }, []);
 
   const focusExistingAnnotation = useCallback(
-    (annotationKey: string) => {
+    (annotationIdentity: string) => {
       const existing = nodesRef.current.find(
         (node) =>
           node.data.model.kind === "quote" &&
-          node.data.model.source.annotationKey === annotationKey,
+          quoteSourceIdentity(node.data.model.source) === annotationIdentity,
       );
       if (!existing) return;
       closeAnnotationBrowser();
@@ -762,6 +763,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         nodes: [{ id: existing.id }],
         padding: 0.4,
         duration: 200,
+      });
+      window.requestAnimationFrame(() => {
+        const canvasHost = canvasHostRef.current;
+        const existingElement = Array.from(
+          canvasHost?.querySelectorAll<HTMLElement>(".react-flow__node") ?? [],
+        ).find((element) => element.dataset.id === existing.id);
+        (existingElement ?? canvasHost)?.focus();
       });
     },
     [closeAnnotationBrowser, nodesRef, setNodes],
@@ -1589,8 +1597,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   return (
     <WhiteboardLabelsProvider value={labels}>
       <div
+        ref={canvasHostRef}
         className={`zmd-board-host${eraser ? " is-eraser" : ""}${activeTool === "hand" ? " is-hand" : ""}${isDrawTool(activeTool) ? " is-draw" : ""}`}
         data-theme={theme}
+        tabIndex={-1}
         onDragOver={(event) => {
           if (event.dataTransfer?.types?.length) event.preventDefault();
         }}

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   createZoteroSourceGateway,
   noteHtmlToText,
+  SourceGatewayError,
   type SourceGatewayDependencies,
 } from "../src/modules/whiteboard/source-gateway.ts";
 
@@ -483,20 +484,22 @@ test("lists only non-empty PDF highlight and underline annotations in determinis
   ]);
   const gateway = createZoteroSourceGateway(deps);
 
-  const candidates = await gateway.listAnnotations({
+  const result = await gateway.listAnnotations({
     library: { type: "user" },
     itemKey: "ITEM",
   });
 
   assert.deepEqual(
-    candidates.map((candidate) => candidate.acquisition.source.annotationKey),
+    result.candidates.map(
+      (candidate) => candidate.acquisition.source.annotationKey,
+    ),
     ["EARLIER", "LATER", "SECOND"],
   );
   assert.deepEqual(
-    candidates.map((candidate) => candidate.attachmentTitle),
+    result.candidates.map((candidate) => candidate.attachmentTitle),
     ["First PDF", "First PDF", "Second PDF"],
   );
-  assert.equal(JSON.stringify(candidates).includes('"id"'), false);
+  assert.equal(JSON.stringify(result).includes('"id"'), false);
 });
 
 test("lists numeric child attachment IDs through injected lookup", async () => {
@@ -524,14 +527,126 @@ test("lists numeric child attachment IDs through injected lookup", async () => {
     }),
   );
 
-  const candidates = await gateway.listAnnotations({
+  const result = await gateway.listAnnotations({
     library: { type: "user" },
     itemKey: "ITEM",
   });
 
   assert.deepEqual(
-    candidates.map((candidate) => candidate.acquisition.source.annotationKey),
+    result.candidates.map(
+      (candidate) => candidate.acquisition.source.annotationKey,
+    ),
     ["ANNOTATION"],
+  );
+});
+
+test("returns valid annotation candidates together with typed partial failures", async () => {
+  const regular = item("regular", { key: "ITEM" });
+  const validAttachment = item("attachment", {
+    key: "PDF-VALID",
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+    fields: { title: "Same title.pdf" },
+  });
+  const failingAttachment = item("attachment", {
+    key: "PDF-FAIL",
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+    fields: { title: "Same title.pdf" },
+  });
+  const otherAttachment = item("attachment", {
+    key: "PDF-OTHER",
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+  });
+  const valid = item("annotation", {
+    key: "ANN-VALID",
+    parentItem: validAttachment,
+    annotationType: "highlight",
+    annotationText: "Usable evidence",
+    annotationSortIndex: "00001",
+  });
+  const mismatched = item("annotation", {
+    key: "ANN-MISMATCH",
+    parentItem: otherAttachment,
+    annotationType: "underline",
+    annotationText: "Wrong attachment",
+    annotationSortIndex: "00002",
+  });
+  const excluded = item("annotation", {
+    key: "ANN-IMAGE",
+    parentItem: validAttachment,
+    annotationType: "image",
+    annotationText: "Unsupported by design",
+  });
+  const invalid = item("regular", { key: "ANN-BROKEN" });
+  validAttachment.getAnnotations = () => [valid, mismatched, excluded, invalid];
+  failingAttachment.getAnnotations = () => {
+    throw new Error("annotation storage failed");
+  };
+  regular.getAttachments = () =>
+    [validAttachment, failingAttachment] as unknown as number[];
+  const { deps } = dependencies([
+    regular,
+    validAttachment,
+    failingAttachment,
+    otherAttachment,
+    valid,
+    mismatched,
+    excluded,
+    invalid,
+  ]);
+
+  const result = await createZoteroSourceGateway(deps).listAnnotations({
+    library: { type: "user" },
+    itemKey: "ITEM",
+  });
+
+  assert.deepEqual(
+    result.candidates.map(
+      (candidate) => candidate.acquisition.source.annotationKey,
+    ),
+    ["ANN-VALID"],
+  );
+  assert.deepEqual(result.failures, [
+    {
+      code: "annotation-unavailable",
+      message: "A Zotero annotation could not be loaded.",
+      attachmentKey: "PDF-VALID",
+      annotationKey: "ANN-MISMATCH",
+    },
+    {
+      code: "annotation-unavailable",
+      message: "A Zotero annotation could not be loaded.",
+      attachmentKey: "PDF-VALID",
+      annotationKey: "ANN-BROKEN",
+    },
+    {
+      code: "attachment-unavailable",
+      message: "Annotations from a PDF attachment could not be loaded.",
+      attachmentKey: "PDF-FAIL",
+    },
+  ]);
+  assert.equal(
+    result.failures.some((failure) => failure.annotationKey === "ANN-IMAGE"),
+    false,
+    "unsupported annotation kinds are intentional exclusions, not failures",
+  );
+  assert.equal(JSON.stringify(result).includes('"itemID"'), false);
+  assert.equal(JSON.stringify(result).includes('"attachmentID"'), false);
+});
+
+test("terminal annotation list failures carry codes without message parsing", async () => {
+  const { deps } = dependencies();
+  await assert.rejects(
+    createZoteroSourceGateway(deps).listAnnotations({
+      library: { type: "group", groupID: 99 },
+      itemKey: "ITEM",
+    }),
+    (error: unknown) =>
+      error instanceof SourceGatewayError &&
+      error.code === "library-missing" &&
+      error.message === "The Zotero library is unavailable.",
   );
 });
 

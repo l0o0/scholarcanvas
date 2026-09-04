@@ -14,7 +14,11 @@ import { WhiteboardSaveCoordinator } from "./save-coordinator";
 import { whiteboardRegistry, type WhiteboardSession } from "./session-registry";
 import { WHITEBOARD_TAB_TYPE } from "./tabHooks";
 import { isWhiteboardAttachment } from "./detect";
-import { createZoteroSourceGateway } from "./source-gateway";
+import {
+  createZoteroSourceGateway,
+  SourceGatewayError,
+  type ZoteroSourceGateway,
+} from "./source-gateway";
 import { ProgressiveSourceScheduler } from "./source-scheduler";
 import { sourceCacheKey } from "../../../packages/whiteboard/src/whiteboard/sourceState";
 
@@ -327,36 +331,33 @@ async function handleRefreshZoteroNote(
   }
 }
 
-function annotationListFailure(error: unknown): AnnotationListFailure {
-  const message = error instanceof Error ? error.message : String(error);
-  const code = message.includes("library is unavailable")
-    ? "library-missing"
-    : message.includes("item is unavailable")
-      ? "item-missing"
-      : message.includes("different kind")
-        ? "wrong-kind"
-        : message.includes("parent has changed")
-          ? "parent-mismatch"
-          : "list-failed";
-  return { code, message };
-}
-
-async function handleListLiteratureAnnotations(
+export async function handleListLiteratureAnnotations(
   session: WhiteboardSession,
   requestId: string,
   source: LiteratureSource,
+  gateway: Pick<
+    ZoteroSourceGateway,
+    "listAnnotations"
+  > = createZoteroSourceGateway(),
 ) {
   const editor = session.editor;
   if (!editor) return;
   try {
-    const candidates =
-      await createZoteroSourceGateway().listAnnotations(source);
-    editor.applyAnnotationCandidates(requestId, source, candidates, []);
+    const { candidates, failures } = await gateway.listAnnotations(source);
+    editor.applyAnnotationCandidates(requestId, source, candidates, failures);
   } catch (error) {
     editor.rejectAnnotationList(
       requestId,
       source,
-      annotationListFailure(error),
+      error instanceof SourceGatewayError
+        ? { code: error.code, message: error.message }
+        : {
+            code: "list-failed",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Zotero annotations could not be loaded.",
+          },
     );
   }
 }

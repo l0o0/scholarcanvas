@@ -1,5 +1,8 @@
 import type {
   AnnotationCandidate,
+  AnnotationListFailure,
+  AnnotationListFailureCode,
+  AnnotationListResult,
   AcademicAcquisition,
   AcademicSourceDescriptor,
   LiteratureSource,
@@ -35,7 +38,7 @@ export interface ZoteroSourceGateway {
     generation: number,
     descriptor: AcademicSourceDescriptor,
   ): Promise<SourceResolutionResult>;
-  listAnnotations(source: LiteratureSource): Promise<AnnotationCandidate[]>;
+  listAnnotations(source: LiteratureSource): Promise<AnnotationListResult>;
   refreshNote(
     source: NoteSource,
   ): Promise<Extract<AcademicAcquisition, { kind: "note" }>>;
@@ -56,6 +59,26 @@ const unavailableMessages = {
   "wrong-kind": "The Zotero item has a different kind.",
   "parent-mismatch": "The Zotero item's parent has changed.",
 } as const;
+
+type TerminalAnnotationListFailureCode = Extract<
+  AnnotationListFailureCode,
+  | "library-missing"
+  | "item-missing"
+  | "wrong-kind"
+  | "parent-mismatch"
+  | "list-failed"
+>;
+
+export class SourceGatewayError extends Error {
+  override readonly name = "SourceGatewayError";
+
+  constructor(
+    readonly code: TerminalAnnotationListFailureCode,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
 export function createZoteroSourceGateway(
   deps?: SourceGatewayDependencies,
@@ -115,51 +138,103 @@ export function createZoteroSourceGateway(
 
   async function listAnnotations(
     source: LiteratureSource,
-  ): Promise<AnnotationCandidate[]> {
+  ): Promise<AnnotationListResult> {
     const id = libraryID(source.library);
-    if (id == null) throw new Error(unavailableMessages["library-missing"]);
+    if (id == null)
+      throw new SourceGatewayError(
+        "library-missing",
+        unavailableMessages["library-missing"],
+      );
     const literature = deps.getByLibraryAndKey(id, source.itemKey);
-    if (!literature) throw new Error(unavailableMessages["item-missing"]);
+    if (!literature)
+      throw new SourceGatewayError(
+        "item-missing",
+        unavailableMessages["item-missing"],
+      );
     if (!literature.isRegularItem())
-      throw new Error(unavailableMessages["wrong-kind"]);
+      throw new SourceGatewayError(
+        "wrong-kind",
+        unavailableMessages["wrong-kind"],
+      );
 
-    const attachmentIDs = literature.getAttachments();
+    let attachmentIDs: ReturnType<Zotero.Item["getAttachments"]>;
+    try {
+      attachmentIDs = literature.getAttachments();
+    } catch {
+      throw new SourceGatewayError(
+        "list-failed",
+        "Zotero annotations could not be loaded.",
+      );
+    }
     const candidates: AnnotationCandidate[] = [];
+    const failures: AnnotationListFailure[] = [];
     for (const child of attachmentIDs) {
       const attachment = childItem(child, deps);
+      if (!attachment?.isAttachment()) {
+        failures.push(attachmentFailure());
+        continue;
+      }
+      if (attachment.attachmentContentType !== "application/pdf") {
+        continue;
+      }
       if (
-        !attachment?.isAttachment() ||
-        attachment.attachmentContentType !== "application/pdf" ||
         !attachment.parentItem?.isRegularItem() ||
         attachment.parentItem.key !== source.itemKey
       ) {
+        failures.push(attachmentFailure(attachment.key));
         continue;
       }
-      for (const annotation of attachment.getAnnotations()) {
+      let annotations: ReturnType<Zotero.Item["getAnnotations"]>;
+      try {
+        annotations = attachment.getAnnotations();
+      } catch {
+        failures.push(attachmentFailure(attachment.key));
+        continue;
+      }
+      for (const annotation of annotations) {
         try {
+          if (!annotation.isAnnotation()) {
+            throw new SourceIntegrityError("wrong-kind");
+          }
+          if (!isSupportedAnnotation(annotation)) continue;
           const acquisition = quoteAcquisition(annotation, source.library);
-          if (acquisition.source.itemKey !== source.itemKey) continue;
+          if (
+            acquisition.source.itemKey !== source.itemKey ||
+            acquisition.source.attachmentKey !== attachment.key
+          ) {
+            throw new SourceIntegrityError("parent-mismatch");
+          }
           candidates.push({
             acquisition,
             attachmentTitle: textField(attachment, "title") || attachment.key,
             sortIndex: annotation.annotationSortIndex || "",
           });
         } catch {
-          // A changed parent chain makes this annotation unavailable, not fatal.
+          failures.push(
+            annotationFailure(
+              attachment.key,
+              typeof annotation.key === "string" && annotation.key
+                ? annotation.key
+                : undefined,
+            ),
+          );
         }
       }
     }
-    return candidates.sort(
-      (left, right) =>
-        left.attachmentTitle.localeCompare(right.attachmentTitle) ||
-        left.acquisition.source.attachmentKey.localeCompare(
-          right.acquisition.source.attachmentKey,
-        ) ||
-        left.sortIndex.localeCompare(right.sortIndex) ||
-        left.acquisition.source.annotationKey.localeCompare(
-          right.acquisition.source.annotationKey,
-        ),
-    );
+    return {
+      candidates: candidates.sort(
+        (left, right) =>
+          left.attachmentTitle.localeCompare(right.attachmentTitle) ||
+          left.acquisition.source.attachmentKey.localeCompare(
+            right.acquisition.source.attachmentKey,
+          ) ||
+          left.sortIndex.localeCompare(right.sortIndex) ||
+          left.acquisition.source.annotationKey.localeCompare(
+            right.acquisition.source.annotationKey,
+          ),
+      ),
+      failures,
+    };
   }
 
   async function refreshNote(
@@ -387,6 +462,26 @@ function childItem(
 ): Zotero.Item | null {
   if (value && typeof value === "object") return value as Zotero.Item;
   return typeof value === "number" ? deps.getByID?.(value) || null : null;
+}
+
+function attachmentFailure(attachmentKey?: string): AnnotationListFailure {
+  return {
+    code: "attachment-unavailable",
+    message: "Annotations from a PDF attachment could not be loaded.",
+    ...(attachmentKey ? { attachmentKey } : {}),
+  };
+}
+
+function annotationFailure(
+  attachmentKey: string,
+  annotationKey?: string,
+): AnnotationListFailure {
+  return {
+    code: "annotation-unavailable",
+    message: "A Zotero annotation could not be loaded.",
+    attachmentKey,
+    ...(annotationKey ? { annotationKey } : {}),
+  };
 }
 
 function textField(item: Zotero.Item, field: string): string {

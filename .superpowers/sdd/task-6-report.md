@@ -129,3 +129,136 @@ Commit subject: `feat(canvas): browse Literature annotations`
 
 The commit containing this report is the Task 6 implementation commit based on
 `ec3e590`.
+
+---
+
+## Important-review corrections
+
+The four Important findings raised after the initial Task 6 commit were fixed
+in a separate follow-up change. This section supersedes the narrower identity,
+correlation, partial-failure, and accessibility statements in the initial
+self-review above.
+
+### Corrected behavior
+
+- Added deterministic source identity helpers covering library type, group ID
+  when applicable, item key, attachment key, and annotation key. The complete
+  Quote identity now backs `existingAnnotationKeys`, checkbox selection, React
+  row keys, duplicate detection, and **Focus existing**. Attachment grouping is
+  keyed by the same identity minus annotation key, so equal display titles do
+  not merge distinct attachments; group and candidate ordering still follows
+  the gateway result.
+- Changed `listAnnotations()` to return a typed result containing both valid
+  candidates and partial failures. Attachment read/parent failures and invalid
+  annotation records are reported with stable codes and native keys where
+  available; deliberately unsupported or empty annotation kinds remain
+  exclusions. Terminal failures use `SourceGatewayError`, and the host branches
+  on its code rather than parsing English messages. A real gateway -> host ->
+  protocol -> runtime test proves both partial and terminal paths. No Zotero
+  item or attachment integer ID enters these results.
+- Centralized annotation-browser session transitions. Success and failure
+  replies now require both the current request ID and the exact Literature
+  source identity. Closing, reopening, and replacing the loaded document clear
+  the prior session, leaving stale or source-mismatched replies inert.
+- Replaced handler-only modal behavior with mounted DOM semantics: initial
+  search focus, Tab/Shift+Tab wrapping, capture-phase window Escape handling,
+  inert and `aria-hidden` background management with exact restoration, and
+  trigger focus return after Escape, backdrop, and close-button dismissal.
+  **Focus existing** suppresses trigger restoration and transfers focus to the
+  selected React Flow node, falling back to the programmatically focusable
+  canvas host.
+- Added `happy-dom` as a test-only dependency and registered all annotation and
+  source-gateway behavioral tests in `test:unit`. Quote batch persistence remains
+  untouched and deferred to Task 7. No localization resource needed correction;
+  the browser continues using the active `addon.ftl` messages.
+
+### Follow-up RED evidence
+
+The correction tests were written before correction production code.
+
+```bash
+pnpm exec tsx --test test/whiteboard-annotation-browser.test.ts test/whiteboard-annotation-dialog-dom.test.ts test/whiteboard-annotation-session.test.ts test/whiteboard-source-gateway.test.ts test/whiteboard-annotation-list-integration.test.ts test/whiteboard-bootstrap.test.ts
+```
+
+Initial result: exit 1. Four files failed to load because the complete identity
+helpers, `SourceGatewayError`, exported host handler, and session-transition
+module did not exist; the DOM test also failed through the missing identity
+dependency. This established RED for all four review areas.
+
+An additional invalid-record regression was then isolated:
+
+```bash
+pnpm exec tsx --test --test-name-pattern="typed partial failures" test/whiteboard-source-gateway.test.ts
+```
+
+Result before the fix: exit 1, 0 passed, 1 failed. The returned non-annotation
+record was silently omitted instead of producing the expected typed
+`annotation-unavailable` partial failure. After moving record validation into
+the per-annotation failure boundary, the same command passed 1/1.
+
+### Follow-up GREEN and regression verification
+
+Focused browser, DOM, session, gateway, host/runtime integration, and bridge
+suite:
+
+```bash
+pnpm exec tsx --test test/whiteboard-annotation-browser.test.ts test/whiteboard-annotation-dialog-dom.test.ts test/whiteboard-annotation-session.test.ts test/whiteboard-source-gateway.test.ts test/whiteboard-annotation-list-integration.test.ts test/whiteboard-bootstrap.test.ts
+```
+
+Final result: exit 0, 32 passed, 0 failed.
+
+Full unit suite, including the newly registered annotation and gateway tests:
+
+```bash
+pnpm test:unit
+```
+
+Final result: exit 0, 543 passed, 0 failed.
+
+TypeScript:
+
+```bash
+pnpm exec tsc --noEmit
+```
+
+Final result: exit 0.
+
+Changed-file lint:
+
+```bash
+pnpm exec eslint packages/whiteboard/src/chrome/AnnotationBrowser.tsx packages/whiteboard/src/model/academic.ts packages/whiteboard/src/model/protocol.ts packages/whiteboard/src/whiteboard/annotationBrowserState.ts packages/whiteboard/src/whiteboard/app.tsx src/modules/whiteboard/source-gateway.ts src/modules/whiteboard/tab.ts test/whiteboard-annotation-browser.test.ts test/whiteboard-annotation-dialog-dom.test.ts test/whiteboard-annotation-list-integration.test.ts test/whiteboard-annotation-session.test.ts test/whiteboard-source-gateway.test.ts
+```
+
+Final result: exit 0.
+
+Formatting and whitespace:
+
+```bash
+pnpm exec prettier --check package.json packages/whiteboard/src/chrome/AnnotationBrowser.tsx packages/whiteboard/src/model/academic.ts packages/whiteboard/src/model/protocol.ts packages/whiteboard/src/whiteboard/annotationBrowserState.ts packages/whiteboard/src/whiteboard/app.tsx src/modules/whiteboard/source-gateway.ts src/modules/whiteboard/tab.ts test/whiteboard-annotation-browser.test.ts test/whiteboard-annotation-dialog-dom.test.ts test/whiteboard-annotation-list-integration.test.ts test/whiteboard-annotation-session.test.ts test/whiteboard-source-gateway.test.ts
+git diff --check
+```
+
+Final result: both exited 0.
+
+### Follow-up self-review
+
+- Identity strings are serialized fixed-order tuples, not delimiter-concatenated
+  strings, so native keys cannot collide by containing a separator. User and
+  group libraries cannot collide, and group identity includes `groupID`.
+- Partial failures are data in a successful result, while terminal failures are
+  exceptions with a finite code union. The host contains no message-substring
+  classification.
+- Source correlation compares the full Literature tuple rather than object
+  identity, and both successful and failed replies use the same guard.
+- Modal cleanup restores each sibling's prior `inert` value and prior
+  `aria-hidden` attribute rather than assuming the background began enabled.
+  Real DOM tests assert focus and unmount behavior instead of invoking JSX
+  handlers directly.
+- The Add action remains a deliberate no-op in Task 6; no Quote creation,
+  mutation, history entry, save, or persistence path was added.
+
+### Follow-up commit
+
+Commit subject: `fix(canvas): harden annotation browser sessions`
+
+This follow-up is a separate commit on top of `ef05527`.

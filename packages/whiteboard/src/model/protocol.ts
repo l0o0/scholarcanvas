@@ -67,6 +67,17 @@ export interface WhiteboardLabels {
   openSource: string;
   refreshSource: string;
   refreshNote: string;
+  viewAnnotations: string;
+  annotationBrowserTitle: string;
+  searchAnnotations: string;
+  annotationsLoading: string;
+  annotationsEmpty: string;
+  annotationsUnavailable: string;
+  annotationsPartialFailure: string;
+  annotationAlreadyAdded: string;
+  focusExistingAnnotation: string;
+  addSelectedAnnotations: string;
+  annotationPage: string;
   noteOverwriteTitle: string;
   noteOverwriteBody: string;
   confirm: string;
@@ -194,6 +205,18 @@ export interface AnnotationCandidate {
   sortIndex: string;
 }
 
+export type AnnotationListFailureCode =
+  | "library-missing"
+  | "item-missing"
+  | "wrong-kind"
+  | "parent-mismatch"
+  | "list-failed";
+
+export interface AnnotationListFailure {
+  code: AnnotationListFailureCode;
+  message: string;
+}
+
 export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
   (
     | { type: "init"; payload: WhiteboardInitPayload }
@@ -240,6 +263,15 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
           requestId: string;
           source: LiteratureSource;
           candidates: AnnotationCandidate[];
+          failures: AnnotationListFailure[];
+        };
+      }
+    | {
+        type: "annotationListFailed";
+        payload: {
+          requestId: string;
+          source: LiteratureSource;
+          failure: AnnotationListFailure;
         };
       }
     | {

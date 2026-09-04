@@ -9,6 +9,8 @@ import {
   isWhiteboardProtocolMessageForChannel,
   type AcademicAcquisition,
   type AcademicSourceDescriptor,
+  type AnnotationCandidate,
+  type AnnotationListFailure,
   type ParentToWhiteboardMessage,
   type SourceResolutionPriority,
   type SourceResolutionResult,
@@ -17,7 +19,7 @@ import {
   type WhiteboardToParentMessage,
 } from "./protocol";
 import type { CanvasDocument } from "./snapshot";
-import type { NoteSource } from "./snapshot";
+import type { LiteratureSource, NoteSource } from "./snapshot";
 
 export interface WhiteboardHandle {
   ready: Promise<void>;
@@ -50,6 +52,17 @@ export interface WhiteboardHandle {
     nodeId: string,
     acquisition: Extract<AcademicAcquisition, { kind: "note" }>,
   ) => void;
+  applyAnnotationCandidates: (
+    requestId: string,
+    source: LiteratureSource,
+    candidates: AnnotationCandidate[],
+    failures: AnnotationListFailure[],
+  ) => void;
+  rejectAnnotationList: (
+    requestId: string,
+    source: LiteratureSource,
+    failure: AnnotationListFailure,
+  ) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
 
@@ -71,6 +84,8 @@ type PendingCommand = Extract<
       | "academicSourceAcquired"
       | "sourceResolutionBatch"
       | "noteRefreshed"
+      | "annotationsListed"
+      | "annotationListFailed"
       | "academicRequestFailed"
       | "saveState";
   }
@@ -111,6 +126,10 @@ export function createWhiteboardEditor(
       requestId: string,
       nodeId: string,
       source: NoteSource,
+    ) => void;
+    onListLiteratureAnnotations?: (
+      requestId: string,
+      source: LiteratureSource,
     ) => void;
     onExportFile?: (payload: {
       requestId: string;
@@ -267,6 +286,12 @@ export function createWhiteboardEditor(
           data.payload.source,
         );
         break;
+      case "listLiteratureAnnotations":
+        options.onListLiteratureAnnotations?.(
+          data.payload.requestId,
+          data.payload.source,
+        );
+        break;
       case "exportFile":
         options.onExportFile?.(data.payload);
         break;
@@ -366,6 +391,20 @@ export function createWhiteboardEditor(
         source: WHITEBOARD_MESSAGE_SOURCE,
         type: "noteRefreshed",
         payload: { requestId, nodeId, acquisition },
+      });
+    },
+    applyAnnotationCandidates(requestId, source, candidates, failures) {
+      sendOrQueue({
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        type: "annotationsListed",
+        payload: { requestId, source, candidates, failures },
+      });
+    },
+    rejectAnnotationList(requestId, source, failure) {
+      sendOrQueue({
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        type: "annotationListFailed",
+        payload: { requestId, source, failure },
       });
     },
     setSaveState(state) {

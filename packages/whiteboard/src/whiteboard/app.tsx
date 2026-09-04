@@ -32,6 +32,7 @@ import {
   effectiveCanvasNodeUiTextStyle,
   type CanvasNode,
   type CanvasNodeKind,
+  type LiteratureSource,
   type NoteSource,
 } from "../model/academic";
 import { createBasicNode } from "../model/basic";
@@ -43,6 +44,8 @@ import {
 import type {
   AcademicAcquisition,
   AcademicSourceDescriptor,
+  AnnotationCandidate,
+  AnnotationListFailure,
   SourceResolutionPriority,
   SourceResolutionResult,
   WhiteboardLabels,
@@ -50,6 +53,12 @@ import type {
 } from "../model/protocol";
 import { canvasNodeTypes, type CanvasFlowNode } from "../nodes";
 import { PropertiesPanel } from "../chrome/PropertiesPanel";
+import {
+  AnnotationBrowser,
+  existingAnnotationKeys,
+  toggleAnnotationSelection,
+  type AnnotationBrowserState,
+} from "../chrome/AnnotationBrowser";
 import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
 import { TextStyleBar } from "../chrome/TextStyleBar";
@@ -148,6 +157,17 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   openSource: "Open source",
   refreshSource: "Refresh source",
   refreshNote: "Refresh from Zotero",
+  viewAnnotations: "View annotations",
+  annotationBrowserTitle: "Annotations",
+  searchAnnotations: "Search annotations",
+  annotationsLoading: "Loading annotations…",
+  annotationsEmpty: "No supported annotations",
+  annotationsUnavailable: "Annotations unavailable",
+  annotationsPartialFailure: "Some annotations could not be loaded",
+  annotationAlreadyAdded: "Already added",
+  focusExistingAnnotation: "Focus existing",
+  addSelectedAnnotations: "Add selected",
+  annotationPage: "Page",
   noteOverwriteTitle: "Replace local Note?",
   noteOverwriteBody:
     "Zotero's current Note will replace local content. Local changes will be lost.",
@@ -257,6 +277,10 @@ export interface WhiteboardAppProps {
     nodeId: string,
     source: NoteSource,
   ) => void;
+  onListLiteratureAnnotations?: (
+    requestId: string,
+    source: LiteratureSource,
+  ) => void;
   onExportFile: (payload: {
     requestId: string;
     format: "png" | "svg" | "md";
@@ -292,6 +316,17 @@ export interface WhiteboardRuntime {
     nodeId: string,
     acquisition: Extract<AcademicAcquisition, { kind: "note" }>,
   ) => void;
+  applyAnnotationCandidates: (
+    requestId: string,
+    source: LiteratureSource,
+    candidates: AnnotationCandidate[],
+    failures: AnnotationListFailure[],
+  ) => void;
+  rejectAnnotationList: (
+    requestId: string,
+    source: LiteratureSource,
+    failure: AnnotationListFailure,
+  ) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
 
@@ -316,6 +351,14 @@ interface DrawSession {
   kind: DrawKind;
   origin: { x: number; y: number };
   pointerId: number;
+}
+
+interface AnnotationBrowserSession {
+  requestId: string;
+  source: LiteratureSource;
+  state: AnnotationBrowserState;
+  query: string;
+  selectedKeys: Set<string>;
 }
 
 function nodeSize(node: CanvasFlowNode) {
@@ -483,6 +526,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [styleTarget, setStyleTarget] = useState<string | null>(null);
+  const [annotationBrowser, setAnnotationBrowser] =
+    useState<AnnotationBrowserSession | null>(null);
+  const annotationBrowserRef = useRef<AnnotationBrowserSession | null>(null);
+  annotationBrowserRef.current = annotationBrowser;
+  const viewAnnotationsRef = useRef<HTMLButtonElement | null>(null);
   const holdEditFocusRef = useRef(false);
 
   const runtimeRef = useRef<WhiteboardRuntime | null>(null);
@@ -633,6 +681,90 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       }
     },
     [noteRefreshRuntime],
+  );
+
+  const openAnnotationBrowser = useCallback((node: CanvasFlowNode) => {
+    const model = node.data.model;
+    if (model.kind !== "literature" || annotationBrowserRef.current) return;
+    const requestId = newId("annotations");
+    const session: AnnotationBrowserSession = {
+      requestId,
+      source: model.source,
+      state: { status: "loading" },
+      query: "",
+      selectedKeys: new Set(),
+    };
+    annotationBrowserRef.current = session;
+    setAnnotationBrowser(session);
+    propsRef.current.onListLiteratureAnnotations?.(requestId, model.source);
+  }, []);
+
+  const applyAnnotationCandidates = useCallback(
+    (
+      requestId: string,
+      _source: LiteratureSource,
+      candidates: AnnotationCandidate[],
+      failures: AnnotationListFailure[],
+    ) => {
+      setAnnotationBrowser((current) => {
+        if (!current || current.requestId !== requestId) return current;
+        const next = {
+          ...current,
+          state: { status: "ready", candidates, failures } as const,
+        };
+        annotationBrowserRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+
+  const rejectAnnotationList = useCallback(
+    (
+      requestId: string,
+      _source: LiteratureSource,
+      failure: AnnotationListFailure,
+    ) => {
+      setAnnotationBrowser((current) => {
+        if (!current || current.requestId !== requestId) return current;
+        const next = {
+          ...current,
+          state: { status: "unavailable", failure } as const,
+        };
+        annotationBrowserRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+
+  const closeAnnotationBrowser = useCallback(() => {
+    annotationBrowserRef.current = null;
+    setAnnotationBrowser(null);
+  }, []);
+
+  const focusExistingAnnotation = useCallback(
+    (annotationKey: string) => {
+      const existing = nodesRef.current.find(
+        (node) =>
+          node.data.model.kind === "quote" &&
+          node.data.model.source.annotationKey === annotationKey,
+      );
+      if (!existing) return;
+      closeAnnotationBrowser();
+      setNodes((current) =>
+        current.map((node) => ({
+          ...node,
+          selected: node.id === existing.id,
+        })),
+      );
+      void flowRef.current?.fitView({
+        nodes: [{ id: existing.id }],
+        padding: 0.4,
+        duration: 200,
+      });
+    },
+    [closeAnnotationBrowser, nodesRef, setNodes],
   );
 
   const applyNodePositions = useCallback(
@@ -1397,6 +1529,8 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       },
       applySourceResolutionBatch,
       applyNoteRefresh,
+      applyAnnotationCandidates,
+      rejectAnnotationList,
       setSaveState(state) {
         setSaveState(state);
       },
@@ -1407,8 +1541,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     academicAcquisition,
     applySourceResolutionBatch,
     applyNoteRefresh,
+    applyAnnotationCandidates,
     loadSnapshot,
     noteRefreshRuntime,
+    rejectAnnotationList,
     redo,
     snapshotNow,
     undo,
@@ -1512,10 +1648,55 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           onEdit={startEdit}
           onOpen={openNode}
           onRefreshSource={refreshNoteSource}
-          onViewAnnotations={() => undefined}
+          onViewAnnotations={openAnnotationBrowser}
+          viewAnnotationsRef={viewAnnotationsRef}
           onCopy={copyNode}
           onDelete={deleteNode}
         />
+        {annotationBrowser ? (
+          <AnnotationBrowser
+            labels={{
+              title: labels.annotationBrowserTitle,
+              search: labels.searchAnnotations,
+              loading: labels.annotationsLoading,
+              empty: labels.annotationsEmpty,
+              unavailable: labels.annotationsUnavailable,
+              partialFailure: labels.annotationsPartialFailure,
+              alreadyAdded: labels.annotationAlreadyAdded,
+              focusExisting: labels.focusExistingAnnotation,
+              addSelected: labels.addSelectedAnnotations,
+              page: labels.annotationPage,
+              close: labels.close,
+            }}
+            state={annotationBrowser.state}
+            query={annotationBrowser.query}
+            selectedKeys={annotationBrowser.selectedKeys}
+            existingKeys={existingAnnotationKeys(workingSnapshot())}
+            returnFocusRef={viewAnnotationsRef}
+            onQueryChange={(query) =>
+              setAnnotationBrowser((current) =>
+                current ? { ...current, query } : current,
+              )
+            }
+            onToggle={(annotationKey, checked) =>
+              setAnnotationBrowser((current) =>
+                current
+                  ? {
+                      ...current,
+                      selectedKeys: toggleAnnotationSelection(
+                        current.selectedKeys,
+                        annotationKey,
+                        checked,
+                      ),
+                    }
+                  : current,
+              )
+            }
+            onClose={closeAnnotationBrowser}
+            onFocusExisting={focusExistingAnnotation}
+            onAddSelected={() => undefined}
+          />
+        ) : null}
         <ReactFlow<CanvasFlowNode, CanvasFlowEdge>
           nodes={nodes}
           edges={edges}

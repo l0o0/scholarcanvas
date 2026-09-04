@@ -6,9 +6,10 @@ import { readCanvasFile, writeCanvasFile } from "./file-io";
 import {
   parseCanvasDocument,
   type CanvasDocument,
+  type LiteratureSource,
   type NoteSource,
 } from "./snapshot";
-import { whiteboardChannel } from "./protocol";
+import { whiteboardChannel, type AnnotationListFailure } from "./protocol";
 import { WhiteboardSaveCoordinator } from "./save-coordinator";
 import { whiteboardRegistry, type WhiteboardSession } from "./session-registry";
 import { WHITEBOARD_TAB_TYPE } from "./tabHooks";
@@ -326,6 +327,40 @@ async function handleRefreshZoteroNote(
   }
 }
 
+function annotationListFailure(error: unknown): AnnotationListFailure {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = message.includes("library is unavailable")
+    ? "library-missing"
+    : message.includes("item is unavailable")
+      ? "item-missing"
+      : message.includes("different kind")
+        ? "wrong-kind"
+        : message.includes("parent has changed")
+          ? "parent-mismatch"
+          : "list-failed";
+  return { code, message };
+}
+
+async function handleListLiteratureAnnotations(
+  session: WhiteboardSession,
+  requestId: string,
+  source: LiteratureSource,
+) {
+  const editor = session.editor;
+  if (!editor) return;
+  try {
+    const candidates =
+      await createZoteroSourceGateway().listAnnotations(source);
+    editor.applyAnnotationCandidates(requestId, source, candidates, []);
+  } catch (error) {
+    editor.rejectAnnotationList(
+      requestId,
+      source,
+      annotationListFailure(error),
+    );
+  }
+}
+
 async function handleExportFile(
   session: WhiteboardSession,
   payload: {
@@ -576,6 +611,21 @@ function mountWhiteboardUI(
       openSource: getString("whiteboard-open-source"),
       refreshSource: getString("whiteboard-refresh-source"),
       refreshNote: getString("whiteboard-refresh-note"),
+      viewAnnotations: getString("whiteboard-view-annotations"),
+      annotationBrowserTitle: getString("whiteboard-annotation-browser-title"),
+      searchAnnotations: getString("whiteboard-search-annotations"),
+      annotationsLoading: getString("whiteboard-annotations-loading"),
+      annotationsEmpty: getString("whiteboard-annotations-empty"),
+      annotationsUnavailable: getString("whiteboard-annotations-unavailable"),
+      annotationsPartialFailure: getString(
+        "whiteboard-annotations-partial-failure",
+      ),
+      annotationAlreadyAdded: getString("whiteboard-annotation-already-added"),
+      focusExistingAnnotation: getString(
+        "whiteboard-focus-existing-annotation",
+      ),
+      addSelectedAnnotations: getString("whiteboard-add-selected-annotations"),
+      annotationPage: getString("whiteboard-annotation-page"),
       noteOverwriteTitle: getString("whiteboard-note-overwrite-title"),
       noteOverwriteBody: getString("whiteboard-note-overwrite-body"),
       confirm: getString("whiteboard-confirm"),
@@ -698,6 +748,9 @@ function mountWhiteboardUI(
     },
     onRefreshZoteroNote(requestId, nodeId, source) {
       void handleRefreshZoteroNote(session, requestId, nodeId, source);
+    },
+    onListLiteratureAnnotations(requestId, source) {
+      void handleListLiteratureAnnotations(session, requestId, source);
     },
     onExportFile(payload) {
       void handleExportFile(session, payload);

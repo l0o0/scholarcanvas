@@ -1,123 +1,131 @@
-# Task 6 Report — Add Frame Membership and Group Movement
-
-## Result
-
-Task 6 adds explicit, immutable Frame membership operations, direct-member
-movement, unified deletion semantics, and Frame-aware app transitions. It does
-not infer membership from overlap and does not add the Inspector assignment UI
-reserved for Task 7.
-
-## TDD record
-
-### Pure operations RED/GREEN
-
-The first `whiteboard-frame` run failed at module loading because
-`whiteboard/frame.ts` did not exist. The minimal implementation then made the
-new behavior tests pass for assignment/detachment, Frame movement, and deletion.
-
-Follow-up behavior tests drove the interaction edge cases:
-
-- A batch-movement test first failed because `moveNodesInDocument()` was absent;
-  GREEN routes multiple Frame and ordinary-node positions through one immutable
-  document transition.
-- A multi-selection, two-step drag test first failed because `beginFrameDrag()`
-  was absent; GREEN tracks every directly dragged Frame and applies only each
-  incremental delta to its direct members.
-- A prototype-key regression first moved a Frame named `toString` to an invalid
-  position; GREEN uses own-property checks for drag-session IDs.
-
-The resulting tests prove that coordinates remain absolute, overlap alone does
-not establish membership, Frames cannot become members, only direct members
-move, input documents are unchanged, and root/node metadata and extensions are
-retained.
-
-### App integration RED/GREEN
-
-App-state and renderer tests were added before integration. Their initial RED
-identified missing Frame drag orchestration, shared deletion, Frame hit regions,
-and Frame-aware routing for calculated movement.
-
-GREEN provides these interaction sequences:
-
-1. `onNodeDragStart` pushes one history snapshot and records every selected
-   Frame participating in the drag.
-2. Each React Flow position batch is converted to a canonical document update.
-   Frame deltas move direct members incrementally while explicit ordinary-node
-   positions remain authoritative.
-3. Normal drag stop clears the session and emits one `changed`. Escape and
-   deletion first mark the drag as ending; terminal React Flow position changes
-   are suppressed until the physical drag stops, preventing a second `changed`
-   or Frame/member separation. Escape emits the drag notification, while
-   deletion relies on its own single snapshot/change transition.
-4. Alignment, distribution, auto-layout, and keyboard nudging all use the same
-   canonical position transition, so none bypass Frame member movement.
-
-Every deletion entry point now uses one canonical transition. Deleting a Frame
-detaches and preserves its members; deleting any node removes its incident
-connections. React Flow's built-in delete shortcut is disabled so it cannot
-race that transition.
-
-### Review hardening RED/GREEN
-
-Internal review found two important integration gaps: single-node drag tracking
-did not cover multi-selection ordering, and alignment/distribution/layout/nudge
-could bypass Frame rules. Behavior tests reproduced both before the shared batch
-transition and multi-Frame drag session were introduced.
-
-A second review found competing Arrow-key owners. A zero-dependency test using
-real `EventTarget` propagation now proves that the canvas capture boundary calls
-the canonical nudge exactly once and prevents the downstream React Flow handler.
-The same test proves that input and contenteditable targets are left alone. The
-narrow capture helper is used by both the React Flow boundary and the window
-fallback, retaining keyboard accessibility without disabling React Flow's other
-keyboard support.
-
-Final review then reproduced React Flow's terminal position event after Escape
-or deletion. A lifecycle behavior test first failed because there was no
-`beginFrameDragState()` export. GREEN adds explicit `active`, `ending`, and
-stopped transitions: ending ignores terminal positions, active stop notifies,
-and ending stop only clears state. This removes the duplicate notification and
-keeps the Frame/member relationship canonical through interruption.
-
-## Implementation
-
-- `assignNodeToFrame()` validates both IDs and the Frame kind, rejects Frame
-  members, and supports explicit detachment.
-- `moveFrame()` calculates one absolute delta and applies it to the Frame plus
-  only nodes whose stored `frameId` directly matches.
-- `moveNodesInDocument()` composes multiple Frame moves and explicit node
-  targets without mutating the source document.
-- `beginFrameDrag()`/`updateFrameDrag()` preserve previous Frame positions so
-  successive React Flow absolute updates produce incremental member movement.
-- `deleteNodeFromDocument()` removes incident connections and detaches direct
-  members only when their Frame is deleted.
-- The Frame renderer remains the Quiet Research Desk transparent dashed
-  boundary. Its React Flow layer is below normal nodes, its interior ignores
-  pointer events, and only the title and four thin border rails are interactive.
+# Task 6 Report: Literature Annotation Browser
 
 ## Scope
 
-No overlap hit-testing, automatic membership, nested Frame membership,
-Inspector assignment controls, persistence migration, or Task 7 behavior was
-added. No package dependency or lockfile change was needed for the keyboard
-event behavior coverage.
+Implemented the on-demand Literature annotation browser and selection UI on base
+`ec3e590`. Quote batch acquisition and persistence remain explicitly deferred to
+Task 7.
 
-## Verification
+The implementation adds:
 
-The first complete gate passed 75 behavior tests and the package typecheck, then
-stopped at Prettier warnings in the two newly changed app/test files. After the
-mechanical formatting pass, the same fresh gate completed with 75 tests, package
-typecheck, full lint, and diff checks passing. The terminal-drag review fix was
-added afterward, so the final pre-commit gate below supersedes those interim
-results.
+- a Literature-only **View annotations** action;
+- a correlated protocol-v2 list request and typed success/failure replies;
+- a host call to `gateway.listAnnotations()` only after the action is invoked;
+- an accessible, localized annotation dialog with loading, empty, unavailable,
+  and partial-failure states;
+- gateway-order-preserving attachment grouping and case-insensitive search over
+  excerpt, comment, and page label;
+- checkbox multi-selection, document-wide duplicate disabling, **Already
+  added**, and **Focus existing** behavior;
+- Escape, close-button, and backdrop dismissal with focus restoration to the
+  **View annotations** trigger;
+- active `addon.ftl` English and Simplified Chinese messages and generated
+  Fluent message-id typings.
 
-The fresh final pre-commit gate, including that lifecycle fix, completed with:
+No Zotero item or attachment integer ID was added to the annotation request,
+reply, browser state, or document model. The new payloads use library and native
+item/attachment/annotation keys only.
 
-- focused Task 6 plus affected Task 5 renderer/localization/toolbar/draw tests:
-  76 passed, 0 failed;
-- `pnpm --filter @zotero-markdown/whiteboard exec tsc --noEmit`: exited 0;
-- `pnpm lint:check`: exited 0;
-- `git diff --check`: exited 0.
+## RED
 
-The final independent review reported no remaining Critical, Important, or
-Minor issue and marked the task ready.
+Tests were added before production code in
+`test/whiteboard-annotation-browser.test.ts`, with supplemental bridge and
+localization assertions in the existing focused tests.
+
+Command:
+
+```bash
+pnpm exec tsx --test test/whiteboard-annotation-browser.test.ts test/whiteboard-bootstrap.test.ts test/whiteboard-localization.test.ts
+```
+
+Observed result: exit 1, 6 passed and 5 failed. The failures were the intended
+missing-feature failures:
+
+- `ERR_MODULE_NOT_FOUND` for `AnnotationBrowser.tsx`;
+- no `listLiteratureAnnotations` bridge wiring;
+- annotation list success/failure messages were not dispatched to the runtime;
+- the new active-locale keys were absent;
+- the new labels were not wired into the whiteboard initialization payload.
+
+This established RED before any production implementation.
+
+## GREEN and regression verification
+
+Focused behavioral/render, bridge, localization, and node-registry tests:
+
+```bash
+pnpm exec tsx --test test/whiteboard-annotation-browser.test.ts test/whiteboard-bootstrap.test.ts test/whiteboard-localization.test.ts test/whiteboard-node-registry.test.ts
+```
+
+Result: exit 0, 64 passed, 0 failed.
+
+TypeScript:
+
+```bash
+pnpm exec tsc --noEmit
+```
+
+Result: exit 0.
+
+Full existing unit suite, run once after the focused suite was green:
+
+```bash
+pnpm test:unit
+```
+
+Result: exit 0, 515 passed, 0 failed.
+
+Changed-file lint:
+
+```bash
+pnpm exec eslint packages/whiteboard/src/chrome/AnnotationBrowser.tsx packages/whiteboard/src/model/protocol.ts packages/whiteboard/src/bootstrapState.ts packages/whiteboard/src/bootstrap.tsx packages/whiteboard/src/chrome/PropertiesPanel.tsx packages/whiteboard/src/whiteboard/app.tsx src/modules/whiteboard/editor.ts src/modules/whiteboard/tab.ts test/whiteboard-annotation-browser.test.ts test/whiteboard-bootstrap.test.ts test/whiteboard-localization.test.ts
+```
+
+Result: exit 0.
+
+Formatting and whitespace:
+
+```bash
+pnpm exec prettier --write packages/whiteboard/src/chrome/AnnotationBrowser.tsx test/whiteboard-annotation-browser.test.ts packages/whiteboard/src/model/protocol.ts packages/whiteboard/src/bootstrapState.ts packages/whiteboard/src/bootstrap.tsx packages/whiteboard/src/chrome/PropertiesPanel.tsx packages/whiteboard/src/whiteboard/app.tsx packages/whiteboard/src/whiteboard/board.css src/modules/whiteboard/editor.ts src/modules/whiteboard/tab.ts typings/i10n.d.ts test/whiteboard-bootstrap.test.ts test/whiteboard-localization.test.ts
+git diff --check
+```
+
+Result: both exited 0. Fluent resources were inspected directly because
+Prettier has no `.ftl` parser.
+
+## Self-review
+
+- Entry: the action renders only for the one node passed to the properties panel
+  when that node is Literature.
+- Laziness: rendering or selecting Literature performs no annotation lookup;
+  the action callback creates one request, and a ref guard prevents a second
+  request while the browser session is open.
+- Correlation: replies carry request ID plus native-key Literature source;
+  closed or stale request IDs cannot update the dialog.
+- Typed errors: terminal list failure is a discriminated
+  `annotationListFailed` payload with a finite failure-code union. Successful
+  replies carry a typed failure array so the same UI can retain successful rows
+  while reporting partial failure.
+- Ordering/search: grouping retains each attachment's first gateway position and
+  candidate order; filtering does not sort and searches only text, comment, and
+  page label as specified.
+- Duplicates: every Quote in the working document contributes its annotation
+  key, irrespective of Literature origin. Existing rows have disabled
+  checkboxes and a focus action that selects and fits the existing Quote.
+- Accessibility: the overlay has `role="dialog"`, `aria-modal`, a labeled search
+  input, live status content, native checkboxes/buttons, visible focus rings,
+  Escape/backdrop/close dismissal, and trigger focus restoration.
+- Presentation: viewport-safe sizing, scrollable results, existing light/dark
+  variables, restrained color marks, and no decorative motion were used.
+- Persistence boundary: `onAddSelected` is deliberately not connected to a
+  document mutation or host acquisition message in Task 6. The button's enabled
+  selection state is ready for Task 7.
+- Localization: only the runtime-loaded `addon/locale/*/addon.ftl` resources and
+  `typings/i10n.d.ts` were changed; `mainWindow.ftl` was not modified.
+
+## Commit
+
+Commit subject: `feat(canvas): browse Literature annotations`
+
+The commit containing this report is the Task 6 implementation commit based on
+`ec3e590`.

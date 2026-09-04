@@ -37,6 +37,7 @@ function postToParent(message: {
     | "resolveAcademicSources"
     | "openItem"
     | "dropAcademicSources"
+    | "listLiteratureAnnotations"
     | "refreshZoteroNote"
     | "exportFile";
   payload?: unknown;
@@ -188,6 +189,12 @@ function boot() {
         postToParent({
           type: "resolveAcademicSources",
           payload: { requestId, generation, priority, sources },
+        })
+      }
+      onListLiteratureAnnotations={(requestId, source) =>
+        postToParent({
+          type: "listLiteratureAnnotations",
+          payload: { requestId, source },
         })
       }
       onRefreshZoteroNote={(requestId, nodeId, source) =>

@@ -4,6 +4,7 @@ import { nodeKindLabel } from "./labels";
 import { flowNodeText } from "../whiteboard/document";
 import { IconCopy, IconEdit, IconOpen, IconTrash } from "../whiteboard/icons";
 import type { SourceResolutionState } from "../whiteboard/sourceState";
+import type { Ref } from "react";
 
 export function PropertiesPanel(props: {
   labels: WhiteboardLabels;
@@ -13,6 +14,7 @@ export function PropertiesPanel(props: {
   onOpen: (node: CanvasFlowNode) => void;
   onRefreshSource: (node: CanvasFlowNode) => void;
   onViewAnnotations: (node: CanvasFlowNode) => void;
+  viewAnnotationsRef?: Ref<HTMLButtonElement>;
   onCopy: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
 }) {
@@ -78,6 +80,16 @@ export function PropertiesPanel(props: {
           <button type="button" onClick={() => props.onRefreshSource(node)}>
             <IconOpen />
             <span>{labels.refreshNote}</span>
+          </button>
+        ) : null}
+        {model.kind === "literature" ? (
+          <button
+            ref={props.viewAnnotationsRef}
+            type="button"
+            onClick={() => props.onViewAnnotations(node)}
+          >
+            <IconOpen />
+            <span>{labels.viewAnnotations}</span>
           </button>
         ) : null}
         <button type="button" onClick={() => props.onCopy(node.id)}>

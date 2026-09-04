@@ -9,6 +9,7 @@ import {
   WHITEBOARD_MESSAGE_SOURCE,
   WHITEBOARD_PROTOCOL_VERSION,
   type AcademicAcquisition,
+  type AnnotationCandidate,
   type ParentToWhiteboardMessage,
 } from "../packages/whiteboard/src/model/protocol.ts";
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
@@ -64,6 +65,10 @@ test("protocol-v2 academic acquisition is forwarded across both bridge sides", (
   assert.match(bootstrap, /type: "refreshZoteroNote"/);
   assert.match(editor, /case "refreshZoteroNote"/);
   assert.match(editor, /type: "noteRefreshed"/);
+  assert.match(bootstrap, /type: "listLiteratureAnnotations"/);
+  assert.match(editor, /case "listLiteratureAnnotations"/);
+  assert.match(editor, /type: "annotationsListed"/);
+  assert.match(editor, /type: "annotationListFailed"/);
 });
 
 test("academic bridge dispatch invokes the correlated runtime methods", () => {
@@ -82,6 +87,10 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
       calls.push(["resolution", ...args]),
     applyNoteRefresh: (...args: unknown[]) =>
       calls.push(["note-refresh", ...args]),
+    applyAnnotationCandidates: (...args: unknown[]) =>
+      calls.push(["annotations", ...args]),
+    rejectAnnotationList: (...args: unknown[]) =>
+      calls.push(["annotation-failure", ...args]),
   };
   const acquired: ParentToWhiteboardMessage = {
     source: WHITEBOARD_MESSAGE_SOURCE,
@@ -135,17 +144,77 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
       },
     },
   };
+  const annotation: AnnotationCandidate = {
+    attachmentTitle: "Paper.pdf",
+    sortIndex: "00001",
+    acquisition: {
+      kind: "quote",
+      source: {
+        library: { type: "user" },
+        itemKey: "ITEM1234",
+        attachmentKey: "PDF12345",
+        annotationKey: "ANN12345",
+      },
+      snapshot: { text: "Evidence", pageLabel: "8" },
+    },
+  };
+  const annotationsListed: ParentToWhiteboardMessage = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "annotationsListed",
+    payload: {
+      requestId: "annotations-1",
+      source: { library: { type: "user" }, itemKey: "ITEM1234" },
+      candidates: [annotation],
+      failures: [],
+    },
+  };
+  const annotationListFailed: ParentToWhiteboardMessage = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "annotationListFailed",
+    payload: {
+      requestId: "annotations-2",
+      source: { library: { type: "user" }, itemKey: "ITEM1234" },
+      failure: { code: "item-missing", message: "Missing" },
+    },
+  };
 
   assert.equal(forwardAcademicParentMessage(runtime, acquired), true);
   assert.equal(forwardAcademicParentMessage(runtime, rejected), true);
   assert.equal(forwardAcademicParentMessage(runtime, resolution), true);
   assert.equal(forwardAcademicParentMessage(runtime, noteRefresh), true);
+  assert.equal(forwardAcademicParentMessage(runtime, annotationsListed), true);
+  assert.equal(
+    forwardAcademicParentMessage(runtime, annotationListFailed),
+    true,
+  );
   assert.deepEqual(calls, [
     ["resolve", "pick-1", "node-1", acquisition],
     ["reject", "pick-2", "node-2", "Cancelled"],
     ["resolution", 4, resolution.payload.results],
     ["note-refresh", "refresh-1", "node-4", noteRefresh.payload.acquisition],
+    [
+      "annotations",
+      "annotations-1",
+      annotationsListed.payload.source,
+      [annotation],
+      [],
+    ],
+    [
+      "annotation-failure",
+      "annotations-2",
+      annotationListFailed.payload.source,
+      annotationListFailed.payload.failure,
+    ],
   ]);
+  assert.equal(JSON.stringify(annotationsListed).includes('"itemID"'), false);
+  assert.equal(
+    JSON.stringify(annotationsListed).includes('"attachmentID"'),
+    false,
+  );
 });
 
 test("both bridge listeners require the exact peer window and protocol channel", () => {

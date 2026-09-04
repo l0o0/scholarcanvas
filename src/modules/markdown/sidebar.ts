@@ -36,6 +36,7 @@ import {
 } from "./icons";
 import {
   canReuseSidebarEditor,
+  childAttachmentIDs,
   planSidebarVisibility,
   sidebarFocusAction,
   SidebarControllerRegistry,
@@ -186,7 +187,7 @@ async function readFileText(path: string): Promise<string> {
 }
 
 function collectMarkdownAttachmentIDs(item: Zotero.Item): number[] {
-  return item.getAttachments().filter((id) => {
+  return childAttachmentIDs(item).filter((id) => {
     const attachment = Zotero.Items.get(id);
     return isMarkdownAttachment(attachment);
   });

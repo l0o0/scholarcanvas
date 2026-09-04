@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
   canReuseSidebarEditor,
+  childAttachmentIDs,
   planSidebarVisibility,
   sidebarFocusAction,
   SidebarControllerRegistry,
@@ -12,6 +13,20 @@ import {
 import { sidebarEditorGeometryCSS } from "../src/modules/markdown/styles.ts";
 
 describe("Markdown sidebar state", () => {
+  it("does not ask attachment items for child attachments", () => {
+    let getAttachmentsCalls = 0;
+    const ids = childAttachmentIDs({
+      isRegularItem: () => false,
+      getAttachments: () => {
+        getAttachmentsCalls++;
+        throw new Error("getAttachments cannot be called on attachments");
+      },
+    });
+
+    assert.deepEqual(ids, []);
+    assert.equal(getAttachmentsCalls, 0);
+  });
+
   it("uses Fluent attributes so localization preserves the section body", () => {
     for (const locale of ["en-US", "zh-CN"]) {
       const source = readFileSync(

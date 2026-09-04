@@ -99,6 +99,13 @@ export function canReuseSidebarEditor(
   return hasEditor && currentItemID === targetItemID;
 }
 
+export function childAttachmentIDs(item: {
+  isRegularItem(): boolean;
+  getAttachments(): number[];
+}): number[] {
+  return item.isRegularItem() ? item.getAttachments() : [];
+}
+
 /** Zotero only permits section UI creation from the synchronous render hook. */
 export function shouldMountSidebarUI(event: SidebarLifecycleEvent): boolean {
   return event === "render";

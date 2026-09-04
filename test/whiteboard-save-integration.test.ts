@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { parseDroppedItemIDs } from "../src/modules/whiteboard/tab.ts";
 
 const tab = readFileSync(
   new URL("../src/modules/whiteboard/tab.ts", import.meta.url),
@@ -71,8 +72,48 @@ test("tab title hooks derive dirty state from the coordinator", () => {
   assert.doesNotMatch(tabHooks, /session\.(currentRev|savedRev)/);
 });
 
-test("collection Zotero Notes become local Academic Notes without integer ids", () => {
+test("collection Zotero Notes become source-backed Academic Notes without integer ids", () => {
   assert.match(create, /createAcademicNode\(\s*"note"/);
+  assert.match(create, /source: acquisition\.source/);
   assert.match(create, /content:/);
   assert.doesNotMatch(create, /noteID/);
+});
+
+test("new Zotero acquisition uses the academic gateway without Attachment paths", () => {
+  assert.match(tab, /createZoteroSourceGateway\(\)/);
+  assert.match(tab, /gateway\.acquireItem\(item\)/);
+  assert.match(tab, /onPickAcademicSource/);
+  assert.match(tab, /onDropAcademicSources/);
+  assert.doesNotMatch(tab, /promptPageNumber/);
+  assert.doesNotMatch(tab, /renderPdfPageToDataUrl/);
+  assert.doesNotMatch(tab, /editor\.resolvePick/);
+  assert.doesNotMatch(tab, /editor\.rejectPick/);
+});
+
+test("generic Zotero drops parse every encoded item id once", () => {
+  assert.deepEqual(
+    parseDroppedItemIDs({
+      json: JSON.stringify([11, { itemID: 12 }, { id: 13 }, "14"]),
+      text: "15, 11",
+    }),
+    [11, 12, 13, 14, 15],
+  );
+  assert.deepEqual(
+    parseDroppedItemIDs({ uri: "file:///tmp/2026/paper.pdf" }),
+    [],
+  );
+});
+
+test("collection generation builds source-key Literature without PDF traversal", () => {
+  const collectionStart = create.indexOf(
+    "export function buildCollectionCanvas",
+  );
+  const collectionEnd = create.indexOf(
+    "export async function createWhiteboardFromCollection",
+  );
+  const collectionBody = create.slice(collectionStart, collectionEnd);
+  assert.match(collectionBody, /gateway\.acquireItem\(item\)/);
+  assert.match(collectionBody, /createAcademicNode\(\s*"literature"/);
+  assert.doesNotMatch(collectionBody, /getAttachments\(/);
+  assert.doesNotMatch(collectionBody, /createBasicNode\(\s*"pdf"/);
 });

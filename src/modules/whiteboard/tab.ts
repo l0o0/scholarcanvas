@@ -9,6 +9,7 @@ import { WhiteboardSaveCoordinator } from "./save-coordinator";
 import { whiteboardRegistry, type WhiteboardSession } from "./session-registry";
 import { WHITEBOARD_TAB_TYPE } from "./tabHooks";
 import { isWhiteboardAttachment } from "./detect";
+import { createZoteroSourceGateway } from "./source-gateway";
 
 const AUTOSAVE_MS = 800;
 
@@ -120,33 +121,6 @@ function pickZoteroItem(
   return io.dataOut?.length ? io.dataOut : null;
 }
 
-function promptPageNumber(win: Window): number | null {
-  const Services = ztoolkit.getGlobal("Services") as {
-    prompt: {
-      prompt: (
-        parent: Window,
-        title: string,
-        text: string,
-        value: { value: string },
-        checkMsg: string | null,
-        checkState: { value: boolean },
-      ) => boolean;
-    };
-  };
-  const value = { value: "1" };
-  const ok = Services.prompt.prompt(
-    win,
-    getString("whiteboard-pdf-page-title"),
-    getString("whiteboard-pdf-page-prompt"),
-    value,
-    null,
-    { value: false },
-  );
-  if (!ok) return null;
-  const page = Number.parseInt(value.value, 10);
-  return Number.isFinite(page) && page > 0 ? page : null;
-}
-
 function dataUrlToBytes(
   dataUrl: string,
 ): { bytes: Uint8Array; mimeType: string } | null {
@@ -167,23 +141,6 @@ function dataUrlToBytes(
   return { bytes, mimeType };
 }
 
-async function renderPdfPageToDataUrl(
-  attachment: Zotero.Item,
-  pageIndex: number,
-): Promise<string | null> {
-  const worker = (Zotero as any).PDFWorker;
-  if (!worker?.getPageImage) return null;
-  const result = await worker.getPageImage(attachment, pageIndex, 1.5);
-  if (typeof result === "string") return result;
-  if (result && typeof result === "object") {
-    if (typeof result.dataURL === "string") return result.dataURL;
-    if (typeof result.dataUrl === "string") return result.dataUrl;
-    if (typeof result.image === "string") return result.image;
-    if (typeof result.data === "string") return result.data;
-  }
-  return null;
-}
-
 function canvasStorageDir(session: WhiteboardSession): string {
   try {
     const item = Zotero.Items.get(session.itemID);
@@ -197,116 +154,36 @@ function canvasStorageDir(session: WhiteboardSession): string {
   return PathUtils.parent(session.path) ?? session.path;
 }
 
-async function saveCanvasAsset(
-  session: WhiteboardSession,
-  bytes: Uint8Array,
-  mimeType: string,
-): Promise<{ relativePath: string }> {
-  const root = canvasStorageDir(session);
-  const assetsDir = PathUtils.join(root, "assets");
-  await IOUtils.makeDirectory(assetsDir, { ignoreExisting: true });
-  const extension = mimeType === "image/jpeg" ? "jpg" : "png";
-  const filename = `page-${Date.now()}-${Math.random().toString(16).slice(2, 6)}.${extension}`;
-  const relativePath = `assets/${filename}`;
-  await IOUtils.write(PathUtils.join(assetsDir, filename), bytes);
-  return { relativePath };
-}
-
-function creatorsText(item: Zotero.Item): string {
-  const creators = item.getCreators?.() || [];
-  return creators
-    .map((creator: any) =>
-      creator.lastName
-        ? `${creator.firstName ? creator.firstName + " " : ""}${creator.lastName}`
-        : creator.name || "",
-    )
-    .filter(Boolean)
-    .join(", ");
-}
-
-async function handlePickItem(
+async function handlePickAcademicSource(
   session: WhiteboardSession,
   requestId: string,
   nodeId: string,
-  kind: "item" | "pdf" | "attachment",
+  kind: "literature",
 ) {
   const editor = session.editor;
   if (!editor) return;
   try {
-    const itemIDs = pickZoteroItem(session.win, {
-      onlyRegularItems: kind === "item",
-    });
-    if (!itemIDs) return;
+    const itemIDs = pickZoteroItem(session.win, { onlyRegularItems: true });
+    if (!itemIDs) {
+      editor.rejectAcademicRequest(
+        requestId,
+        nodeId,
+        "No Zotero item was selected.",
+      );
+      return;
+    }
     const item = Zotero.Items.get(itemIDs[0]);
     if (!item) throw new Error("Item not found");
-
-    if (kind === "item") {
-      if (!item.isRegularItem())
-        throw new Error("Selected item is not a regular item");
-      const date = item.getField?.("date");
-      editor.resolvePick(requestId, nodeId, {
-        kind: "item",
-        title:
-          (item as any).getDisplayTitle?.() ||
-          item.getField?.("title") ||
-          "Untitled",
-        subtitle: [creatorsText(item), date].filter(Boolean).join(" · "),
-        itemID: item.id,
-      });
-      return;
+    if (kind !== "literature" || !item.isRegularItem()) {
+      throw new Error("Selected item is not a regular item");
     }
-
-    if (kind === "attachment") {
-      if (!item.isAttachment())
-        throw new Error("Selected item is not an attachment");
-      const filename =
-        item.attachmentFilename || item.getField?.("title") || "Attachment";
-      const size = (item as any).attachmentSize;
-      editor.resolvePick(requestId, nodeId, {
-        kind: "attachment",
-        title: filename,
-        subtitle: size ? `${Math.ceil(size / 1024)} KB` : "File",
-        attachmentID: item.id,
-      });
-      return;
-    }
-
-    // pdf
-    if (!item.isAttachment()) {
-      throw new Error("Selected item is not an attachment");
-    }
-    const filename = item.attachmentFilename || "";
-    const isPdf =
-      item.attachmentContentType === "application/pdf" ||
-      /\.pdf$/i.test(filename);
-    if (!isPdf) throw new Error("Selected attachment is not a PDF");
-
-    const page = promptPageNumber(session.win);
-    if (page == null) return;
-
-    const dataUrl = await renderPdfPageToDataUrl(item, page);
-    if (!dataUrl) {
-      throw new Error("PDF page rendering is not available in this Zotero");
-    }
-    const parsed = dataUrlToBytes(dataUrl);
-    if (!parsed) throw new Error("Invalid rendered image data");
-    const { relativePath } = await saveCanvasAsset(
-      session,
-      parsed.bytes,
-      parsed.mimeType,
-    );
-    editor.resolvePick(requestId, nodeId, {
-      kind: "pdf",
-      title: filename || item.getField?.("title") || "PDF",
-      subtitle: `p. ${page}`,
-      pdfPage: page,
-      attachmentID: item.id,
-      image: dataUrl,
-      asset: relativePath,
-    });
+    const gateway = createZoteroSourceGateway();
+    const acquisition = gateway.acquireItem(item);
+    editor.resolveAcademicAcquisition(requestId, nodeId, acquisition);
   } catch (error) {
-    editor.rejectPick(
+    editor.rejectAcademicRequest(
       requestId,
+      nodeId,
       error instanceof Error ? error.message : String(error),
     );
   }
@@ -344,37 +221,46 @@ function openZoteroItem(payload: {
   }
 }
 
-function parseDroppedItemID(raw: Record<string, string>): number | null {
+export function parseDroppedItemIDs(raw: Record<string, string>): number[] {
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  const add = (value: unknown): void => {
+    if (typeof value === "number") {
+      if (Number.isInteger(value) && value > 0 && !seen.has(value)) {
+        seen.add(value);
+        ids.push(value);
+      }
+      return;
+    }
+    if (typeof value === "string" && /^\d+$/.test(value)) {
+      add(Number(value));
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) add(entry);
+      return;
+    }
+    if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      if (Object.hasOwn(record, "itemID")) add(record.itemID);
+      if (Object.hasOwn(record, "id")) add(record.id);
+    }
+  };
   for (const value of Object.values(raw)) {
     if (!value) continue;
-    const direct = Number.parseInt(value, 10);
-    if (Number.isFinite(direct) && direct > 0) return direct;
     try {
-      const parsed = JSON.parse(value);
-      if (typeof parsed === "number" && parsed > 0) return parsed;
-      if (Array.isArray(parsed)) {
-        for (const entry of parsed) {
-          const id =
-            typeof entry === "number"
-              ? entry
-              : entry && typeof entry === "object"
-                ? entry.itemID || entry.id
-                : null;
-          if (typeof id === "number" && id > 0) return id;
-        }
-      }
-      if (parsed && typeof parsed === "object") {
-        const id = parsed.itemID || parsed.id;
-        if (typeof id === "number" && id > 0) return id;
-      }
+      add(JSON.parse(value));
     } catch {
-      // ignore
+      const list = value.trim();
+      if (/^\d+(?:[\s,;]+\d+)*$/.test(list)) {
+        for (const entry of list.split(/[\s,;]+/)) add(Number(entry));
+      }
     }
   }
-  return null;
+  return ids;
 }
 
-async function handleDropItems(
+async function handleDropAcademicSources(
   session: WhiteboardSession,
   requestId: string,
   nodeId: string,
@@ -383,64 +269,29 @@ async function handleDropItems(
   const editor = session.editor;
   if (!editor) return;
   try {
-    const itemID = parseDroppedItemID(raw);
-    if (!itemID) throw new Error("Could not parse dropped item");
-    const item = Zotero.Items.get(itemID);
-    if (!item) throw new Error("Dropped item not found");
-
-    if (item.isRegularItem()) {
-      const date = item.getField?.("date");
-      editor.resolvePick(requestId, nodeId, {
-        kind: "item",
-        title:
-          (item as any).getDisplayTitle?.() ||
-          item.getField?.("title") ||
-          "Untitled",
-        subtitle: [creatorsText(item), date].filter(Boolean).join(" · "),
-        itemID: item.id,
-      });
-      return;
+    const itemIDs = parseDroppedItemIDs(raw);
+    if (!itemIDs.length) throw new Error("Could not parse dropped item");
+    const items = itemIDs
+      .map((itemID) => Zotero.Items.get(itemID))
+      .filter((item): item is Zotero.Item => !!item);
+    const item = items.find((candidate) => candidate.isRegularItem());
+    for (const unsupported of items.filter(
+      (candidate) => !candidate.isRegularItem(),
+    )) {
+      toast(
+        unsupported.isAttachment()
+          ? "Zotero attachments cannot be added to the canvas."
+          : "This Zotero item type cannot be added to the canvas.",
+      );
     }
-    if (item.isNote?.()) throw new Error("Zotero Notes cannot be dropped here");
-    if (item.isAttachment()) {
-      const filename =
-        item.attachmentFilename || item.getField?.("title") || "Attachment";
-      const isPdf =
-        item.attachmentContentType === "application/pdf" ||
-        /\.pdf$/i.test(filename);
-      if (isPdf) {
-        const dataUrl = await renderPdfPageToDataUrl(item, 1);
-        if (!dataUrl) throw new Error("PDF page rendering is not available");
-        const parsed = dataUrlToBytes(dataUrl);
-        if (!parsed) throw new Error("Invalid rendered image data");
-        const { relativePath } = await saveCanvasAsset(
-          session,
-          parsed.bytes,
-          parsed.mimeType,
-        );
-        editor.resolvePick(requestId, nodeId, {
-          kind: "pdf",
-          title: filename,
-          subtitle: "p. 1",
-          pdfPage: 1,
-          attachmentID: item.id,
-          image: dataUrl,
-          asset: relativePath,
-        });
-        return;
-      }
-      editor.resolvePick(requestId, nodeId, {
-        kind: "attachment",
-        title: filename,
-        subtitle: "File",
-        attachmentID: item.id,
-      });
-      return;
-    }
-    throw new Error("Unsupported dropped item type");
+    if (!item) throw new Error("Drop a regular Zotero item to add Literature");
+    const gateway = createZoteroSourceGateway();
+    const acquisition = gateway.acquireItem(item);
+    editor.resolveAcademicAcquisition(requestId, nodeId, acquisition);
   } catch (error) {
-    editor.rejectPick(
+    editor.rejectAcademicRequest(
       requestId,
+      nodeId,
       error instanceof Error ? error.message : String(error),
     );
   }
@@ -749,14 +600,14 @@ function mountWhiteboardUI(
     onError(message) {
       toast(message);
     },
-    onPickItem(requestId, nodeId, kind) {
-      void handlePickItem(session, requestId, nodeId, kind);
+    onPickAcademicSource(requestId, nodeId, kind) {
+      void handlePickAcademicSource(session, requestId, nodeId, kind);
     },
     onOpenItem(payload) {
       openZoteroItem(payload);
     },
-    onDropItems(requestId, nodeId, raw) {
-      void handleDropItems(session, requestId, nodeId, raw);
+    onDropAcademicSources(requestId, nodeId, raw) {
+      void handleDropAcademicSources(session, requestId, nodeId, raw);
     },
     onExportFile(payload) {
       void handleExportFile(session, payload);

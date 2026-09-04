@@ -7,7 +7,9 @@ import {
   type SetStateAction,
 } from "react";
 import type { Viewport } from "@xyflow/react";
+import { createAcademicNode, type LiteratureNode } from "../model/academic";
 import { parseCanvasDocument, type CanvasDocument } from "../model/document";
+import type { AcademicAcquisition } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 import {
   CanvasDocumentHistory,
@@ -31,15 +33,76 @@ export interface CanvasDocumentRuntime {
   pushHistory: () => void;
   applyDocument: (value: CanvasDocument) => void;
   loadSnapshot: (value: CanvasDocument) => void;
+  getRawSnapshot: () => CanvasDocument;
   getSnapshot: () => CanvasDocument;
   undo: () => void;
   redo: () => void;
+}
+
+export function resolveAcademicPlaceholder(
+  nodes: CanvasFlowNode[],
+  nodeId: string,
+  acquisition: AcademicAcquisition | LiteratureNode,
+): CanvasFlowNode[] | undefined {
+  if (acquisition.kind !== "literature") return undefined;
+  const placeholder = nodes.find((node) => node.id === nodeId);
+  if (!placeholder) return undefined;
+  const literature =
+    "id" in acquisition
+      ? acquisition
+      : createAcademicNode("literature", placeholder.position, nodeId, {
+          source: acquisition.source,
+          snapshot: acquisition.snapshot,
+        });
+  const replacement = canvasDocumentToFlow({
+    version: 2,
+    nodes: [literature],
+    connections: [],
+  }).nodes[0];
+  return nodes.map((node) =>
+    node.id === nodeId ? { ...replacement, selected: node.selected } : node,
+  );
+}
+
+export function rejectAcademicPlaceholder(
+  nodes: CanvasFlowNode[],
+  nodeId: string,
+): CanvasFlowNode[] {
+  return nodes.filter((node) => node.id !== nodeId);
+}
+
+export function rejectAcademicPlaceholderConnections(
+  edges: CanvasFlowEdge[],
+  nodeId: string,
+): CanvasFlowEdge[] {
+  return edges.filter(
+    (edge) => edge.source !== nodeId && edge.target !== nodeId,
+  );
+}
+
+export function omitAcademicPlaceholders(
+  document: CanvasDocument,
+  nodeIds: Iterable<string>,
+): CanvasDocument {
+  const omitted = new Set(nodeIds);
+  if (!omitted.size) return document;
+  return {
+    ...document,
+    nodes: document.nodes.filter((node) => !omitted.has(node.id)),
+    connections: document.connections.filter(
+      (connection) =>
+        !omitted.has(connection.source) && !omitted.has(connection.target),
+    ),
+  };
 }
 
 export function useCanvasDocumentRuntime(
   initial: CanvasDocument,
   onChange: (revision: number) => void,
   onViewport: (viewport: Viewport) => void,
+  snapshotTransform: (document: CanvasDocument) => CanvasDocument = (
+    document,
+  ) => document,
 ): CanvasDocumentRuntime {
   const seedRef = useRef(canvasDocumentToFlow(initial));
   const [nodes, setNodesState] = useState(seedRef.current.nodes);
@@ -52,8 +115,10 @@ export function useCanvasDocumentRuntime(
   const shellRef = useRef(seedRef.current.shell);
   const onChangeRef = useRef(onChange);
   const onViewportRef = useRef(onViewport);
+  const snapshotTransformRef = useRef(snapshotTransform);
   onChangeRef.current = onChange;
   onViewportRef.current = onViewport;
+  snapshotTransformRef.current = snapshotTransform;
 
   const historyRef = useRef<CanvasDocumentHistory | null>(null);
   if (!historyRef.current) {
@@ -83,7 +148,7 @@ export function useCanvasDocumentRuntime(
     [],
   );
 
-  const getSnapshot = useCallback(
+  const getRawSnapshot = useCallback(
     () =>
       flowToCanvasDocument(
         nodesRef.current,
@@ -92,6 +157,11 @@ export function useCanvasDocumentRuntime(
         shellRef.current,
       ),
     [],
+  );
+
+  const getSnapshot = useCallback(
+    () => snapshotTransformRef.current(getRawSnapshot()),
+    [getRawSnapshot],
   );
 
   const pushHistory = useCallback(() => {
@@ -149,6 +219,7 @@ export function useCanvasDocumentRuntime(
     pushHistory,
     applyDocument,
     loadSnapshot,
+    getRawSnapshot,
     getSnapshot,
     undo,
     redo,

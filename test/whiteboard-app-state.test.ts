@@ -38,6 +38,7 @@ import {
   useCanvasDocumentRuntime,
   type CanvasDocumentRuntime,
 } from "../packages/whiteboard/src/whiteboard/runtime.ts";
+import * as runtimeModule from "../packages/whiteboard/src/whiteboard/runtime.ts";
 
 type Assert<T extends true> = T;
 type _RuntimeLoadsCanvasDocument = Assert<
@@ -118,6 +119,303 @@ test("runtime load and replace methods accept canonical documents", () => {
     /loadSnapshot: \(value: CanvasDocument\) => void/,
   );
   assert.doesNotMatch(runtimeSource, /\(value: unknown\)/);
+});
+
+test("a Literature acquisition replaces its placeholder with native keys", () => {
+  const replace = (
+    runtimeModule as unknown as {
+      resolveAcademicPlaceholder?: (
+        nodes: ReturnType<typeof canvasDocumentToFlow>["nodes"],
+        nodeId: string,
+        acquisition: {
+          kind: "literature";
+          source: { library: { type: "user" }; itemKey: string };
+          snapshot: { title: string };
+        },
+      ) => ReturnType<typeof canvasDocumentToFlow>["nodes"];
+    }
+  ).resolveAcademicPlaceholder;
+  assert.equal(typeof replace, "function");
+
+  const placeholder = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "literature-pending",
+        kind: "item",
+        position: { x: 48, y: 72 },
+        width: 240,
+        height: 96,
+        data: { title: "Loading…" },
+      },
+    ],
+  }).nodes;
+  const resolved = replace!(placeholder, "literature-pending", {
+    kind: "literature",
+    source: { library: { type: "user" }, itemKey: "ABCD2345" },
+    snapshot: { title: "A source-key paper" },
+  });
+  const saved = flowToCanvasDocument(resolved, [], {
+    x: 0,
+    y: 0,
+    zoom: 1,
+  });
+
+  assert.equal(saved.nodes[0].kind, "literature");
+  assert.deepEqual(
+    saved.nodes[0].kind === "literature" && saved.nodes[0].source,
+    { library: { type: "user" }, itemKey: "ABCD2345" },
+  );
+  assert.deepEqual(saved.nodes[0].position, { x: 48, y: 72 });
+  assert.equal(JSON.stringify(saved).includes("itemID"), false);
+});
+
+test("a rejected Literature acquisition removes only its placeholder", () => {
+  const reject = (
+    runtimeModule as unknown as {
+      rejectAcademicPlaceholder?: (
+        nodes: ReturnType<typeof canvasDocumentToFlow>["nodes"],
+        nodeId: string,
+      ) => ReturnType<typeof canvasDocumentToFlow>["nodes"];
+    }
+  ).rejectAcademicPlaceholder;
+  assert.equal(typeof reject, "function");
+
+  const nodes = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "keep",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Keep me",
+      },
+      {
+        id: "literature-pending",
+        kind: "item",
+        position: { x: 48, y: 72 },
+        width: 240,
+        height: 96,
+        data: { title: "Loading…" },
+      },
+    ],
+  }).nodes;
+
+  assert.deepEqual(
+    reject!(nodes, "literature-pending").map((node) => node.id),
+    ["keep"],
+  );
+});
+
+test("rejecting Literature also removes every incident placeholder edge", () => {
+  const rejectEdges = (
+    runtimeModule as unknown as {
+      rejectAcademicPlaceholderConnections?: (
+        edges: ReturnType<typeof canvasDocumentToFlow>["edges"],
+        nodeId: string,
+      ) => ReturnType<typeof canvasDocumentToFlow>["edges"];
+    }
+  ).rejectAcademicPlaceholderConnections;
+  assert.equal(typeof rejectEdges, "function");
+
+  const flow = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "keep",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Keep me",
+      },
+      {
+        id: "literature-pending",
+        kind: "item",
+        position: { x: 48, y: 72 },
+        width: 240,
+        height: 96,
+        data: { title: "Loading…" },
+      },
+    ],
+    connections: [
+      {
+        id: "pending-edge",
+        kind: "basic",
+        source: "keep",
+        target: "literature-pending",
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    rejectEdges!(flow.edges, "literature-pending").map((edge) => edge.id),
+    [],
+  );
+});
+
+test("pending Literature placeholders are omitted from canonical persistence", () => {
+  const omit = (
+    runtimeModule as unknown as {
+      omitAcademicPlaceholders?: (
+        document: CanvasDocument,
+        nodeIds: Iterable<string>,
+      ) => CanvasDocument;
+    }
+  ).omitAcademicPlaceholders;
+  assert.equal(typeof omit, "function");
+
+  const document: CanvasDocument = {
+    ...EMPTY,
+    nodes: [
+      {
+        id: "keep",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "Keep me",
+      },
+      {
+        id: "literature-pending",
+        kind: "item",
+        position: { x: 48, y: 72 },
+        width: 240,
+        height: 96,
+        data: { title: "Loading…" },
+      },
+    ],
+    connections: [
+      {
+        id: "pending-edge",
+        kind: "basic",
+        source: "keep",
+        target: "literature-pending",
+      },
+    ],
+  };
+
+  assert.deepEqual(omit!(document, ["literature-pending"]), {
+    ...EMPTY,
+    nodes: [document.nodes[0]],
+    connections: [],
+  });
+});
+
+test("internal mutations use raw snapshots without exposing placeholders to history", () => {
+  assert.match(runtimeSource, /getRawSnapshot: \(\) => CanvasDocument/);
+  assert.match(runtimeSource, /history\.push\(getSnapshot\(\)\)/);
+  for (const callback of [
+    "applyNodePositions",
+    "deleteCanvasElements",
+    "beginNodeDrag",
+    "beginDraw",
+  ]) {
+    assert.match(callbackSource(callback) ?? "", /workingSnapshot\(\)/);
+  }
+  assert.match(appSource, /getSnapshot: snapshotNow/);
+});
+
+test("draw cancellation keeps raw state while completed draw history stays canonical", () => {
+  const begin = callbackSource("beginDraw");
+  const cancel = callbackSource("cancelDraw");
+  const finish = callbackSource("finishDraw");
+
+  assert.ok(begin);
+  assert.match(
+    begin,
+    /preDrawRef\.current = \{\s*working: workingSnapshot\(\),\s*history: snapshotNow\(\)/,
+  );
+  assert.ok(cancel);
+  assert.match(cancel, /applyDocument\(previous\.working\)/);
+  assert.ok(finish);
+  assert.match(finish, /documentHistory\.push\(previous\.history\)/);
+  assert.doesNotMatch(finish, /documentHistory\.push\(previous\.working\)/);
+});
+
+test("out-of-order Literature replies preserve intervening edits one undo at a time", () => {
+  const omit = runtimeModule.omitAcademicPlaceholders;
+  const editedNote: CanvasDocument["nodes"][number] = {
+    id: "note-edited",
+    kind: "note",
+    position: { x: 0, y: 0 },
+    width: 260,
+    height: 152,
+    content: "Edit completed while Zotero was open",
+  };
+  const pendingOne: CanvasDocument["nodes"][number] = {
+    id: "pending-one",
+    kind: "item",
+    position: { x: 300, y: 0 },
+    width: 240,
+    height: 96,
+    data: { title: "Loading…" },
+  };
+  const pendingTwo: CanvasDocument["nodes"][number] = {
+    ...pendingOne,
+    id: "pending-two",
+    position: { x: 600, y: 0 },
+  };
+  const literatureOne: CanvasDocument["nodes"][number] = {
+    id: "pending-one",
+    kind: "literature",
+    position: pendingOne.position,
+    width: 280,
+    height: 200,
+    source: { library: { type: "user" }, itemKey: "FIRST234" },
+    snapshot: { title: "First reply" },
+  };
+  const literatureTwo: CanvasDocument["nodes"][number] = {
+    ...literatureOne,
+    id: "pending-two",
+    position: pendingTwo.position,
+    source: { library: { type: "user" }, itemKey: "SECOND23" },
+    snapshot: { title: "Second reply" },
+  };
+  const pending: CanvasDocument = {
+    ...EMPTY,
+    nodes: [editedNote, pendingOne, pendingTwo],
+  };
+  const beforeFirstReply = omit(pending, ["pending-one", "pending-two"]);
+  const afterFirstReply: CanvasDocument = {
+    ...EMPTY,
+    nodes: [editedNote, literatureOne, pendingTwo],
+  };
+  const beforeSecondReply = omit(afterFirstReply, ["pending-two"]);
+  const afterSecondReply: CanvasDocument = {
+    ...EMPTY,
+    nodes: [editedNote, literatureOne, literatureTwo],
+  };
+  const history = new CanvasDocumentHistory(() => {});
+
+  history.push(beforeFirstReply);
+  history.changed();
+  history.push(beforeSecondReply);
+  history.changed();
+
+  assert.deepEqual(history.undo(afterSecondReply), beforeSecondReply);
+  assert.deepEqual(history.undo(beforeSecondReply), beforeFirstReply);
+  assert.equal(beforeFirstReply.nodes[0].kind, "note");
+  assert.equal(
+    beforeFirstReply.nodes[0].kind === "note" &&
+      beforeFirstReply.nodes[0].content,
+    "Edit completed while Zotero was open",
+  );
+});
+
+test("Literature placement requests the academic picker and commits once", () => {
+  assert.match(appSource, /onPickAcademicSource/);
+  assert.match(appSource, /kind:\s*"literature"/);
+  assert.match(appSource, /createAcademicNode\(\s*"literature"/);
+  assert.match(runtimeSource, /snapshotTransformRef\.current\(/);
+  assert.match(
+    appSource,
+    /pushHistory\(\);\s*pendingPicksRef\.current\.delete/s,
+  );
+  assert.doesNotMatch(appSource, /pending\.previous/);
+  assert.match(appSource, /rejectAcademicPlaceholder/);
 });
 
 test("canonical documents adapt to React Flow and back", () => {
@@ -408,7 +706,7 @@ test("all calculated node movement routes Frame positions through one transition
 
   assert.ok(transition, "missing shared canonical position transition");
   assert.match(transition, /moveNodesInDocument\(/);
-  assert.match(transition, /snapshotNow\(\)/);
+  assert.match(transition, /workingSnapshot\(\)/);
   assert.ok(align);
   assert.match(align, /applyNodePositions\(aligned\)/);
   assert.ok(distribute);

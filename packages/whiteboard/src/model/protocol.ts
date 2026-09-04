@@ -347,7 +347,7 @@ export function isWhiteboardProtocolMessage(
 export function isWhiteboardProtocolMessageForChannel(
   data: unknown,
   channel: string,
-): data is WhiteboardToParentMessage {
+): data is WhiteboardProtocolMessage & { type: string } {
   return isWhiteboardProtocolMessage(data) && data.channel === channel;
 }
 

@@ -8,7 +8,7 @@ import { WhiteboardApp, type WhiteboardRuntime } from "./whiteboard/app";
 import {
   WHITEBOARD_MESSAGE_SOURCE,
   WHITEBOARD_PROTOCOL_VERSION,
-  isWhiteboardProtocolMessage,
+  isWhiteboardProtocolMessageForChannel,
   type ParentToWhiteboardMessage,
   type WhiteboardTheme,
 } from "./model/protocol";
@@ -30,9 +30,9 @@ function postToParent(message: {
     | "snapshot"
     | "save"
     | "error"
-    | "pickItem"
+    | "pickAcademicSource"
     | "openItem"
-    | "dropItems"
+    | "dropAcademicSources"
     | "exportFile";
   payload?: unknown;
 }) {
@@ -85,15 +85,19 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
       if (data.payload.command === "undo") runtime?.undo();
       if (data.payload.command === "redo") runtime?.redo();
       break;
-    case "itemPicked":
-      runtime?.resolvePick(
+    case "academicSourceAcquired":
+      runtime?.resolveAcademicAcquisition(
         data.payload.requestId,
         data.payload.nodeId,
-        data.payload.data,
+        data.payload.acquisition,
       );
       break;
-    case "pickFailed":
-      runtime?.rejectPick(data.payload.requestId, data.payload.message);
+    case "academicRequestFailed":
+      runtime?.rejectAcademicRequest(
+        data.payload.requestId,
+        data.payload.nodeId,
+        data.payload.message,
+      );
       break;
     case "saveState":
       runtime?.setSaveState(data.payload.state);
@@ -112,8 +116,8 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
 }
 
 function onWindowMessage(event: MessageEvent) {
-  if (!isWhiteboardProtocolMessage(event.data)) return;
-  if (event.data.channel && event.data.channel !== channel) return;
+  if (event.source !== window.parent) return;
+  if (!isWhiteboardProtocolMessageForChannel(event.data, channel)) return;
   try {
     handleParentMessage(event.data as ParentToWhiteboardMessage);
   } catch (error) {
@@ -175,16 +179,16 @@ function boot() {
         postToParent({ type: "error", payload: { message } })
       }
       onSave={() => postToParent({ type: "save" })}
-      onPickItem={(requestId, nodeId, kind) =>
+      onPickAcademicSource={(requestId, nodeId, kind) =>
         postToParent({
-          type: "pickItem",
+          type: "pickAcademicSource",
           payload: { requestId, nodeId, kind },
         })
       }
       onOpenItem={(payload) => postToParent({ type: "openItem", payload })}
-      onDropItems={(requestId, nodeId, raw) =>
+      onDropAcademicSources={(requestId, nodeId, raw) =>
         postToParent({
-          type: "dropItems",
+          type: "dropAcademicSources",
           payload: { requestId, nodeId, raw },
         })
       }

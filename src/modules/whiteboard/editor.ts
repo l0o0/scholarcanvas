@@ -7,7 +7,7 @@ import {
   WHITEBOARD_MESSAGE_SOURCE,
   WHITEBOARD_PROTOCOL_VERSION,
   isWhiteboardProtocolMessageForChannel,
-  type BasicPickerPayload,
+  type AcademicAcquisition,
   type ParentToWhiteboardMessage,
   type WhiteboardLabels,
   type WhiteboardTheme,
@@ -26,12 +26,16 @@ export interface WhiteboardHandle {
     snapshot: CanvasDocument;
   }>;
   command: (command: "undo" | "redo") => void;
-  resolvePick: (
+  resolveAcademicAcquisition: (
     requestId: string,
     nodeId: string,
-    data: BasicPickerPayload,
+    acquisition: AcademicAcquisition,
   ) => void;
-  rejectPick: (requestId: string, message: string) => void;
+  rejectAcademicRequest: (
+    requestId: string,
+    nodeId: string,
+    message: string,
+  ) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
 
@@ -50,8 +54,8 @@ type PendingCommand = Extract<
       | "command"
       | "focus"
       | "destroy"
-      | "itemPicked"
-      | "pickFailed"
+      | "academicSourceAcquired"
+      | "academicRequestFailed"
       | "saveState";
   }
 >;
@@ -66,17 +70,17 @@ export function createWhiteboardEditor(
     onChange?: (rev: number) => void;
     onSave?: () => void;
     onError?: (message: string) => void;
-    onPickItem?: (
+    onPickAcademicSource?: (
       requestId: string,
       nodeId: string,
-      kind: "item" | "pdf" | "attachment",
+      kind: "literature",
     ) => void;
     onOpenItem?: (payload: {
       itemID?: number;
       attachmentID?: number;
       pdfPage?: number;
     }) => void;
-    onDropItems?: (
+    onDropAcademicSources?: (
       requestId: string,
       nodeId: string,
       raw: Record<string, string>,
@@ -169,7 +173,7 @@ export function createWhiteboardEditor(
 
   const onMessage = (event: MessageEvent) => {
     if (destroyed) return;
-    if (event.source && event.source !== iframe.contentWindow) return;
+    if (event.source !== iframe.contentWindow) return;
     if (!isWhiteboardProtocolMessageForChannel(event.data, channel)) return;
 
     const data = event.data as WhiteboardToParentMessage;
@@ -204,8 +208,8 @@ export function createWhiteboardEditor(
       case "save":
         options.onSave?.();
         break;
-      case "pickItem":
-        options.onPickItem?.(
+      case "pickAcademicSource":
+        options.onPickAcademicSource?.(
           data.payload.requestId,
           data.payload.nodeId,
           data.payload.kind,
@@ -214,8 +218,8 @@ export function createWhiteboardEditor(
       case "openItem":
         options.onOpenItem?.(data.payload);
         break;
-      case "dropItems":
-        options.onDropItems?.(
+      case "dropAcademicSources":
+        options.onDropAcademicSources?.(
           data.payload.requestId,
           data.payload.nodeId,
           data.payload.raw,
@@ -294,18 +298,18 @@ export function createWhiteboardEditor(
         payload: { command },
       });
     },
-    resolvePick(requestId, nodeId, data) {
+    resolveAcademicAcquisition(requestId, nodeId, acquisition) {
       sendOrQueue({
         source: WHITEBOARD_MESSAGE_SOURCE,
-        type: "itemPicked",
-        payload: { requestId, nodeId, data },
+        type: "academicSourceAcquired",
+        payload: { requestId, nodeId, acquisition },
       });
     },
-    rejectPick(requestId, message) {
+    rejectAcademicRequest(requestId, nodeId, message) {
       sendOrQueue({
         source: WHITEBOARD_MESSAGE_SOURCE,
-        type: "pickFailed",
-        payload: { requestId, message },
+        type: "academicRequestFailed",
+        payload: { requestId, nodeId, message },
       });
     },
     setSaveState(state) {

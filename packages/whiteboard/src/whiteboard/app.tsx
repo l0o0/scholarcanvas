@@ -39,7 +39,11 @@ import {
   parseCanvasDocument,
   type CanvasDocument,
 } from "../model/document";
-import type { WhiteboardLabels, WhiteboardTheme } from "../model/protocol";
+import type {
+  AcademicAcquisition,
+  WhiteboardLabels,
+  WhiteboardTheme,
+} from "../model/protocol";
 import { canvasNodeTypes, type CanvasFlowNode } from "../nodes";
 import { PropertiesPanel } from "../chrome/PropertiesPanel";
 import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
@@ -75,8 +79,6 @@ import {
   labelTextStyle,
   mergeEditingStyle,
   toggleEditingBold,
-  mergePickerData,
-  parsePickerNodeData,
   type CanvasFlowEdge,
   updateFlowNodeModel,
   verticalAlignmentStyle,
@@ -94,7 +96,13 @@ import {
   type FrameDragState,
 } from "./frame";
 import { captureCanvasArrowKey } from "./keyboard";
-import { useCanvasDocumentRuntime } from "./runtime";
+import {
+  omitAcademicPlaceholders,
+  rejectAcademicPlaceholder,
+  rejectAcademicPlaceholderConnections,
+  resolveAcademicPlaceholder,
+  useCanvasDocumentRuntime,
+} from "./runtime";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
   canvas: "Canvas",
@@ -198,17 +206,17 @@ export interface WhiteboardAppProps {
   onChange: (rev: number) => void;
   onError: (message: string) => void;
   onSave: () => void;
-  onPickItem: (
+  onPickAcademicSource: (
     requestId: string,
     nodeId: string,
-    kind: "item" | "pdf" | "attachment",
+    kind: "literature",
   ) => void;
   onOpenItem: (payload: {
     itemID?: number;
     attachmentID?: number;
     pdfPage?: number;
   }) => void;
-  onDropItems: (
+  onDropAcademicSources: (
     requestId: string,
     nodeId: string,
     raw: Record<string, string>,
@@ -229,8 +237,16 @@ export interface WhiteboardRuntime {
   getSnapshot: () => CanvasDocument;
   undo: () => void;
   redo: () => void;
-  resolvePick: (requestId: string, nodeId: string, data: unknown) => void;
-  rejectPick: (requestId: string, message: string) => void;
+  resolveAcademicAcquisition: (
+    requestId: string,
+    nodeId: string,
+    acquisition: AcademicAcquisition,
+  ) => void;
+  rejectAcademicRequest: (
+    requestId: string,
+    nodeId: string,
+    message: string,
+  ) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
 
@@ -249,6 +265,10 @@ interface DrawSession {
   kind: DrawKind;
   origin: { x: number; y: number };
   pointerId: number;
+}
+
+interface PendingAcademicAcquisition {
+  nodeId: string;
 }
 
 function nodeSize(node: CanvasFlowNode) {
@@ -327,10 +347,19 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   > | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
+  const pendingPicksRef = useRef(new Map<string, PendingAcademicAcquisition>());
   const documentRuntime = useCanvasDocumentRuntime(
     initial,
     (revision) => propsRef.current.onChange(revision),
     (viewport) => flowRef.current?.setViewport(viewport),
+    (document) =>
+      omitAcademicPlaceholders(
+        document,
+        Array.from(
+          pendingPicksRef.current.values(),
+          (pending) => pending.nodeId,
+        ),
+      ),
   );
   const {
     nodes,
@@ -346,6 +375,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     pushHistory,
     applyDocument,
     loadSnapshot,
+    getRawSnapshot: workingSnapshot,
     getSnapshot: snapshotNow,
     undo,
     redo,
@@ -368,10 +398,12 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const [styleTarget, setStyleTarget] = useState<string | null>(null);
   const holdEditFocusRef = useRef(false);
 
-  const pendingPicksRef = useRef(new Map<string, string>());
   const runtimeRef = useRef<WhiteboardRuntime | null>(null);
   const drawRef = useRef<DrawSession | null>(null);
-  const preDrawRef = useRef<CanvasDocument | null>(null);
+  const preDrawRef = useRef<{
+    working: CanvasDocument;
+    history: CanvasDocument;
+  } | null>(null);
   const frameDragRef = useRef<FrameDragState | null>(null);
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
@@ -379,7 +411,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const applyNodePositions = useCallback(
     (positioned: readonly CanvasFlowNode[]) => {
       const document = moveNodesInDocument(
-        snapshotNow(),
+        workingSnapshot(),
         positioned.map((node) => ({ id: node.id, position: node.position })),
       );
       const models = new Map(document.nodes.map((node) => [node.id, node]));
@@ -396,7 +428,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         }),
       );
     },
-    [setNodes, snapshotNow],
+    [setNodes, workingSnapshot],
   );
 
   const deleteCanvasElements = useCallback(
@@ -405,7 +437,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       const edgeIdSet = new Set(edgeIds);
       if (!nodeIdSet.size && !edgeIdSet.size) return;
 
-      let document = snapshotNow();
+      let document = workingSnapshot();
       const existingNodeIds = new Set(document.nodes.map((node) => node.id));
       const existingEdgeIds = new Set(
         document.connections.map((connection) => connection.id),
@@ -436,7 +468,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       applyDocument(document);
       bump();
     },
-    [applyDocument, bump, pushHistory, snapshotNow],
+    [applyDocument, bump, pushHistory, workingSnapshot],
   );
 
   const onNodesChange = useCallback(
@@ -532,11 +564,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       pushHistory();
       frameDragRef.current =
         beginFrameDragState(
-          snapshotNow(),
+          workingSnapshot(),
           draggedNodes.map((dragged) => dragged.id),
         ) ?? null;
     },
-    [pushHistory, snapshotNow],
+    [pushHistory, workingSnapshot],
   );
 
   const endFrameDrag = useCallback(() => {
@@ -591,13 +623,30 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
 
   const addNode = useCallback(
     (kind: CanvasNodeKind, position?: { x: number; y: number }) => {
-      pushHistory();
       const center = position ??
         flowRef.current?.screenToFlowPosition({
           x: window.innerWidth / 2,
           y: window.innerHeight / 2,
         }) ?? { x: 120, y: 120 };
       const nodeId = newId(kind);
+      if (kind === "literature") {
+        const placeholder = canvasDocumentToFlow({
+          version: 2,
+          nodes: [
+            {
+              ...createBasicNode("item", center, nodeId),
+              data: { title: "Loading…" },
+            },
+          ],
+          connections: [],
+        }).nodes[0];
+        const requestId = `pick-${nodeId}-${Date.now().toString(36)}`;
+        pendingPicksRef.current.set(requestId, { nodeId });
+        setNodes((current) => [...current, placeholder]);
+        propsRef.current.onPickAcademicSource(requestId, nodeId, "literature");
+        return;
+      }
+      pushHistory();
       const created = canvasDocumentToFlow({
         version: 2,
         nodes: [createCanvasNode(kind, center, nodeId)],
@@ -613,11 +662,6 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       bump();
       if (editOnCreate) {
         setEditing({ nodeId, value: flowNodeText(created) });
-      }
-      if (isLibraryKind(kind)) {
-        const requestId = `pick-${nodeId}-${Date.now().toString(36)}`;
-        pendingPicksRef.current.set(requestId, nodeId);
-        propsRef.current.onPickItem(requestId, nodeId, kind);
       }
     },
     [bump, pushHistory],
@@ -638,7 +682,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     drawRef.current = null;
     const previous = preDrawRef.current;
     preDrawRef.current = null;
-    if (previous) applyDocument(previous);
+    if (previous) applyDocument(previous.working);
     else {
       setNodes((current) =>
         current.filter((node) => node.id !== session.nodeId),
@@ -673,7 +717,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const previous = preDrawRef.current;
     preDrawRef.current = null;
     if (previous) {
-      documentHistory.push(previous);
+      documentHistory.push(previous.history);
     }
     setNodes((current) =>
       current.map((node) => ({
@@ -701,7 +745,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         kind,
         shift: event.shiftKey,
       });
-      preDrawRef.current = snapshotNow();
+      preDrawRef.current = {
+        working: workingSnapshot(),
+        history: snapshotNow(),
+      };
       const created = applyDrawFrame(
         canvasDocumentToFlow({
           version: 2,
@@ -719,7 +766,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       };
       setNodes((current) => [...current, created]);
     },
-    [flowPoint, snapshotNow],
+    [flowPoint, snapshotNow, workingSnapshot],
   );
 
   const eraseNode = useCallback(
@@ -1007,43 +1054,43 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     [snapshotNow],
   );
 
-  const handleDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      setActiveTool("select");
-      const position = flowRef.current?.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      }) ?? { x: 120, y: 120 };
-      const nodeId = newId("item");
-      pushHistory();
-      setNodes((current) => [
-        ...current,
-        canvasDocumentToFlow({
-          version: 2,
-          nodes: [createBasicNode("item", position, nodeId)],
-          connections: [],
-        }).nodes[0],
-      ]);
-      bump();
-      const raw: Record<string, string> = Object.create(null) as Record<
-        string,
-        string
-      >;
-      const types = Array.from(event.dataTransfer?.types || []);
-      for (const type of types) {
-        try {
-          raw[type] = event.dataTransfer.getData(type);
-        } catch {
-          // ignore
-        }
+  const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setActiveTool("select");
+    const position = flowRef.current?.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    }) ?? { x: 120, y: 120 };
+    const nodeId = newId("literature");
+    const requestId = `drop-${nodeId}-${Date.now().toString(36)}`;
+    pendingPicksRef.current.set(requestId, { nodeId });
+    setNodes((current) => [
+      ...current,
+      canvasDocumentToFlow({
+        version: 2,
+        nodes: [
+          {
+            ...createBasicNode("item", position, nodeId),
+            data: { title: "Loading…" },
+          },
+        ],
+        connections: [],
+      }).nodes[0],
+    ]);
+    const raw: Record<string, string> = Object.create(null) as Record<
+      string,
+      string
+    >;
+    const types = Array.from(event.dataTransfer?.types || []);
+    for (const type of types) {
+      try {
+        raw[type] = event.dataTransfer.getData(type);
+      } catch {
+        // ignore
       }
-      const requestId = `drop-${nodeId}-${Date.now().toString(36)}`;
-      pendingPicksRef.current.set(requestId, nodeId);
-      propsRef.current.onDropItems(requestId, nodeId, raw);
-    },
-    [bump, pushHistory],
-  );
+    }
+    propsRef.current.onDropAcademicSources(requestId, nodeId, raw);
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1137,28 +1184,42 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       getSnapshot: snapshotNow,
       undo,
       redo,
-      resolvePick(requestId, nodeId, data) {
-        if (pendingPicksRef.current.get(requestId) !== nodeId) return;
-        pendingPicksRef.current.delete(requestId);
-        const picker = parsePickerNodeData(data);
-        if (!picker) {
-          propsRef.current.onError("Invalid Zotero picker payload.");
+      resolveAcademicAcquisition(requestId, nodeId, acquisition) {
+        const pending = pendingPicksRef.current.get(requestId);
+        if (!pending || pending.nodeId !== nodeId) return;
+        const placeholder = nodesRef.current.find((node) => node.id === nodeId);
+        const literature =
+          acquisition.kind === "literature" && placeholder
+            ? createAcademicNode("literature", placeholder.position, nodeId, {
+                source: acquisition.source,
+                snapshot: acquisition.snapshot,
+              })
+            : undefined;
+        const resolved = literature
+          ? resolveAcademicPlaceholder(nodesRef.current, nodeId, literature)
+          : undefined;
+        if (!resolved) {
+          pendingPicksRef.current.delete(requestId);
+          setNodes((current) => rejectAcademicPlaceholder(current, nodeId));
+          setEdges((current) =>
+            rejectAcademicPlaceholderConnections(current, nodeId),
+          );
+          propsRef.current.onError("Invalid Zotero academic acquisition.");
           return;
         }
         pushHistory();
-        setNodes((current) =>
-          current.map((node) =>
-            node.id === nodeId
-              ? updateFlowNodeModel(node, (model) =>
-                  mergePickerData(model, picker),
-                )
-              : node,
-          ),
-        );
+        pendingPicksRef.current.delete(requestId);
+        setNodes(resolved);
         bump();
       },
-      rejectPick(requestId, message) {
-        if (!pendingPicksRef.current.delete(requestId)) return;
+      rejectAcademicRequest(requestId, nodeId, message) {
+        const pending = pendingPicksRef.current.get(requestId);
+        if (!pending || pending.nodeId !== nodeId) return;
+        pendingPicksRef.current.delete(requestId);
+        setNodes((current) => rejectAcademicPlaceholder(current, nodeId));
+        setEdges((current) =>
+          rejectAcademicPlaceholderConnections(current, nodeId),
+        );
         propsRef.current.onError(message);
       },
       setSaveState(state) {
@@ -1332,7 +1393,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               return;
             }
             if (isDrawTool(activeTool) || drawRef.current) return;
-            if (!isStampTool(activeTool)) return;
+            if (!isStampTool(activeTool) && activeTool !== "literature") return;
             const position = flowRef.current?.screenToFlowPosition({
               x: event.clientX,
               y: event.clientY,

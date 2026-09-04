@@ -918,6 +918,83 @@ test("all public protocol boundaries reject hostile reflective values without th
   });
 });
 
+test("hostile ingress never evaluates Symbol.toStringTag accessors", () => {
+  const focus = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "focus",
+  };
+  let ownTagReads = 0;
+  const ownTagged = { ...focus };
+  Object.defineProperty(ownTagged, Symbol.toStringTag, {
+    configurable: true,
+    get() {
+      ownTagReads += 1;
+      return "Object";
+    },
+  });
+  assert.equal(
+    dispatchWhiteboardParentMessageEvent(
+      { data: ownTagged, source: null },
+      {} as WindowProxy,
+      "tab-9:canvas-a",
+      () => assert.fail("symbol-bearing ingress must not dispatch"),
+    ),
+    false,
+  );
+  assert.equal(ownTagReads, 0, "an own toStringTag getter must remain inert");
+
+  let inheritedTagReads = 0;
+  const hostilePrototype = Object.create(null) as object;
+  Object.defineProperty(hostilePrototype, Symbol.toStringTag, {
+    configurable: true,
+    get() {
+      inheritedTagReads += 1;
+      return "Object";
+    },
+  });
+  const inheritedTagged = Object.assign(
+    Object.create(hostilePrototype) as Record<string, unknown>,
+    focus,
+  );
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(inheritedTagged, "tab-9:canvas-a"),
+    false,
+  );
+  assert.equal(
+    inheritedTagReads,
+    0,
+    "an inherited toStringTag getter must remain inert",
+  );
+
+  let constructorPropertyReads = 0;
+  const fakeObjectConstructor = new Proxy(function Object() {}, {
+    get(target, key, receiver) {
+      constructorPropertyReads += 1;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const constructorPrototype = Object.create(null) as object;
+  Object.defineProperty(constructorPrototype, "constructor", {
+    configurable: true,
+    value: fakeObjectConstructor,
+  });
+  const constructorTagged = Object.assign(
+    Object.create(constructorPrototype) as Record<string, unknown>,
+    focus,
+  );
+  assert.equal(
+    isParentToWhiteboardMessageForChannel(constructorTagged, "tab-9:canvas-a"),
+    false,
+  );
+  assert.equal(
+    constructorPropertyReads,
+    0,
+    "constructor verification must use descriptors instead of property reads",
+  );
+});
+
 test("strict ingress rejects extra keys throughout native academic records", () => {
   const base = {
     source: WHITEBOARD_MESSAGE_SOURCE,

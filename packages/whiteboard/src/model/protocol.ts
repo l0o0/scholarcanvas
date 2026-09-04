@@ -628,8 +628,6 @@ function safelyValidate(validate: () => boolean): boolean {
 function isPlainRecord(value: unknown): value is ProtocolRecord {
   if (!value || typeof value !== "object") return false;
   try {
-    if (Object.prototype.toString.call(value) !== "[object Object]")
-      return false;
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== null) {
       if (Object.getPrototypeOf(prototype) !== null) return false;
@@ -637,12 +635,24 @@ function isPlainRecord(value: unknown): value is ProtocolRecord {
         prototype,
         "constructor",
       );
+      const constructorName =
+        constructor && "value" in constructor
+          ? Object.getOwnPropertyDescriptor(constructor.value, "name")
+          : undefined;
+      const constructorPrototype =
+        constructor && "value" in constructor
+          ? Object.getOwnPropertyDescriptor(constructor.value, "prototype")
+          : undefined;
       if (
         !constructor ||
         !("value" in constructor) ||
         typeof constructor.value !== "function" ||
-        constructor.value.name !== "Object" ||
-        constructor.value.prototype !== prototype ||
+        !constructorName ||
+        !("value" in constructorName) ||
+        constructorName.value !== "Object" ||
+        !constructorPrototype ||
+        !("value" in constructorPrototype) ||
+        constructorPrototype.value !== prototype ||
         !isNativeObjectConstructor(constructor.value)
       ) {
         return false;

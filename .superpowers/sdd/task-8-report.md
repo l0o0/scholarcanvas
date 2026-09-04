@@ -496,3 +496,44 @@ treats explicit `undefined` consistently in extension records and arrays.
   in extension objects and array positions and are preserved by the fallback;
   no JSON stringify/parse path was introduced.
 - Scope: no Task 9 document or report was modified.
+
+## Bridge regression follow-up: accessor-free record detection
+
+The immutable ingress preflight no longer calls
+`Object.prototype.toString` on untrusted values. Plain-record classification is
+now based exclusively on exception-contained prototype, own-key, and own-data-
+descriptor inspection plus the existing realm-neutral native `Object`
+constructor invariant. Consequently, neither own nor inherited
+`Symbol.toStringTag` accessors execute during validation or clone preflight.
+
+### Accessor-free RED/GREEN evidence
+
+- RED: the new production-dispatch regression rejected a symbol-bearing message
+  but observed its own `Symbol.toStringTag` getter execute once (`actual: 1`,
+  `expected: 0`).
+- Self-review RED: a Proxy supplied as a forged prototype constructor observed
+  two direct `.name`/`.prototype` reads. Constructor verification now inspects
+  both properties through own data descriptors and the Proxy `get` trap remains
+  at zero.
+- GREEN targeted protocol cases: 3 passed, covering all cross-realm protocol
+  arms, hostile reflection, and inert own/inherited `Symbol.toStringTag`
+  accessors.
+- GREEN focused protocol/bootstrap/document/gateway suites: 67 passed, 0
+  failed; the existing stateful Proxy/structured-clone cases remained green.
+- Full `pnpm run test:unit`: 591 passed, 0 failed across 24 suites.
+- `pnpm exec tsc --noEmit`, `pnpm run lint:check`, and
+  `pnpm run whiteboard:build`: passed.
+- `pnpm run build`: Zotero plugin production build and root typecheck passed.
+- `git diff --check`: passed.
+
+### Accessor-free self-review
+
+- Genuine same-realm/cross-realm ordinary objects and null-prototype records
+  still pass the existing exhaustive positive samples.
+- Own symbols are rejected from `Reflect.ownKeys` without reading their values;
+  accessors are rejected from descriptors without invocation.
+- Date, Map, DOM nodes, class instances, custom prototypes, and forged Object
+  constructors continue to fail the prototype/native-constructor constraints.
+- All reflection remains inside false-on-exception boundaries, and the stable
+  snapshot/stateful Proxy behavior from the prior follow-up is unchanged.
+- Scope: no Task 9 document or report was modified.

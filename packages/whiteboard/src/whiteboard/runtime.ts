@@ -7,10 +7,18 @@ import {
   type SetStateAction,
 } from "react";
 import type { Viewport } from "@xyflow/react";
-import { createAcademicNode, type LiteratureNode } from "../model/academic";
+import {
+  ACADEMIC_SOURCE_CARD_SIZE,
+  createAcademicNode,
+  type LiteratureNode,
+} from "../model/academic";
 import { createBasicNode } from "../model/basic";
 import { parseCanvasDocument, type CanvasDocument } from "../model/document";
-import type { AcademicAcquisition } from "../model/protocol";
+import type {
+  AcademicAcquisition,
+  AcademicAcquisitionFailure,
+  IndexedAcademicAcquisition,
+} from "../model/protocol";
 import type { SourceResolutionResult } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 import {
@@ -54,6 +62,8 @@ export interface AcademicAcquisitionRuntimeBindings {
   pushHistory: () => void;
   changed: () => void;
   onError: (message: string) => void;
+  onNotice?: (message: string) => void;
+  createNodeId?: (requestId: string, sourceIndex: number) => string;
   onPickAcademicSource: (
     requestId: string,
     nodeId: string,
@@ -83,8 +93,35 @@ export interface AcademicAcquisitionRuntime {
     nodeId: string,
     acquisition: AcademicAcquisition,
   ) => void;
+  resolveBatch: (
+    requestId: string,
+    nodeId: string,
+    successes: IndexedAcademicAcquisition[],
+    failures: AcademicAcquisitionFailure[],
+    summary: string,
+  ) => string[];
   reject: (requestId: string, nodeId: string, message: string) => void;
   pendingNodeIds: () => string[];
+  clear: () => void;
+}
+
+const ACADEMIC_BATCH_COLUMNS = 3;
+const ACADEMIC_BATCH_GAP = 24;
+
+export function academicBatchPosition(
+  origin: { x: number; y: number },
+  placementIndex: number,
+): { x: number; y: number } {
+  return {
+    x:
+      origin.x +
+      (placementIndex % ACADEMIC_BATCH_COLUMNS) *
+        (ACADEMIC_SOURCE_CARD_SIZE.literature.width + ACADEMIC_BATCH_GAP),
+    y:
+      origin.y +
+      Math.floor(placementIndex / ACADEMIC_BATCH_COLUMNS) *
+        (ACADEMIC_SOURCE_CARD_SIZE.literature.height + ACADEMIC_BATCH_GAP),
+  };
 }
 
 export function applySourceResolutionBatch(
@@ -131,6 +168,73 @@ export function createAcademicAcquisitionRuntime(
     bindings.onError(message);
   };
 
+  const resolveBatch = (
+    requestId: string,
+    nodeId: string,
+    successes: IndexedAcademicAcquisition[],
+    _failures: AcademicAcquisitionFailure[],
+    summary: string,
+  ): string[] => {
+    if (pending.get(requestId) !== nodeId) return [];
+    const placeholder = bindings.getNodes().find((node) => node.id === nodeId);
+    if (!placeholder) {
+      pending.delete(requestId);
+      return [];
+    }
+    const ordered = successes
+      .filter(
+        ({ acquisition }) =>
+          acquisition.kind === "literature" || acquisition.kind === "note",
+      )
+      .slice()
+      .sort((left, right) => left.index - right.index);
+    if (!ordered.length) {
+      pending.delete(requestId);
+      bindings.setNodes(rejectAcademicPlaceholder(bindings.getNodes(), nodeId));
+      bindings.setEdges(
+        rejectAcademicPlaceholderConnections(bindings.getEdges(), nodeId),
+      );
+      bindings.onNotice?.(summary);
+      return [];
+    }
+
+    const replacements = ordered.flatMap(
+      ({ index, acquisition }, placementIndex) => {
+        const id =
+          placementIndex === 0
+            ? nodeId
+            : (bindings.createNodeId?.(requestId, index) ??
+              `${nodeId}-${index}`);
+        const positionedPlaceholder = {
+          ...placeholder,
+          id,
+          position: academicBatchPosition(placeholder.position, placementIndex),
+        };
+        const resolved = resolveAcademicPlaceholder(
+          [positionedPlaceholder],
+          id,
+          acquisition,
+        );
+        return resolved ?? [];
+      },
+    );
+    if (!replacements.length) {
+      pending.delete(requestId);
+      bindings.setNodes(rejectAcademicPlaceholder(bindings.getNodes(), nodeId));
+      bindings.onNotice?.(summary);
+      return [];
+    }
+    bindings.pushHistory();
+    pending.delete(requestId);
+    bindings.setNodes([
+      ...bindings.getNodes().filter((node) => node.id !== nodeId),
+      ...replacements,
+    ]);
+    bindings.changed();
+    bindings.onNotice?.(summary);
+    return replacements.map((node) => node.id);
+  };
+
   return {
     placeLiterature(requestId, nodeId, position) {
       addPlaceholder(requestId, nodeId, position);
@@ -156,8 +260,12 @@ export function createAcademicAcquisitionRuntime(
       bindings.setNodes(resolved);
       bindings.changed();
     },
+    resolveBatch,
     reject,
     pendingNodeIds: () => Array.from(pending.values()),
+    clear() {
+      pending.clear();
+    },
   };
 }
 

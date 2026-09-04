@@ -45,9 +45,11 @@ whiteboard-annotations =
        *[other] 条批注
     }
 whiteboard-source-status = 来源状态
+whiteboard-source-idle = 尚未检查
 whiteboard-source-available = 可用
 whiteboard-source-loading = 正在检查…
 whiteboard-source-missing = 来源不可用
+whiteboard-acquisition-summary = 已添加 { $successCount } 个来源；{ $failureCount } 个无法添加。
 whiteboard-open-source = 打开来源
 whiteboard-refresh-source = 刷新来源
 whiteboard-refresh-note = 从 Zotero 刷新

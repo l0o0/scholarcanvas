@@ -57,9 +57,11 @@ const hostKeys = [
   "whiteboard-annotation-color",
   "whiteboard-annotations",
   "whiteboard-source-status",
+  "whiteboard-source-idle",
   "whiteboard-source-available",
   "whiteboard-source-loading",
   "whiteboard-source-missing",
+  "whiteboard-acquisition-summary",
   "whiteboard-open-source",
   "whiteboard-refresh-source",
   "whiteboard-refresh-note",
@@ -124,6 +126,7 @@ test("host wires every academic label into the whiteboard protocol", () => {
     ["kindFrame", "whiteboard-kind-frame"],
     ["annotationColor", "whiteboard-annotation-color"],
     ["sourceStatus", "whiteboard-source-status"],
+    ["sourceIdle", "whiteboard-source-idle"],
     ["sourceAvailable", "whiteboard-source-available"],
     ["sourceLoading", "whiteboard-source-loading"],
     ["sourceMissing", "whiteboard-source-missing"],
@@ -159,6 +162,22 @@ test("host wires every academic label into the whiteboard protocol", () => {
     source,
     /annotations:\s*\{[\s\S]*one:\s*getString\("whiteboard-annotations",\s*\{[\s\S]*count:\s*1[\s\S]*other:\s*getString\("whiteboard-annotations",\s*\{[\s\S]*count:\s*2/s,
   );
+  assert.match(
+    source,
+    /getString\("whiteboard-acquisition-summary",\s*\{\s*args:\s*\{\s*successCount[,\s]*failureCount/s,
+  );
+});
+
+test("multi-source summary is localized with both outcome counts", () => {
+  for (const locale of ["en-US", "zh-CN"]) {
+    const source = readFileSync(`addon/locale/${locale}/addon.ftl`, "utf8");
+    const message = source.match(
+      /^whiteboard-acquisition-summary\s*=([^\n]*(?:\n[ \t]+[^\n]*)*)/m,
+    )?.[1];
+    assert.ok(message, `${locale}: missing acquisition summary`);
+    assert.match(message, /\$successCount/);
+    assert.match(message, /\$failureCount/);
+  }
 });
 
 test("annotation labels use Fluent plural selection", () => {

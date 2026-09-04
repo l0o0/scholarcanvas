@@ -1,8 +1,11 @@
 import type {
   AcademicAcquisition,
+  AcademicAcquisitionFailure,
+  AcademicSourceActionFailure,
   AnnotationCandidate,
   AnnotationListFailure,
   ParentToWhiteboardMessage,
+  IndexedAcademicAcquisition,
   SourceResolutionResult,
   WhiteboardLabels,
 } from "./model/protocol";
@@ -18,10 +21,22 @@ interface AcademicMessageTarget {
     nodeId: string,
     acquisition: AcademicAcquisition,
   ) => void;
+  resolveAcademicAcquisitionBatch: (
+    requestId: string,
+    nodeId: string,
+    successes: IndexedAcademicAcquisition[],
+    failures: AcademicAcquisitionFailure[],
+    summary: string,
+  ) => void;
   rejectAcademicRequest: (
     requestId: string,
     nodeId: string,
     message: string,
+  ) => void;
+  rejectSourceAction: (
+    requestId: string,
+    nodeId: string,
+    failure: AcademicSourceActionFailure,
   ) => void;
   applySourceResolutionBatch: (
     generation: number,
@@ -57,11 +72,29 @@ export function forwardAcademicParentMessage(
     );
     return true;
   }
+  if (data.type === "academicSourcesAcquired") {
+    target?.resolveAcademicAcquisitionBatch(
+      data.payload.requestId,
+      data.payload.nodeId,
+      data.payload.successes,
+      data.payload.failures,
+      data.payload.summary,
+    );
+    return true;
+  }
   if (data.type === "academicRequestFailed") {
     target?.rejectAcademicRequest(
       data.payload.requestId,
       data.payload.nodeId,
       data.payload.message,
+    );
+    return true;
+  }
+  if (data.type === "sourceActionFailed") {
+    target?.rejectSourceAction(
+      data.payload.requestId,
+      data.payload.nodeId,
+      data.payload.failure,
     );
     return true;
   }

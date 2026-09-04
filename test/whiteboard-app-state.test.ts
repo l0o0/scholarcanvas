@@ -51,8 +51,11 @@ import {
   applyResolvedAcquisition,
   createQuoteBatchRuntime,
   createSourceRefreshRuntime,
+  sourceCacheKey,
+  sourceDescriptor,
 } from "../packages/whiteboard/src/whiteboard/sourceState.ts";
 import type {
+  AcademicAcquisitionFailure,
   AnnotationCandidate,
   WhiteboardLabels,
 } from "../packages/whiteboard/src/model/protocol.ts";
@@ -73,6 +76,7 @@ const EMPTY: CanvasDocument = {
 
 const noteActionLabels = {
   sourceStatus: "Source status",
+  sourceIdle: "Not checked",
   sourceAvailable: "Available",
   sourceLoading: "Checking…",
   sourceMissing: "Source unavailable",
@@ -87,6 +91,7 @@ const noteActionLabels = {
 } satisfies Pick<
   WhiteboardLabels,
   | "sourceStatus"
+  | "sourceIdle"
   | "sourceAvailable"
   | "sourceLoading"
   | "sourceMissing"
@@ -98,6 +103,252 @@ const noteActionLabels = {
   | "confirm"
   | "cancel"
 >;
+
+test("multi-source acquisition preserves order, duplicates, grid placement, and one history boundary", () => {
+  let nodes = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "keep",
+        kind: "claim",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 128,
+        content: "Keep this edit",
+      },
+    ],
+  }).nodes;
+  let edges: ReturnType<typeof canvasDocumentToFlow>["edges"] = [];
+  let pushes = 0;
+  let changes = 0;
+  const historyKinds: string[][] = [];
+  const notices: string[] = [];
+  const acquisition = createAcademicAcquisitionRuntime({
+    getNodes: () => nodes,
+    setNodes: (next) => {
+      nodes = next;
+    },
+    getEdges: () => edges,
+    setEdges: (next) => {
+      edges = next;
+    },
+    pushHistory: () => {
+      pushes += 1;
+      historyKinds.push(
+        runtimeModule
+          .omitAcademicPlaceholders(
+            flowToCanvasDocument(nodes, edges, { x: 0, y: 0, zoom: 1 }),
+            acquisition.pendingNodeIds(),
+          )
+          .nodes.map((node) => node.kind),
+      );
+    },
+    changed: () => {
+      changes += 1;
+    },
+    onError: () => assert.fail("partial success uses the batch summary"),
+    onNotice: (message) => notices.push(message),
+    createNodeId: (_requestId, sourceIndex) => `placed-${sourceIndex}`,
+    onPickAcademicSource: () => assert.fail("unexpected picker"),
+    onDropAcademicSources: () => undefined,
+  });
+
+  acquisition.dropLiterature(
+    "drop-many",
+    "batch-placeholder",
+    { x: 100, y: 200 },
+    { items: "[11, 12, 13, 14]" },
+  );
+  const failures: AcademicAcquisitionFailure[] = [
+    {
+      index: 1,
+      code: "unsupported-attachment",
+      message: "Zotero attachments cannot be added to the canvas.",
+    },
+  ];
+  acquisition.resolveBatch(
+    "drop-many",
+    "batch-placeholder",
+    [
+      {
+        index: 0,
+        acquisition: {
+          kind: "literature",
+          source: { library: { type: "user" }, itemKey: "SAME1234" },
+          snapshot: { title: "First placement" },
+        },
+      },
+      {
+        index: 2,
+        acquisition: {
+          kind: "literature",
+          source: { library: { type: "user" }, itemKey: "SAME1234" },
+          snapshot: { title: "Repeated placement" },
+        },
+      },
+      {
+        index: 3,
+        acquisition: {
+          kind: "note",
+          source: { library: { type: "user" }, noteKey: "NOTE1234" },
+          sourceSnapshot: { title: "Imported note" },
+          content: "Independent local content",
+        },
+      },
+      {
+        index: 5,
+        acquisition: {
+          kind: "note",
+          source: { library: { type: "user" }, noteKey: "NOTE5678" },
+          sourceSnapshot: { title: "Bounded second row" },
+          content: "Second independent Note",
+        },
+      },
+    ],
+    failures,
+    "Added 4 sources; 1 could not be added.",
+  );
+
+  const saved = flowToCanvasDocument(nodes, edges, {
+    x: 0,
+    y: 0,
+    zoom: 1,
+  });
+  assert.deepEqual(
+    saved.nodes.map((node) => node.kind),
+    ["claim", "literature", "literature", "note", "note"],
+  );
+  assert.deepEqual(
+    saved.nodes.slice(1).map((node) => node.position),
+    [
+      { x: 100, y: 200 },
+      { x: 404, y: 200 },
+      { x: 708, y: 200 },
+      { x: 100, y: 424 },
+    ],
+  );
+  assert.deepEqual(
+    saved.nodes
+      .filter((node) => node.kind === "literature")
+      .map((node) => node.source.itemKey),
+    ["SAME1234", "SAME1234"],
+  );
+  assert.equal(
+    saved.nodes.filter((node) => node.kind === "literature").length,
+    2,
+  );
+  assert.equal(saved.nodes.filter((node) => node.kind === "note").length, 2);
+  assert.equal(
+    saved.nodes.some((node) => node.kind === "attachment"),
+    false,
+  );
+  const repeatedCacheKeys = saved.nodes.flatMap((node) => {
+    if (node.kind !== "literature" || node.source.itemKey !== "SAME1234") {
+      return [];
+    }
+    const descriptor = sourceDescriptor(node);
+    return descriptor ? [sourceCacheKey(descriptor)] : [];
+  });
+  assert.deepEqual(repeatedCacheKeys, [
+    "literature:user:SAME1234",
+    "literature:user:SAME1234",
+  ]);
+  assert.equal(saved.connections.length, 0);
+  assert.equal(
+    saved.nodes.some((node) => node.id === "batch-placeholder"),
+    true,
+    "the first success reuses the batch placement id, not a loading model",
+  );
+  assert.equal(saved.nodes[1].kind, "literature");
+  assert.equal(pushes, 1);
+  assert.equal(changes, 1);
+  assert.deepEqual(historyKinds, [["claim"]]);
+  assert.deepEqual(notices, ["Added 4 sources; 1 could not be added."]);
+  assert.deepEqual(
+    failures.map((failure) => failure.index),
+    [1],
+  );
+});
+
+test("a zero-success source batch removes loading state without history and ignores stale replies", () => {
+  let nodes = canvasDocumentToFlow(EMPTY).nodes;
+  let edges: ReturnType<typeof canvasDocumentToFlow>["edges"] = [];
+  let pushes = 0;
+  let changes = 0;
+  const notices: string[] = [];
+  const acquisition = createAcademicAcquisitionRuntime({
+    getNodes: () => nodes,
+    setNodes: (next) => {
+      nodes = next;
+    },
+    getEdges: () => edges,
+    setEdges: (next) => {
+      edges = next;
+    },
+    pushHistory: () => {
+      pushes += 1;
+    },
+    changed: () => {
+      changes += 1;
+    },
+    onError: () => assert.fail("batch failures use the localized summary"),
+    onNotice: (message) => notices.push(message),
+    onPickAcademicSource: () => undefined,
+    onDropAcademicSources: () => undefined,
+  });
+
+  acquisition.dropLiterature("failed", "pending", { x: 1, y: 2 }, {});
+  acquisition.resolveBatch(
+    "failed",
+    "pending",
+    [],
+    [{ index: 0, code: "item-missing", message: "Missing" }],
+    "Added 0 sources; 1 could not be added.",
+  );
+  assert.deepEqual(nodes, []);
+  assert.deepEqual(acquisition.pendingNodeIds(), []);
+  assert.equal(pushes, 0);
+  assert.equal(changes, 0);
+  assert.deepEqual(notices, ["Added 0 sources; 1 could not be added."]);
+
+  acquisition.dropLiterature("stale", "old-document", { x: 3, y: 4 }, {});
+  acquisition.clear();
+  nodes = canvasDocumentToFlow({
+    ...EMPTY,
+    nodes: [
+      {
+        id: "replacement",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "New document",
+      },
+    ],
+  }).nodes;
+  acquisition.resolveBatch(
+    "stale",
+    "old-document",
+    [
+      {
+        index: 0,
+        acquisition: {
+          kind: "literature",
+          source: { library: { type: "user" }, itemKey: "STALE123" },
+          snapshot: { title: "Late reply" },
+        },
+      },
+    ],
+    [],
+    "Added 1 source; 0 could not be added.",
+  );
+  assert.deepEqual(
+    nodes.map((node) => node.id),
+    ["replacement"],
+  );
+  assert.equal(pushes, 0);
+  assert.equal(changes, 0);
+});
 
 const appSource = readFileSync(
   new URL("../packages/whiteboard/src/whiteboard/app.tsx", import.meta.url),
@@ -652,6 +903,62 @@ test("only source-backed Notes expose refresh in properties", () => {
   );
   assert.equal(unavailable.includes("Source unavailable"), true);
   assert.equal(unavailable.includes('title="Item missing"'), true);
+});
+
+test("source-backed properties distinguish every transient source state", () => {
+  const node = canvasDocumentToFlow(academicDocument()).nodes[0];
+  const markup = (
+    sourceState:
+      | { status: "idle" | "loading" | "resolved" }
+      | { status: "unavailable"; message: string },
+  ) =>
+    renderToStaticMarkup(
+      createElement(PropertiesPanel, {
+        labels: { ...({} as WhiteboardLabels), ...noteActionLabels },
+        node,
+        sourceState,
+        onEdit: () => undefined,
+        onOpen: () => undefined,
+        onRefreshSource: () => undefined,
+        onViewAnnotations: () => undefined,
+        onCopy: () => undefined,
+        onDelete: () => undefined,
+      }),
+    );
+
+  assert.match(markup({ status: "idle" }), /data-source-status="idle"/);
+  assert.match(markup({ status: "idle" }), /Not checked/);
+  assert.match(markup({ status: "loading" }), /data-source-status="loading"/);
+  assert.match(markup({ status: "loading" }), /Checking/);
+  assert.match(markup({ status: "resolved" }), /data-source-status="resolved"/);
+  assert.match(markup({ status: "resolved" }), /Available/);
+  assert.match(
+    markup({ status: "unavailable", message: "Source was deleted" }),
+    /data-source-status="unavailable"/,
+  );
+  assert.match(
+    markup({ status: "unavailable", message: "Source was deleted" }),
+    /A paper/,
+    "availability must not replace the persisted snapshot title",
+  );
+});
+
+test("source action failures are rendered inside the nonblocking canvas UI", () => {
+  assert.match(appSource, /className="zmd-board-notice/);
+  assert.match(appSource, /role="status"/);
+  assert.match(appSource, /aria-live="polite"/);
+  assert.match(appSource, /rejectSourceAction\(requestId, nodeId, failure\)/);
+  assert.match(canvasCss, /\.zmd-board-notice/);
+  assert.match(
+    callbackSource("applySourceResolutionBatch") ?? "",
+    /setCanvasNotice/,
+    "an explicit refresh failure must surface in the canvas",
+  );
+  assert.match(
+    callbackSource("rejectAnnotationList") ?? "",
+    /setCanvasNotice/,
+    "an annotation failure must surface in the canvas as well as its dialog",
+  );
 });
 
 test("Literature and Quote properties expose native source open and refresh actions", () => {

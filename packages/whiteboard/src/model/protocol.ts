@@ -61,6 +61,7 @@ export interface WhiteboardLabels {
   annotationColor: string;
   annotations: { one: string; other: string };
   sourceStatus: string;
+  sourceIdle: string;
   sourceAvailable: string;
   sourceLoading: string;
   sourceMissing: string;
@@ -179,6 +180,38 @@ export type AcademicAcquisition =
     }
   | { kind: "quote"; source: QuoteSource; snapshot: QuoteSnapshot };
 
+export interface IndexedAcademicAcquisition {
+  index: number;
+  acquisition: AcademicAcquisition;
+}
+
+export type AcademicAcquisitionFailureCode =
+  | "item-missing"
+  | "unsupported-attachment"
+  | "unsupported-kind"
+  | "acquisition-failed";
+
+export interface AcademicAcquisitionFailure {
+  index: number;
+  code: AcademicAcquisitionFailureCode;
+  message: string;
+}
+
+export interface AcademicAcquisitionBatch {
+  successes: IndexedAcademicAcquisition[];
+  failures: AcademicAcquisitionFailure[];
+}
+
+export interface AcademicSourceActionFailure {
+  code:
+    | "library-missing"
+    | "item-missing"
+    | "wrong-kind"
+    | "parent-mismatch"
+    | "open-failed";
+  message: string;
+}
+
 export type SourceResolutionResult =
   | {
       nodeId: string;
@@ -259,6 +292,16 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
         };
       }
     | {
+        type: "academicSourcesAcquired";
+        payload: {
+          requestId: string;
+          nodeId: string;
+          successes: IndexedAcademicAcquisition[];
+          failures: AcademicAcquisitionFailure[];
+          summary: string;
+        };
+      }
+    | {
         type: "sourceResolutionBatch";
         payload: {
           requestId: string;
@@ -294,6 +337,14 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
     | {
         type: "academicRequestFailed";
         payload: { requestId: string; nodeId: string; message: string };
+      }
+    | {
+        type: "sourceActionFailed";
+        payload: {
+          requestId: string;
+          nodeId: string;
+          failure: AcademicSourceActionFailure;
+        };
       }
     | {
         type: "saveState";
@@ -378,7 +429,11 @@ export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
       }
     | {
         type: "openAcademicSource";
-        payload: { requestId: string; source: AcademicSourceDescriptor };
+        payload: {
+          requestId: string;
+          nodeId: string;
+          source: AcademicSourceDescriptor;
+        };
       }
     | {
         type: "exportFile";

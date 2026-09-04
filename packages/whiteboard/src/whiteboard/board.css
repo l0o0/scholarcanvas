@@ -100,6 +100,29 @@
   border-left: 1px solid var(--zmd-board-border, #e5e7eb);
 }
 
+.zmd-board-notice {
+  position: absolute;
+  z-index: 6;
+  top: 72px;
+  left: 50%;
+  max-width: min(520px, calc(100% - 32px));
+  padding: 8px 12px;
+  transform: translateX(-50%);
+  border: 1px solid var(--zmd-board-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--zmd-board-surface, #fff);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+  color: var(--zmd-board-text, #111827);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.zmd-board-notice[data-tone="error"] {
+  border-color: color-mix(in srgb, #dc2626 40%, transparent);
+  color: #b91c1c;
+}
+
 .zmd-board-properties {
   right: 16px;
   top: 72px;

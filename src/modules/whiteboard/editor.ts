@@ -8,10 +8,13 @@ import {
   WHITEBOARD_PROTOCOL_VERSION,
   isWhiteboardProtocolMessageForChannel,
   type AcademicAcquisition,
+  type AcademicAcquisitionFailure,
   type AcademicSourceDescriptor,
+  type AcademicSourceActionFailure,
   type AnnotationCandidate,
   type AnnotationListFailure,
   type ParentToWhiteboardMessage,
+  type IndexedAcademicAcquisition,
   type SourceResolutionPriority,
   type SourceResolutionResult,
   type WhiteboardLabels,
@@ -37,10 +40,22 @@ export interface WhiteboardHandle {
     nodeId: string,
     acquisition: AcademicAcquisition,
   ) => void;
+  resolveAcademicAcquisitionBatch: (
+    requestId: string,
+    nodeId: string,
+    successes: IndexedAcademicAcquisition[],
+    failures: AcademicAcquisitionFailure[],
+    summary: string,
+  ) => void;
   rejectAcademicRequest: (
     requestId: string,
     nodeId: string,
     message: string,
+  ) => void;
+  rejectSourceAction: (
+    requestId: string,
+    nodeId: string,
+    failure: AcademicSourceActionFailure,
   ) => void;
   applySourceResolutionBatch: (
     requestId: string,
@@ -82,11 +97,13 @@ type PendingCommand = Extract<
       | "focus"
       | "destroy"
       | "academicSourceAcquired"
+      | "academicSourcesAcquired"
       | "sourceResolutionBatch"
       | "noteRefreshed"
       | "annotationsListed"
       | "annotationListFailed"
       | "academicRequestFailed"
+      | "sourceActionFailed"
       | "saveState";
   }
 >;
@@ -128,6 +145,7 @@ export function createWhiteboardEditor(
     ) => void;
     onOpenAcademicSource?: (
       requestId: string,
+      nodeId: string,
       source: AcademicSourceDescriptor,
     ) => void;
     onRefreshZoteroNote?: (
@@ -290,6 +308,7 @@ export function createWhiteboardEditor(
       case "openAcademicSource":
         options.onOpenAcademicSource?.(
           data.payload.requestId,
+          data.payload.nodeId,
           data.payload.source,
         );
         break;
@@ -386,11 +405,31 @@ export function createWhiteboardEditor(
         payload: { requestId, nodeId, acquisition },
       });
     },
+    resolveAcademicAcquisitionBatch(
+      requestId,
+      nodeId,
+      successes,
+      failures,
+      summary,
+    ) {
+      sendOrQueue({
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        type: "academicSourcesAcquired",
+        payload: { requestId, nodeId, successes, failures, summary },
+      });
+    },
     rejectAcademicRequest(requestId, nodeId, message) {
       sendOrQueue({
         source: WHITEBOARD_MESSAGE_SOURCE,
         type: "academicRequestFailed",
         payload: { requestId, nodeId, message },
+      });
+    },
+    rejectSourceAction(requestId, nodeId, failure) {
+      sendOrQueue({
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        type: "sourceActionFailed",
+        payload: { requestId, nodeId, failure },
       });
     },
     applySourceResolutionBatch(requestId, generation, results) {

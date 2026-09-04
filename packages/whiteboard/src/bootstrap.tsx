@@ -192,10 +192,10 @@ function boot() {
           payload: { requestId, generation, priority, sources },
         })
       }
-      onOpenAcademicSource={(requestId, source) =>
+      onOpenAcademicSource={(requestId, nodeId, source) =>
         postToParent({
           type: "openAcademicSource",
-          payload: { requestId, source },
+          payload: { requestId, nodeId, source },
         })
       }
       onListLiteratureAnnotations={(requestId, source) =>

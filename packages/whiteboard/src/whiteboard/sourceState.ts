@@ -56,7 +56,10 @@ export interface SourceRefreshRuntimeBindings {
 
 export interface SourceRefreshRuntime {
   request(node: CanvasFlowNode): SourceResolutionRequest | undefined;
-  apply(generation: number, results: SourceResolutionResult[]): void;
+  apply(
+    generation: number,
+    results: SourceResolutionResult[],
+  ): SourceResolutionResult[];
   clear(): void;
 }
 
@@ -230,11 +233,13 @@ export function createSourceRefreshRuntime(
     apply(generation, results) {
       const before = bindings.getNodes();
       let changedSnapshots = 0;
+      const explicitResults: SourceResolutionResult[] = [];
       for (const result of results) {
         if (result.generation !== generation) continue;
         const expected = pending.get(result.nodeId);
         if (!expected) continue;
         pending.delete(result.nodeId);
+        explicitResults.push(result);
         if (result.status !== "resolved") continue;
         const node = before.find((candidate) => candidate.id === result.nodeId);
         const descriptor = node && sourceDescriptor(node.data.model);
@@ -251,6 +256,7 @@ export function createSourceRefreshRuntime(
       for (let index = 0; index < changedSnapshots; index += 1) {
         bindings.changed();
       }
+      return explicitResults;
     },
     clear() {
       pending.clear();

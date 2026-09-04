@@ -45,6 +45,7 @@ test("protocol-v2 academic acquisition is forwarded across both bridge sides", (
 
   assert.match(editor, /resolveAcademicAcquisition\(/);
   assert.match(editor, /type: "academicSourceAcquired"/);
+  assert.match(editor, /type: "academicSourcesAcquired"/);
   assert.match(editor, /rejectAcademicRequest\(/);
   assert.match(editor, /type: "academicRequestFailed"/);
   assert.match(editor, /case "pickAcademicSource"/);
@@ -69,6 +70,7 @@ test("protocol-v2 academic acquisition is forwarded across both bridge sides", (
   assert.match(editor, /case "listLiteratureAnnotations"/);
   assert.match(editor, /type: "annotationsListed"/);
   assert.match(editor, /type: "annotationListFailed"/);
+  assert.match(editor, /type: "sourceActionFailed"/);
 });
 
 test("academic bridge dispatch invokes the correlated runtime methods", () => {
@@ -81,8 +83,12 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
   const runtime = {
     resolveAcademicAcquisition: (...args: unknown[]) =>
       calls.push(["resolve", ...args]),
+    resolveAcademicAcquisitionBatch: (...args: unknown[]) =>
+      calls.push(["resolve-batch", ...args]),
     rejectAcademicRequest: (...args: unknown[]) =>
       calls.push(["reject", ...args]),
+    rejectSourceAction: (...args: unknown[]) =>
+      calls.push(["source-action-failure", ...args]),
     applySourceResolutionBatch: (...args: unknown[]) =>
       calls.push(["resolution", ...args]),
     applyNoteRefresh: (...args: unknown[]) =>
@@ -108,6 +114,36 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
       requestId: "pick-2",
       nodeId: "node-2",
       message: "Cancelled",
+    },
+  };
+  const acquiredBatch: ParentToWhiteboardMessage = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "academicSourcesAcquired",
+    payload: {
+      requestId: "drop-1",
+      nodeId: "drop-node",
+      successes: [{ index: 0, acquisition }],
+      failures: [
+        {
+          index: 1,
+          code: "unsupported-attachment",
+          message: "Unsupported attachment",
+        },
+      ],
+      summary: "Added 1 source; 1 could not be added.",
+    },
+  };
+  const sourceActionFailed: ParentToWhiteboardMessage = {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "canvas-1",
+    v: WHITEBOARD_PROTOCOL_VERSION,
+    type: "sourceActionFailed",
+    payload: {
+      requestId: "open-1",
+      nodeId: "node-1",
+      failure: { code: "open-failed", message: "Could not open" },
     },
   };
   const resolution: ParentToWhiteboardMessage = {
@@ -183,7 +219,9 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
   };
 
   assert.equal(forwardAcademicParentMessage(runtime, acquired), true);
+  assert.equal(forwardAcademicParentMessage(runtime, acquiredBatch), true);
   assert.equal(forwardAcademicParentMessage(runtime, rejected), true);
+  assert.equal(forwardAcademicParentMessage(runtime, sourceActionFailed), true);
   assert.equal(forwardAcademicParentMessage(runtime, resolution), true);
   assert.equal(forwardAcademicParentMessage(runtime, noteRefresh), true);
   assert.equal(forwardAcademicParentMessage(runtime, annotationsListed), true);
@@ -193,7 +231,21 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
   );
   assert.deepEqual(calls, [
     ["resolve", "pick-1", "node-1", acquisition],
+    [
+      "resolve-batch",
+      "drop-1",
+      "drop-node",
+      acquiredBatch.payload.successes,
+      acquiredBatch.payload.failures,
+      acquiredBatch.payload.summary,
+    ],
     ["reject", "pick-2", "node-2", "Cancelled"],
+    [
+      "source-action-failure",
+      "open-1",
+      "node-1",
+      sourceActionFailed.payload.failure,
+    ],
     ["resolution", 4, resolution.payload.results],
     ["note-refresh", "refresh-1", "node-4", noteRefresh.payload.acquisition],
     [

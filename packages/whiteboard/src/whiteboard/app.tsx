@@ -44,9 +44,12 @@ import {
 } from "../model/document";
 import type {
   AcademicAcquisition,
+  AcademicAcquisitionFailure,
   AcademicSourceDescriptor,
+  AcademicSourceActionFailure,
   AnnotationCandidate,
   AnnotationListFailure,
+  IndexedAcademicAcquisition,
   SourceResolutionPriority,
   SourceResolutionResult,
   WhiteboardLabels,
@@ -162,6 +165,7 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   annotationColor: "Annotation color",
   annotations: { one: "annotation", other: "annotations" },
   sourceStatus: "Source status",
+  sourceIdle: "Not checked",
   sourceAvailable: "Available",
   sourceLoading: "Checking…",
   sourceMissing: "Source unavailable",
@@ -285,6 +289,7 @@ export interface WhiteboardAppProps {
   ) => void;
   onOpenAcademicSource?: (
     requestId: string,
+    nodeId: string,
     source: AcademicSourceDescriptor,
   ) => void;
   onRefreshZoteroNote: (
@@ -317,10 +322,22 @@ export interface WhiteboardRuntime {
     nodeId: string,
     acquisition: AcademicAcquisition,
   ) => void;
+  resolveAcademicAcquisitionBatch: (
+    requestId: string,
+    nodeId: string,
+    successes: IndexedAcademicAcquisition[],
+    failures: AcademicAcquisitionFailure[],
+    summary: string,
+  ) => void;
   rejectAcademicRequest: (
     requestId: string,
     nodeId: string,
     message: string,
+  ) => void;
+  rejectSourceAction: (
+    requestId: string,
+    nodeId: string,
+    failure: AcademicSourceActionFailure,
   ) => void;
   applySourceResolutionBatch: (
     generation: number,
@@ -454,6 +471,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const [sourceCycle, setSourceCycle] = useState(1);
   const propsRef = useRef(props);
   propsRef.current = props;
+  const [canvasNotice, setCanvasNotice] = useState<{
+    tone: "info" | "error";
+    message: string;
+  } | null>(null);
+  const openSourceRequestsRef = useRef(new Map<string, string>());
   const academicAcquisitionRef = useRef<AcademicAcquisitionRuntime | null>(
     null,
   );
@@ -497,7 +519,12 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       setEdges,
       pushHistory,
       changed: bump,
-      onError: (message) => propsRef.current.onError(message),
+      onError: (message) => {
+        setCanvasNotice({ tone: "error", message });
+        propsRef.current.onError(message);
+      },
+      onNotice: (message) => setCanvasNotice({ tone: "info", message }),
+      createNodeId: () => newId("academic"),
       onPickAcademicSource: (requestId, nodeId, kind) =>
         propsRef.current.onPickAcademicSource(requestId, nodeId, kind),
       onDropAcademicSources: (requestId, nodeId, raw) =>
@@ -518,7 +545,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       confirm: (warning) => window.confirm(warning),
       request: (requestId, nodeId, source) =>
         propsRef.current.onRefreshZoteroNote(requestId, nodeId, source),
-      onError: (message) => propsRef.current.onError(message),
+      onError: (message) => {
+        setCanvasNotice({ tone: "error", message });
+        propsRef.current.onError(message);
+      },
       createRequestId: () => newId("note-refresh"),
     });
   }
@@ -650,6 +680,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       setAnnotationBrowser(annotationBrowserRef.current);
       noteRefreshRuntimeRef.current?.clear();
       sourceRefreshRuntimeRef.current?.clear();
+      academicAcquisitionRef.current?.clear();
+      openSourceRequestsRef.current.clear();
+      setCanvasNotice(null);
       annotationBrowserOriginNodeIdRef.current = null;
       sourceGenerationRef.current += 1;
       sourcePrioritiesRef.current.clear();
@@ -680,7 +713,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         ),
       );
       renderSourceState((revision) => revision + 1);
-      sourceRefreshRuntime.apply(generation, current);
+      const explicitResults = sourceRefreshRuntime.apply(generation, current);
+      const failedRefresh = explicitResults.find(
+        (result) => result.status === "unavailable",
+      );
+      if (failedRefresh?.status === "unavailable") {
+        setCanvasNotice({ tone: "error", message: failedRefresh.message });
+      }
     },
     [sourceRefreshRuntime],
   );
@@ -762,6 +801,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       source: LiteratureSource,
       failure: AnnotationListFailure,
     ) => {
+      setCanvasNotice({ tone: "error", message: failure.message });
       setAnnotationBrowser((current) => {
         const next = acceptAnnotationListFailure(
           current,
@@ -1245,8 +1285,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         requestSources("selected", [
           { nodeId: node.id, source: academicSource },
         ]);
+        const requestId = newId("open-source");
+        openSourceRequestsRef.current.set(node.id, requestId);
         propsRef.current.onOpenAcademicSource?.(
-          newId("open-source"),
+          requestId,
+          node.id,
           academicSource,
         );
       } else if (model.kind === "pdf" && model.data.attachmentID) {
@@ -1607,9 +1650,40 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       resolveAcademicAcquisition(requestId, nodeId, acquisition) {
         academicAcquisition.resolve(requestId, nodeId, acquisition);
       },
+      resolveAcademicAcquisitionBatch(
+        requestId,
+        nodeId,
+        successes,
+        failures,
+        summary,
+      ) {
+        const addedNodeIds = academicAcquisition.resolveBatch(
+          requestId,
+          nodeId,
+          successes,
+          failures,
+          summary,
+        );
+        if (addedNodeIds.length) {
+          sourceStatesRef.current = updateSourceResolutionStates(
+            sourceStatesRef.current,
+            addedNodeIds.map((addedNodeId) => ({
+              nodeId: addedNodeId,
+              status: "idle",
+            })),
+          );
+          renderSourceState((revision) => revision + 1);
+          setSourceCycle((cycle) => cycle + 1);
+        }
+      },
       rejectAcademicRequest(requestId, nodeId, message) {
         if (noteRefreshRuntime.reject(requestId, nodeId, message)) return;
         academicAcquisition.reject(requestId, nodeId, message);
+      },
+      rejectSourceAction(requestId, nodeId, failure) {
+        if (openSourceRequestsRef.current.get(nodeId) !== requestId) return;
+        openSourceRequestsRef.current.delete(nodeId);
+        setCanvasNotice({ tone: "error", message: failure.message });
       },
       applySourceResolutionBatch,
       applyNoteRefresh,
@@ -1715,6 +1789,16 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             selectedEdges[0] && toggleEdgeArrow(selectedEdges[0].id)
           }
         />
+        {canvasNotice ? (
+          <div
+            className="zmd-board-notice"
+            data-tone={canvasNotice.tone}
+            role="status"
+            aria-live="polite"
+          >
+            {canvasNotice.message}
+          </div>
+        ) : null}
         <PropertiesPanel
           labels={labels}
           node={

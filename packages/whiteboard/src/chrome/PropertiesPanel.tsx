@@ -41,10 +41,11 @@ export function PropertiesPanel(props: {
   const sourceStatus =
     props.sourceState?.status === "unavailable"
       ? labels.sourceMissing
-      : props.sourceState?.status === "loading" ||
-          props.sourceState?.status === "idle"
+      : props.sourceState?.status === "loading"
         ? labels.sourceLoading
-        : labels.sourceAvailable;
+        : props.sourceState?.status === "resolved"
+          ? labels.sourceAvailable
+          : labels.sourceIdle;
 
   return (
     <aside className="zmd-board-properties" aria-label="Selection">
@@ -55,6 +56,7 @@ export function PropertiesPanel(props: {
         {hasSource ? (
           <p
             className="zmd-board-source-status"
+            data-source-status={props.sourceState?.status ?? "idle"}
             title={
               props.sourceState?.status === "unavailable"
                 ? props.sourceState.message

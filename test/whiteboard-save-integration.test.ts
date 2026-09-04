@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseDroppedItemIDs } from "../src/modules/whiteboard/tab.ts";
+import {
+  acquireAcademicItems,
+  parseDroppedItemIDs,
+} from "../src/modules/whiteboard/tab.ts";
 
 const tab = readFileSync(
   new URL("../src/modules/whiteboard/tab.ts", import.meta.url),
@@ -91,7 +94,7 @@ test("new Zotero acquisition uses the academic gateway without Attachment paths"
 });
 
 test("generic Zotero acquisition accepts Notes and refreshes them through the source gateway", () => {
-  assert.match(tab, /candidate\.isRegularItem\(\) \|\| candidate\.isNote\(\)/);
+  assert.match(tab, /item\.isRegularItem\(\) \|\| item\.isNote\(\)/);
   assert.match(tab, /gateway\.acquireItem\(item\)/);
   assert.match(tab, /gateway\.refreshNote\(source\)/);
   assert.match(tab, /applyNoteRefresh/);
@@ -107,9 +110,127 @@ test("generic Zotero drops parse every encoded item id once", () => {
     [11, 12, 13, 14, 15],
   );
   assert.deepEqual(
+    parseDroppedItemIDs({ json: "[11, 11, 12]", text: "11 12" }),
+    [11, 11, 12],
+    "intentional repeats in one ordered payload remain independent placements",
+  );
+  assert.deepEqual(
     parseDroppedItemIDs({ uri: "file:///tmp/2026/paper.pdf" }),
     [],
   );
+});
+
+test("generic Zotero batches acquire supported inputs independently and retain source indexes", async () => {
+  const item = (
+    kind: "regular" | "note" | "attachment" | "other",
+    key: string,
+  ) =>
+    ({
+      key,
+      isRegularItem: () => kind === "regular",
+      isNote: () => kind === "note",
+      isAttachment: () => kind === "attachment",
+      isAnnotation: () => false,
+    }) as unknown as Zotero.Item;
+  const calls: string[] = [];
+  const result = await acquireAcademicItems(
+    [
+      item("regular", "FIRST123"),
+      item("attachment", "PDF12345"),
+      item("regular", "FIRST123"),
+      item("note", "NOTE1234"),
+    ],
+    {
+      async acquireItem(input) {
+        calls.push(input.key);
+        await Promise.resolve();
+        return input.isNote()
+          ? {
+              kind: "note" as const,
+              source: {
+                library: { type: "user" as const },
+                noteKey: input.key,
+              },
+              content: "Imported note",
+            }
+          : {
+              kind: "literature" as const,
+              source: {
+                library: { type: "user" as const },
+                itemKey: input.key,
+              },
+              snapshot: { title: input.key },
+            };
+      },
+    },
+  );
+
+  assert.deepEqual(calls, ["FIRST123", "FIRST123", "NOTE1234"]);
+  assert.deepEqual(
+    result.successes.map(({ index, acquisition }) => [index, acquisition.kind]),
+    [
+      [0, "literature"],
+      [2, "literature"],
+      [3, "note"],
+    ],
+  );
+  assert.deepEqual(result.failures, [
+    {
+      index: 1,
+      code: "unsupported-attachment",
+      message: "Zotero attachments cannot be added to the canvas.",
+    },
+  ]);
+  assert.deepEqual(
+    result.failures.map((failure) => failure.index),
+    [1],
+  );
+  assert.equal(
+    result.successes.filter(
+      ({ acquisition }) => acquisition.kind === "literature",
+    ).length,
+    2,
+  );
+  assert.equal(
+    result.successes.some(({ acquisition }) => acquisition.kind === "quote"),
+    false,
+  );
+  assert.equal(
+    result.successes.filter(({ acquisition }) => acquisition.kind === "note")
+      .length,
+    1,
+  );
+});
+
+test("a supported item acquisition failure is indexed without cancelling its peers", async () => {
+  const regular = (key: string) =>
+    ({
+      key,
+      isRegularItem: () => true,
+      isNote: () => false,
+      isAttachment: () => false,
+    }) as unknown as Zotero.Item;
+  const result = await acquireAcademicItems(
+    [regular("GOOD1234"), regular("BROKEN12"), regular("NEXT1234")],
+    {
+      acquireItem(input) {
+        if (input.key === "BROKEN12") throw new Error("Cannot snapshot");
+        return {
+          kind: "literature",
+          source: { library: { type: "user" }, itemKey: input.key },
+          snapshot: { title: input.key },
+        };
+      },
+    },
+  );
+
+  assert.deepEqual(
+    result.successes.map((success) => success.index),
+    [0, 2],
+  );
+  assert.deepEqual(result.failures, [
+    { index: 1, code: "acquisition-failed", message: "Cannot snapshot" },
+  ]);
 });
 
 test("collection generation builds source-key Literature without PDF traversal", () => {

@@ -45,9 +45,11 @@ whiteboard-annotations =
        *[other] annotations
     }
 whiteboard-source-status = Source status
+whiteboard-source-idle = Not checked
 whiteboard-source-available = Available
 whiteboard-source-loading = Checking…
 whiteboard-source-missing = Source unavailable
+whiteboard-acquisition-summary = Added { $successCount } source(s); { $failureCount } could not be added.
 whiteboard-open-source = Open source
 whiteboard-refresh-source = Refresh source
 whiteboard-refresh-note = Refresh from Zotero

@@ -11,6 +11,9 @@ import {
 } from "./snapshot";
 import {
   whiteboardChannel,
+  type AcademicAcquisition,
+  type AcademicAcquisitionBatch,
+  type AcademicAcquisitionFailure,
   type AcademicSourceDescriptor,
   type AnnotationListFailure,
 } from "./protocol";
@@ -122,9 +125,9 @@ function pickZoteroItem(
     multiSelect: boolean;
   } = {
     dataOut: null,
-    singleSelection: true,
+    singleSelection: false,
     onlyRegularItems: opts.onlyRegularItems,
-    multiSelect: false,
+    multiSelect: true,
   };
   Services.ww.openWindow(
     null,
@@ -134,6 +137,114 @@ function pickZoteroItem(
     io,
   );
   return io.dataOut?.length ? io.dataOut : null;
+}
+
+type AcademicItemGateway = {
+  acquireItem(
+    item: Zotero.Item,
+  ): AcademicAcquisition | Promise<AcademicAcquisition>;
+};
+
+export async function acquireAcademicItems(
+  items: readonly (Zotero.Item | undefined)[],
+  gateway: AcademicItemGateway,
+): Promise<AcademicAcquisitionBatch> {
+  const outcomes = await Promise.all(
+    items.map(async (item, index) => {
+      if (!item) {
+        return {
+          failure: {
+            index,
+            code: "item-missing",
+            message: "Zotero item not found.",
+          } satisfies AcademicAcquisitionFailure,
+        };
+      }
+      try {
+        if (item.isRegularItem() || item.isNote()) {
+          return {
+            success: { index, acquisition: await gateway.acquireItem(item) },
+          };
+        }
+        if (item.isAttachment()) {
+          return {
+            failure: {
+              index,
+              code: "unsupported-attachment",
+              message: "Zotero attachments cannot be added to the canvas.",
+            } satisfies AcademicAcquisitionFailure,
+          };
+        }
+        return {
+          failure: {
+            index,
+            code: "unsupported-kind",
+            message: "This Zotero item type cannot be added to the canvas.",
+          } satisfies AcademicAcquisitionFailure,
+        };
+      } catch (error) {
+        return {
+          failure: {
+            index,
+            code: "acquisition-failed",
+            message: error instanceof Error ? error.message : String(error),
+          } satisfies AcademicAcquisitionFailure,
+        };
+      }
+    }),
+  );
+  return {
+    successes: outcomes.flatMap((outcome) =>
+      "success" in outcome && outcome.success ? [outcome.success] : [],
+    ),
+    failures: outcomes.flatMap((outcome) =>
+      "failure" in outcome && outcome.failure ? [outcome.failure] : [],
+    ),
+  };
+}
+
+function academicAcquisitionSummary(
+  successes: number,
+  failures: number,
+): string {
+  const successCount = successes;
+  const failureCount = failures;
+  return getString("whiteboard-acquisition-summary", {
+    args: { successCount, failureCount },
+  });
+}
+
+async function resolveAcademicItems(
+  session: WhiteboardSession,
+  requestId: string,
+  nodeId: string,
+  itemIDs: readonly number[],
+) {
+  const editor = session.editor;
+  if (!editor) return;
+  const gateway = createZoteroSourceGateway();
+  const items = itemIDs.map((itemID) => {
+    try {
+      return Zotero.Items.get(itemID) || undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const result = await acquireAcademicItems(items, gateway);
+  for (const failure of result.failures) {
+    ztoolkit.log("Academic source acquisition failed", {
+      index: failure.index,
+      code: failure.code,
+      message: failure.message,
+    });
+  }
+  editor.resolveAcademicAcquisitionBatch(
+    requestId,
+    nodeId,
+    result.successes,
+    result.failures,
+    academicAcquisitionSummary(result.successes.length, result.failures.length),
+  );
 }
 
 function dataUrlToBytes(
@@ -187,14 +298,10 @@ async function handlePickAcademicSource(
       );
       return;
     }
-    const item = Zotero.Items.get(itemIDs[0]);
-    if (!item) throw new Error("Item not found");
-    if (kind !== "literature" || !(item.isRegularItem() || item.isNote())) {
+    if (kind !== "literature") {
       throw new Error("Select a regular Zotero item or Note");
     }
-    const gateway = createZoteroSourceGateway();
-    const acquisition = gateway.acquireItem(item);
-    editor.resolveAcademicAcquisition(requestId, nodeId, acquisition);
+    await resolveAcademicItems(session, requestId, nodeId, itemIDs);
   } catch (error) {
     editor.rejectAcademicRequest(
       requestId,
@@ -238,38 +345,46 @@ function openZoteroItem(payload: {
 
 export function parseDroppedItemIDs(raw: Record<string, string>): number[] {
   const ids: number[] = [];
-  const seen = new Set<number>();
-  const add = (value: unknown): void => {
+  const maximumOccurrences = new Map<number, number>();
+  const parseValue = (value: unknown, parsed: number[]): void => {
     if (typeof value === "number") {
-      if (Number.isInteger(value) && value > 0 && !seen.has(value)) {
-        seen.add(value);
-        ids.push(value);
-      }
+      if (Number.isInteger(value) && value > 0) parsed.push(value);
       return;
     }
     if (typeof value === "string" && /^\d+$/.test(value)) {
-      add(Number(value));
+      parseValue(Number(value), parsed);
       return;
     }
     if (Array.isArray(value)) {
-      for (const entry of value) add(entry);
+      for (const entry of value) parseValue(entry, parsed);
       return;
     }
     if (value && typeof value === "object") {
       const record = value as Record<string, unknown>;
-      if (Object.hasOwn(record, "itemID")) add(record.itemID);
-      if (Object.hasOwn(record, "id")) add(record.id);
+      if (Object.hasOwn(record, "itemID")) parseValue(record.itemID, parsed);
+      else if (Object.hasOwn(record, "id")) parseValue(record.id, parsed);
     }
   };
   for (const value of Object.values(raw)) {
     if (!value) continue;
+    const parsed: number[] = [];
     try {
-      add(JSON.parse(value));
+      parseValue(JSON.parse(value), parsed);
     } catch {
       const list = value.trim();
       if (/^\d+(?:[\s,;]+\d+)*$/.test(list)) {
-        for (const entry of list.split(/[\s,;]+/)) add(Number(entry));
+        for (const entry of list.split(/[\s,;]+/)) {
+          parseValue(Number(entry), parsed);
+        }
       }
+    }
+    const occurrences = new Map<number, number>();
+    for (const id of parsed) {
+      const occurrence = (occurrences.get(id) ?? 0) + 1;
+      occurrences.set(id, occurrence);
+      if (occurrence <= (maximumOccurrences.get(id) ?? 0)) continue;
+      maximumOccurrences.set(id, occurrence);
+      ids.push(id);
     }
   }
   return ids;
@@ -286,25 +401,7 @@ async function handleDropAcademicSources(
   try {
     const itemIDs = parseDroppedItemIDs(raw);
     if (!itemIDs.length) throw new Error("Could not parse dropped item");
-    const items = itemIDs
-      .map((itemID) => Zotero.Items.get(itemID))
-      .filter((item): item is Zotero.Item => !!item);
-    const item = items.find(
-      (candidate) => candidate.isRegularItem() || candidate.isNote(),
-    );
-    for (const unsupported of items.filter(
-      (candidate) => !(candidate.isRegularItem() || candidate.isNote()),
-    )) {
-      toast(
-        unsupported.isAttachment()
-          ? "Zotero attachments cannot be added to the canvas."
-          : "This Zotero item type cannot be added to the canvas.",
-      );
-    }
-    if (!item) throw new Error("Drop a regular Zotero item or Note");
-    const gateway = createZoteroSourceGateway();
-    const acquisition = gateway.acquireItem(item);
-    editor.resolveAcademicAcquisition(requestId, nodeId, acquisition);
+    await resolveAcademicItems(session, requestId, nodeId, itemIDs);
   } catch (error) {
     editor.rejectAcademicRequest(
       requestId,
@@ -368,14 +465,24 @@ export async function handleListLiteratureAnnotations(
 
 export async function handleOpenAcademicSource(
   session: WhiteboardSession,
-  _requestId: string,
+  requestId: string,
+  nodeId: string,
   source: AcademicSourceDescriptor,
   gateway: Pick<ZoteroSourceGateway, "open"> = createZoteroSourceGateway(),
 ) {
   try {
     await gateway.open(source);
   } catch (error) {
-    toast(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    ztoolkit.log("Academic source open failed", {
+      nodeId,
+      code: "open-failed",
+      message,
+    });
+    session.editor?.rejectSourceAction(requestId, nodeId, {
+      code: "open-failed",
+      message,
+    });
   }
 }
 
@@ -623,6 +730,7 @@ function mountWhiteboardUI(
         other: getString("whiteboard-annotations", { args: { count: 2 } }),
       },
       sourceStatus: getString("whiteboard-source-status"),
+      sourceIdle: getString("whiteboard-source-idle"),
       sourceAvailable: getString("whiteboard-source-available"),
       sourceLoading: getString("whiteboard-source-loading"),
       sourceMissing: getString("whiteboard-source-missing"),
@@ -768,8 +876,14 @@ function mountWhiteboardUI(
     onRefreshZoteroNote(requestId, nodeId, source) {
       void handleRefreshZoteroNote(session, requestId, nodeId, source);
     },
-    onOpenAcademicSource(requestId, source) {
-      void handleOpenAcademicSource(session, requestId, source, gateway);
+    onOpenAcademicSource(requestId, nodeId, source) {
+      void handleOpenAcademicSource(
+        session,
+        requestId,
+        nodeId,
+        source,
+        gateway,
+      );
     },
     onListLiteratureAnnotations(requestId, source) {
       void handleListLiteratureAnnotations(session, requestId, source);

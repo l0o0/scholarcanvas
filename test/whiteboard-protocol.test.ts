@@ -100,6 +100,34 @@ const v2ParentMessages = [
     source: WHITEBOARD_MESSAGE_SOURCE,
     channel: "tab-9:canvas-a",
     v: 2,
+    type: "academicSourcesAcquired",
+    payload: {
+      requestId: "request-batch",
+      nodeId: "node-batch",
+      successes: [
+        {
+          index: 0,
+          acquisition: {
+            kind: "literature",
+            source: literatureSource,
+            snapshot: { title: "Paper" },
+          },
+        },
+      ],
+      failures: [
+        {
+          index: 1,
+          code: "unsupported-attachment",
+          message: "Unsupported attachment",
+        },
+      ],
+      summary: "Added 1 source; 1 could not be added.",
+    },
+  },
+  {
+    source: WHITEBOARD_MESSAGE_SOURCE,
+    channel: "tab-9:canvas-a",
+    v: 2,
     type: "annotationsListed",
     payload: {
       requestId: "request-3",
@@ -198,6 +226,7 @@ const v2IframeMessages = [
     type: "openAcademicSource",
     payload: {
       requestId: "request-11",
+      nodeId: "node-11",
       source: { kind: "quote", source: quoteSource },
     },
   },
@@ -275,7 +304,7 @@ test("protocol v2 accepts only exact versions and session channels", () => {
     ),
     false,
   );
-  assert.equal(v2ParentMessages.length, 5);
+  assert.equal(v2ParentMessages.length, 6);
   assert.equal(v2IframeMessages.length, 6);
 });
 

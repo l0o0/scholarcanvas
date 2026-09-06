@@ -100,6 +100,9 @@ test("builds valid localized static tutorials along a stable guided path", () =>
       ),
     );
     assert.deepEqual(parsed.document.viewport, { x: 40, y: 40, zoom: 0.85 });
+    const visibleTop = -document.viewport!.y / document.viewport!.zoom;
+    assert.ok(byId.get("tutorial-title")!.position.y >= visibleTop);
+    assert.ok(byId.get("tutorial-welcome")!.position.y >= visibleTop);
     assert.ok(
       byId.get("tutorial-welcome")!.position.x <
         byId.get("tutorial-add-literature")!.position.x,
@@ -120,11 +123,68 @@ test("builds valid localized static tutorials along a stable guided path", () =>
       byId.get("tutorial-organize")!.position.x <
         byId.get("tutorial-practice")!.position.x,
     );
-    for (const label of Object.values(labels)) {
-      assert.match(
-        JSON.stringify(parsed.document),
-        new RegExp(escapeRegExp(label)),
-      );
+
+    const title = byId.get("tutorial-title");
+    assert.ok(title?.kind === "text");
+    assert.equal(title.data.title, labels.title);
+    assert.equal(title.style?.textColor, undefined);
+
+    const welcome = byId.get("tutorial-welcome");
+    assert.ok(welcome?.kind === "note");
+    assert.equal(welcome.badge, labels.welcome);
+    assert.equal(welcome.content, labels.welcomeBody);
+
+    const sourceNotice = byId.get("tutorial-source-notice");
+    assert.ok(sourceNotice?.kind === "text");
+    assert.equal(sourceNotice.data.title, labels.sourceNotice);
+    assert.equal(sourceNotice.style?.fill, "transparent");
+    assert.equal(sourceNotice.style.textColor, undefined);
+
+    for (const [id, badge, content] of [
+      [
+        "tutorial-add-literature",
+        labels.addLiterature,
+        labels.addLiteratureBody,
+      ],
+      ["tutorial-browse-quotes", labels.browseQuotes, labels.browseQuotesBody],
+      ["tutorial-write-note", labels.writeNote, labels.writeNoteBody],
+    ] as const) {
+      const guide = byId.get(id);
+      assert.ok(guide?.kind === "note");
+      assert.equal(guide.badge, badge);
+      assert.equal(guide.content, content);
+      assert.ok(guide.style?.fill);
+      assert.ok(guide.style?.textColor);
+    }
+
+    const question = byId.get("tutorial-question");
+    assert.ok(question?.kind === "note");
+    assert.equal(question.badge, labels.questionBadge);
+    assert.equal(question.content, "");
+    const claim = byId.get("tutorial-claim");
+    assert.ok(claim?.kind === "note");
+    assert.equal(claim.badge, labels.claimBadge);
+    assert.equal(claim.content, "");
+
+    const organize = byId.get("tutorial-organize");
+    assert.ok(organize?.kind === "frame");
+    assert.equal(organize.title, labels.organize);
+    assert.equal(organize.style?.textColor, undefined);
+    const organizeBody = byId.get("tutorial-organize-body");
+    assert.ok(organizeBody?.kind === "note");
+    assert.equal(organizeBody.content, labels.organizeBody);
+
+    const practice = byId.get("tutorial-practice");
+    assert.ok(practice?.kind === "frame");
+    assert.equal(practice.title, labels.practice);
+    assert.equal(practice.style?.textColor, undefined);
+    const practiceBody = byId.get("tutorial-practice-body");
+    assert.ok(practiceBody?.kind === "note");
+    assert.equal(practiceBody.content, labels.practiceBody);
+
+    for (const connection of parsed.document.connections) {
+      assert.notEqual(byId.get(connection.source)?.kind, "frame");
+      assert.notEqual(byId.get(connection.target)?.kind, "frame");
     }
   }
 });
@@ -219,7 +279,3 @@ test("copies and bounds real academic samples through a canvas-file round trip",
   assert.deepEqual(reopened.document.connections, document.connections);
   assert.deepEqual(reopened.document.viewport, document.viewport);
 });
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

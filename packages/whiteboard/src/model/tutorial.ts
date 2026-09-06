@@ -35,7 +35,6 @@ const headingStyle = {
   fontWeight: "bold",
   textAlign: "left",
   verticalAlign: "middle",
-  textColor: "#0f172a",
 } as const;
 
 const guideStyle = {
@@ -64,7 +63,6 @@ const frameStyle = {
   strokeWidth: 2,
   radius: 12,
   strokeStyle: "dashed",
-  textColor: "#334155",
 } as const;
 
 const sampleStyle = {
@@ -79,10 +77,10 @@ export function tutorialCanvasDocument(
   labels: TutorialCanvasLabels,
   sample?: TutorialCanvasSample,
 ): CanvasDocument {
-  const title = createBasicNode("text", { x: 0, y: -140 }, "tutorial-title");
+  const title = createBasicNode("text", { x: 0, y: 0 }, "tutorial-title");
   const welcome = createAcademicNode(
     "note",
-    { x: 0, y: 0 },
+    { x: 0, y: 120 },
     "tutorial-welcome",
     {
       badge: labels.welcome,
@@ -94,7 +92,7 @@ export function tutorialCanvasDocument(
   );
   const sourceNotice = createBasicNode(
     "text",
-    { x: 360, y: 220 },
+    { x: 360, y: 340 },
     "tutorial-source-notice",
   );
   const addLiterature = guideNode(
@@ -117,26 +115,26 @@ export function tutorialCanvasDocument(
   );
   const question = createAcademicNode(
     "note",
-    { x: 1080, y: 220 },
+    { x: 1080, y: 340 },
     "tutorial-question",
     {
       badge: labels.questionBadge,
-      content: labels.questionBadge,
+      content: "",
       style: thoughtStyle,
     },
   );
   const claim = createAcademicNode(
     "note",
-    { x: 1080, y: 400 },
+    { x: 1080, y: 520 },
     "tutorial-claim",
     {
       badge: labels.claimBadge,
-      content: labels.claimBadge,
+      content: "",
       style: thoughtStyle,
     },
   );
   const organize = {
-    ...createAcademicNode("frame", { x: 1440, y: 0 }, "tutorial-organize"),
+    ...createAcademicNode("frame", { x: 1440, y: 120 }, "tutorial-organize"),
     width: 320,
     height: 620,
     title: labels.organize,
@@ -145,14 +143,14 @@ export function tutorialCanvasDocument(
   const organizeBody = {
     ...createAcademicNode(
       "note",
-      { x: 1470, y: 70 },
+      { x: 1470, y: 190 },
       "tutorial-organize-body",
       { content: labels.organizeBody, style: guideStyle },
     ),
     frameId: organize.id,
   };
   const practice = {
-    ...createAcademicNode("frame", { x: 1820, y: 0 }, "tutorial-practice"),
+    ...createAcademicNode("frame", { x: 1820, y: 120 }, "tutorial-practice"),
     width: 400,
     height: 620,
     title: labels.practice,
@@ -161,7 +159,7 @@ export function tutorialCanvasDocument(
   const practiceBody = {
     ...createAcademicNode(
       "note",
-      { x: 1850, y: 70 },
+      { x: 1850, y: 190 },
       "tutorial-practice-body",
       { content: labels.practiceBody, width: 340, style: guideStyle },
     ),
@@ -182,11 +180,12 @@ export function tutorialCanvasDocument(
       height: 64,
       data: { title: labels.sourceNotice },
       style: {
-        ...guideStyle,
         fill: "transparent",
         stroke: "transparent",
         fontSize: 12,
         fontWeight: "normal",
+        textAlign: "left",
+        verticalAlign: "top",
       },
     },
     addLiterature,
@@ -219,12 +218,12 @@ export function tutorialCanvasDocument(
     createAcademicConnection(
       "tutorial-path-note-organize",
       writeNote.id,
-      organize.id,
+      organizeBody.id,
     ),
     createAcademicConnection(
       "tutorial-path-organize-practice",
-      organize.id,
-      practice.id,
+      organizeBody.id,
+      practiceBody.id,
     ),
     {
       ...createAcademicConnection(
@@ -241,7 +240,7 @@ export function tutorialCanvasDocument(
     const literature = {
       ...createAcademicNode(
         "literature",
-        { x: 360, y: 320 },
+        { x: 360, y: 440 },
         "tutorial-sample-literature",
         {
           source: copyLiteratureSource(sample.literature.source),
@@ -258,7 +257,7 @@ export function tutorialCanvasDocument(
     const quotes = sample.quotes.slice(0, 2).map((quote, index) => ({
       ...createAcademicNode(
         "quote",
-        { x: 720, y: 320 + index * 220 },
+        { x: 720, y: 440 + index * 220 },
         `tutorial-sample-quote-${index + 1}`,
         {
           source: {
@@ -277,7 +276,7 @@ export function tutorialCanvasDocument(
       const note = {
         ...createAcademicNode(
           "note",
-          { x: 1080, y: 580 },
+          { x: 1080, y: 700 },
           "tutorial-sample-note",
           { content: sample.note.content, style: sampleStyle },
         ),
@@ -316,14 +315,13 @@ export function tutorialCanvasDocument(
 }
 
 function guideNode(id: string, x: number, title: string, body: string) {
-  const node = createBasicNode("rect", { x, y: 0 }, id);
-  return {
-    ...node,
+  return createAcademicNode("note", { x, y: 120 }, id, {
+    badge: title,
+    content: body,
     width: 280,
     height: 200,
-    data: { title: `${title}\n\n${body}` },
-    style: { ...guideStyle },
-  };
+    style: guideStyle,
+  });
 }
 
 function copyLiteratureSource(source: {

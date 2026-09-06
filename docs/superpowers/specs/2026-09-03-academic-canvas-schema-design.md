@@ -2,6 +2,8 @@
 
 - Date: 2026-09-03
 - Status: Confirmed
+- Revision: The separate Question and Claim node kinds are superseded by
+  `2026-09-06-unified-note-templates-design.md`.
 - Scope: Academic object model, persistence, and basic rendering
 - Product state: Unreleased; experimental board formats do not require migration
 

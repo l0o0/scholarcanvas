@@ -2,6 +2,8 @@
 
 - Date: 2026-09-04
 - Status: Confirmed
+- Revision: Question and Claim creation references are superseded by
+  `2026-09-06-unified-note-templates-design.md`; both now create Note nodes.
 - Scope: Connect the existing Academic Canvas schema to Zotero Literature,
   Note, and PDF Annotation sources
 - Depends on: `2026-09-03-academic-canvas-schema-design.md`

@@ -1,5 +1,6 @@
 pref("enable", true);
 pref("frontmatter", true);
 pref("fontSize", 14);
+pref("whiteboardTutorialCreated", false);
 // KeyModifier raw string: modifiers + key, e.g. "accel,shift,M"
 pref("shortcutNewStandaloneMd", "accel,shift,M");

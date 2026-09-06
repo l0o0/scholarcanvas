@@ -1,4 +1,14 @@
-import type { TutorialCanvasSample } from "../../../packages/whiteboard/src/model";
+import {
+  tutorialCanvasDocument,
+  type CanvasDocument,
+  type TutorialCanvasLabels,
+  type TutorialCanvasSample,
+} from "../../../packages/whiteboard/src/model";
+import type { FluentMessageId } from "../../../typings/i10n";
+import { getString } from "../../utils/locale";
+import { getPref, setPref } from "../../utils/prefs";
+import { createWhiteboardAttachment } from "./create";
+import { openWhiteboardAttachment } from "./open";
 import {
   createZoteroSourceGateway,
   type ZoteroSourceGateway,
@@ -11,6 +21,19 @@ export interface TutorialSampleDependencies {
   recentItemIDs(libraryID: number, limit: number): Promise<number[]>;
   getItem(itemID: number): Zotero.Item | null;
   gateway: ZoteroSourceGateway;
+}
+
+export interface TutorialOnboardingDependencies {
+  completed(): boolean;
+  markCompleted(): void;
+  labels(): TutorialCanvasLabels;
+  selectSample(): Promise<TutorialCanvasSample | undefined>;
+  create(
+    document: CanvasDocument,
+    filename: string,
+  ): Promise<Zotero.Item | null>;
+  open(item: Zotero.Item): Promise<unknown>;
+  log(message: string, error?: unknown): void;
 }
 
 interface RankedSample {
@@ -185,5 +208,84 @@ function productionDependencies(): TutorialSampleDependencies {
       ),
     getItem: (itemID) => Zotero.Items.get(itemID) || null,
     gateway: createZoteroSourceGateway(),
+  };
+}
+
+let tutorialInFlight: Promise<void> | undefined;
+
+export function ensureTutorialWhiteboard(
+  deps: TutorialOnboardingDependencies = productionOnboardingDependencies(),
+): Promise<void> {
+  if (deps.completed()) return Promise.resolve();
+  return (tutorialInFlight ??= runTutorial(deps).finally(() => {
+    tutorialInFlight = undefined;
+  }));
+}
+
+async function runTutorial(
+  deps: TutorialOnboardingDependencies,
+): Promise<void> {
+  let sample: TutorialCanvasSample | undefined;
+  try {
+    sample = await deps.selectSample();
+  } catch (error) {
+    deps.log("Tutorial sample selection failed", error);
+  }
+
+  try {
+    const labels = deps.labels();
+    const document = tutorialCanvasDocument(labels, sample);
+    const attachment = await deps.create(document, labels.title);
+    if (!attachment) {
+      deps.log("Tutorial whiteboard creation returned no attachment");
+      return;
+    }
+    deps.markCompleted();
+    await deps.open(attachment);
+  } catch (error) {
+    deps.log("Tutorial whiteboard creation or opening failed", error);
+  }
+}
+
+function productionOnboardingDependencies(): TutorialOnboardingDependencies {
+  return {
+    completed: () => getPref("whiteboardTutorialCreated") === true,
+    markCompleted: () => setPref("whiteboardTutorialCreated", true),
+    labels: tutorialLabels,
+    selectSample: selectTutorialSample,
+    create: (document, filename) =>
+      createWhiteboardAttachment(null, {
+        document,
+        libraryID: Zotero.Libraries.userLibraryID,
+        collections: [],
+        filename,
+        select: false,
+        reportError: false,
+      }),
+    open: openWhiteboardAttachment,
+    log: (message, error) => ztoolkit.log(message, error),
+  };
+}
+
+function tutorialLabels(): TutorialCanvasLabels {
+  const string = (key: string) => getString(key as FluentMessageId);
+  return {
+    title: string("whiteboard-tutorial-title"),
+    welcome: string("whiteboard-tutorial-welcome"),
+    welcomeBody: string("whiteboard-tutorial-welcome-body"),
+    sourceNotice: string("whiteboard-tutorial-source-notice"),
+    addLiterature: string("whiteboard-tutorial-add-literature"),
+    addLiteratureBody: string("whiteboard-tutorial-add-literature-body"),
+    browseQuotes: string("whiteboard-tutorial-browse-quotes"),
+    browseQuotesBody: string("whiteboard-tutorial-browse-quotes-body"),
+    writeNote: string("whiteboard-tutorial-write-note"),
+    writeNoteBody: string("whiteboard-tutorial-write-note-body"),
+    questionBadge: string("whiteboard-tutorial-question-badge"),
+    claimBadge: string("whiteboard-tutorial-claim-badge"),
+    organize: string("whiteboard-tutorial-organize"),
+    organizeBody: string("whiteboard-tutorial-organize-body"),
+    practice: string("whiteboard-tutorial-practice"),
+    practiceBody: string("whiteboard-tutorial-practice-body"),
+    supports: string("whiteboard-tutorial-supports"),
   };
 }

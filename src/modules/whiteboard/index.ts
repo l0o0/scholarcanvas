@@ -7,6 +7,7 @@ export {
 export { registerWhiteboardTabHooks, WHITEBOARD_TAB_TYPE } from "./tabHooks";
 export { registerWhiteboardMenus, unregisterWhiteboardMenus } from "./menu";
 export { createWhiteboardAttachment } from "./create";
+export type { CreateWhiteboardAttachmentOptions } from "./create";
 export { isWhiteboardAttachment } from "./detect";
 export {
   openWhiteboardAttachment,
@@ -41,5 +42,12 @@ export type {
   SourceGatewayDependencies,
   ZoteroSourceGateway,
 } from "./source-gateway";
-export { selectTutorialSample, TUTORIAL_CANDIDATE_LIMIT } from "./tutorial";
-export type { TutorialSampleDependencies } from "./tutorial";
+export {
+  ensureTutorialWhiteboard,
+  selectTutorialSample,
+  TUTORIAL_CANDIDATE_LIMIT,
+} from "./tutorial";
+export type {
+  TutorialOnboardingDependencies,
+  TutorialSampleDependencies,
+} from "./tutorial";

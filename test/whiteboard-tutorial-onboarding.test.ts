@@ -1,0 +1,228 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import type { TutorialCanvasLabels } from "../packages/whiteboard/src/model/tutorial.ts";
+import {
+  ensureTutorialWhiteboard,
+  type TutorialOnboardingDependencies,
+} from "../src/modules/whiteboard/tutorial.ts";
+
+const labels: TutorialCanvasLabels = {
+  title: "Bamboo Tutorial.canvas",
+  welcome: "Welcome",
+  welcomeBody: "Learn Bamboo",
+  sourceNotice: "Your sources stay unchanged",
+  addLiterature: "Add literature",
+  addLiteratureBody: "Drag an item here",
+  browseQuotes: "Browse quotes",
+  browseQuotesBody: "Add useful evidence",
+  writeNote: "Write a note",
+  writeNoteBody: "Develop a thought",
+  questionBadge: "Question",
+  claimBadge: "Claim",
+  organize: "Organize",
+  organizeBody: "Group related ideas",
+  practice: "Practice",
+  practiceBody: "Try it here",
+  supports: "Supports",
+};
+
+const attachment = { id: 7 } as Zotero.Item;
+
+function dependencies(
+  overrides: Partial<TutorialOnboardingDependencies> = {},
+): TutorialOnboardingDependencies {
+  return {
+    completed: () => false,
+    markCompleted: () => {},
+    labels: () => labels,
+    selectSample: async () => undefined,
+    create: async () => attachment,
+    open: async () => true,
+    log: () => {},
+    ...overrides,
+  };
+}
+
+test("creates, marks, and opens the tutorial in lifecycle order", async () => {
+  const events: string[] = [];
+  let filename = "";
+  const deps = dependencies({
+    selectSample: async () => {
+      events.push("select");
+      return undefined;
+    },
+    create: async (document, value) => {
+      events.push("create");
+      filename = value;
+      assert.ok(document.nodes.length > 0);
+      return attachment;
+    },
+    markCompleted: () => events.push("mark"),
+    open: async () => events.push("open"),
+  });
+
+  await ensureTutorialWhiteboard(deps);
+
+  assert.deepEqual(events, ["select", "create", "mark", "open"]);
+  assert.equal(filename, labels.title);
+});
+
+test("an existing completion marker skips tutorial work", async () => {
+  let selectCalls = 0;
+  let createCalls = 0;
+  await ensureTutorialWhiteboard(
+    dependencies({
+      completed: () => true,
+      selectSample: async () => {
+        selectCalls += 1;
+        return undefined;
+      },
+      create: async () => {
+        createCalls += 1;
+        return attachment;
+      },
+    }),
+  );
+  assert.equal(selectCalls, 0);
+  assert.equal(createCalls, 0);
+});
+
+test("a null attachment leaves completion unset and logs the failure", async () => {
+  let markCalls = 0;
+  let openCalls = 0;
+  const logs: unknown[][] = [];
+  await assert.doesNotReject(() =>
+    ensureTutorialWhiteboard(
+      dependencies({
+        create: async () => null,
+        markCompleted: () => {
+          markCalls += 1;
+        },
+        open: async () => {
+          openCalls += 1;
+        },
+        log: (...args) => logs.push(args),
+      }),
+    ),
+  );
+  assert.equal(markCalls, 0);
+  assert.equal(openCalls, 0);
+  assert.equal(logs.length, 1);
+});
+
+test("a creation exception resolves, logs, and leaves completion unset", async () => {
+  const failure = new Error("create failed");
+  let markCalls = 0;
+  const logs: unknown[][] = [];
+  await assert.doesNotReject(() =>
+    ensureTutorialWhiteboard(
+      dependencies({
+        create: async () => {
+          throw failure;
+        },
+        markCompleted: () => {
+          markCalls += 1;
+        },
+        log: (...args) => logs.push(args),
+      }),
+    ),
+  );
+  assert.equal(markCalls, 0);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0][1], failure);
+});
+
+test("an open exception resolves after completion is marked", async () => {
+  const events: string[] = [];
+  const failure = new Error("open failed");
+  await assert.doesNotReject(() =>
+    ensureTutorialWhiteboard(
+      dependencies({
+        create: async () => {
+          events.push("create");
+          return attachment;
+        },
+        markCompleted: () => events.push("mark"),
+        open: async () => {
+          events.push("open");
+          throw failure;
+        },
+        log: (_message, error) => {
+          events.push("log");
+          assert.equal(error, failure);
+        },
+      }),
+    ),
+  );
+  assert.deepEqual(events, ["create", "mark", "open", "log"]);
+});
+
+test("a selection exception logs and falls back to a static tutorial", async () => {
+  const failure = new Error("selection failed");
+  const events: string[] = [];
+  await assert.doesNotReject(() =>
+    ensureTutorialWhiteboard(
+      dependencies({
+        selectSample: async () => {
+          events.push("select");
+          throw failure;
+        },
+        create: async (document) => {
+          events.push("create");
+          assert.deepEqual(
+            document.nodes.filter((node) => "source" in node),
+            [],
+          );
+          return attachment;
+        },
+        markCompleted: () => events.push("mark"),
+        open: async () => events.push("open"),
+        log: (_message, error) => {
+          events.push("log");
+          assert.equal(error, failure);
+        },
+      }),
+    ),
+  );
+  assert.deepEqual(events, ["select", "log", "create", "mark", "open"]);
+});
+
+test("simultaneous calls share one tutorial operation", async () => {
+  let createCalls = 0;
+  let markCalls = 0;
+  let releaseCreate: (() => void) | undefined;
+  const createPending = new Promise<void>((resolve) => {
+    releaseCreate = resolve;
+  });
+  const deps = dependencies({
+    create: async () => {
+      createCalls += 1;
+      await createPending;
+      return attachment;
+    },
+    markCompleted: () => {
+      markCalls += 1;
+    },
+  });
+
+  const first = ensureTutorialWhiteboard(deps);
+  const second = ensureTutorialWhiteboard(deps);
+  assert.equal(first, second);
+  await Promise.resolve();
+  assert.equal(createCalls, 1);
+  releaseCreate?.();
+  await Promise.all([first, second]);
+  assert.equal(markCalls, 1);
+});
+
+test("production creation pins the tutorial to the user-library root", () => {
+  const source = readFileSync(
+    new URL("../src/modules/whiteboard/tutorial.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /createWhiteboardAttachment\(null,\s*\{\s*document,\s*libraryID: Zotero\.Libraries\.userLibraryID,\s*collections: \[\],\s*filename,\s*select: false,\s*reportError: false,?\s*\}\)/,
+  );
+});

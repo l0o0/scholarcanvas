@@ -8,6 +8,69 @@ import {
 } from "../src/modules/whiteboard/file-io.ts";
 import { emptyCanvasDocument } from "../src/modules/whiteboard/snapshot.ts";
 
+function installAttachmentGlobals(
+  t: test.TestContext,
+  importFromFile: (options: Record<string, unknown>) => Promise<unknown>,
+) {
+  const names = [
+    "Zotero",
+    "PathUtils",
+    "IOUtils",
+    "ztoolkit",
+    "addon",
+  ] as const;
+  const previous = new Map(
+    names.map((name) => [name, (globalThis as Record<string, unknown>)[name]]),
+  );
+  const selected: number[] = [];
+  let progressWindows = 0;
+  Object.assign(globalThis, {
+    Zotero: {
+      Attachments: { importFromFile },
+      File: {
+        getValidFileName: (value: string) => value,
+        putContentsAsync: async () => {},
+      },
+      Libraries: { userLibraryID: 101 },
+      getActiveZoteroPane: () => ({
+        getSelectedCollections: () => [303],
+        getSelectedLibraryIDs: () => [202],
+        selectItem: async (itemID: number) => selected.push(itemID),
+      }),
+      getTempDirectory: () => ({ path: "/tmp" }),
+    },
+    PathUtils: { join: (...parts: string[]) => parts.join("/") },
+    IOUtils: {
+      exists: async () => false,
+      remove: async () => {},
+    },
+    ztoolkit: {
+      log: () => {},
+      ProgressWindow: class {
+        constructor() {
+          progressWindows += 1;
+        }
+        createLine() {
+          return this;
+        }
+        show() {
+          return this;
+        }
+      },
+    },
+    addon: { data: { config: { addonName: "Bamboo" } } },
+  });
+  t.after(() => {
+    for (const name of names) {
+      const value = previous.get(name);
+      if (value === undefined)
+        delete (globalThis as Record<string, unknown>)[name];
+      else (globalThis as Record<string, unknown>)[name] = value;
+    }
+  });
+  return { selected, progressWindows: () => progressWindows };
+}
+
 test("only the canonical canvas suffix is accepted", () => {
   assert.equal(ensureCanvasExtension("review"), "review.canvas");
   assert.equal(ensureCanvasExtension("review.canvas"), "review.canvas");
@@ -143,4 +206,65 @@ test("writes through a same-directory atomic temporary file", async () => {
     tmpPath: "/tmp/review.canvas.tmp",
     flush: true,
   });
+});
+
+test("explicit attachment options override the active library and collection", async (t) => {
+  let imported: Record<string, unknown> | undefined;
+  const attachment = { id: 404, attachmentContentType: "application/json" };
+  const globals = installAttachmentGlobals(t, async (options) => {
+    imported = options;
+    return attachment;
+  });
+  const { createWhiteboardAttachment } =
+    await import("../src/modules/whiteboard/create.ts");
+
+  const result = await createWhiteboardAttachment(null, {
+    document: emptyCanvasDocument(),
+    libraryID: 505,
+    collections: [],
+    filename: "Bamboo Tutorial.canvas",
+    select: false,
+    reportError: false,
+  });
+
+  assert.equal(result, attachment);
+  assert.equal(imported?.libraryID, 505);
+  assert.deepEqual(imported?.collections, []);
+  assert.equal(imported?.title, "Bamboo Tutorial.canvas");
+  assert.deepEqual(globals.selected, []);
+});
+
+test("omitted attachment options retain active-menu defaults", async (t) => {
+  let imported: Record<string, unknown> | undefined;
+  const attachment = { id: 404, attachmentContentType: "application/json" };
+  const globals = installAttachmentGlobals(t, async (options) => {
+    imported = options;
+    return attachment;
+  });
+  const { createWhiteboardAttachment } =
+    await import("../src/modules/whiteboard/create.ts");
+
+  await createWhiteboardAttachment();
+
+  assert.equal(imported?.libraryID, 202);
+  assert.deepEqual(imported?.collections, [303]);
+  assert.match(
+    String(imported?.title),
+    /^Whiteboard-\d{4}(?:-\d{2}){4}\.canvas$/,
+  );
+  assert.deepEqual(globals.selected, [404]);
+});
+
+test("reportError false suppresses the creation failure window", async (t) => {
+  const globals = installAttachmentGlobals(t, async () => {
+    throw new Error("import failed");
+  });
+  const { createWhiteboardAttachment } =
+    await import("../src/modules/whiteboard/create.ts");
+
+  assert.equal(
+    await createWhiteboardAttachment(null, { reportError: false }),
+    null,
+  );
+  assert.equal(globals.progressWindows(), 0);
 });

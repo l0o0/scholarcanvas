@@ -146,9 +146,18 @@ export function zoteroNotePlainText(item: { getNote?: () => unknown }): string {
   return "";
 }
 
+export interface CreateWhiteboardAttachmentOptions {
+  document?: CanvasDocument;
+  libraryID?: number;
+  collections?: number[];
+  filename?: string;
+  select?: boolean;
+  reportError?: boolean;
+}
+
 export async function createWhiteboardAttachment(
   parentItem?: Zotero.Item | null,
-  options: { document?: CanvasDocument } = {},
+  options: CreateWhiteboardAttachmentOptions = {},
 ): Promise<Zotero.Item | null> {
   let parent: Zotero.Item | undefined;
   if (parentItem) {
@@ -166,7 +175,7 @@ export async function createWhiteboardAttachment(
   const titleBase = parent
     ? parent.getField("title") || parent.getDisplayTitle()
     : "Whiteboard";
-  const filename = defaultCanvasFilename(String(titleBase));
+  const filename = options.filename ?? defaultCanvasFilename(String(titleBase));
   const content = serializeCanvasDocument(
     options.document ?? emptyCanvasDocument(),
   );
@@ -182,17 +191,19 @@ export async function createWhiteboardAttachment(
     const pane = Zotero.getActiveZoteroPane();
     const selectedLibraryIDs = pane?.getSelectedLibraryIDs?.();
     const libraryID =
+      options.libraryID ??
       parent?.libraryID ??
       (selectedLibraryIDs?.[0] as number | undefined) ??
       Zotero.Libraries.userLibraryID;
     const selectedCollections = pane?.getSelectedCollections?.(true);
-    const collection = !parent
+    const selectedCollection = !parent
       ? (selectedCollections?.[0] as number | undefined)
       : undefined;
     const collections =
-      typeof collection === "number" && collection > 0
-        ? [collection]
-        : undefined;
+      options.collections ??
+      (typeof selectedCollection === "number" && selectedCollection > 0
+        ? [selectedCollection]
+        : undefined);
 
     const attachment = await Zotero.Attachments.importFromFile({
       file: tmpPath,
@@ -213,7 +224,9 @@ export async function createWhiteboardAttachment(
     }
 
     try {
-      if (pane?.selectItem) await pane.selectItem(attachment.id);
+      if (options.select !== false && pane?.selectItem) {
+        await pane.selectItem(attachment.id);
+      }
     } catch (error) {
       ztoolkit.log("selectItem after create whiteboard failed", error);
     }
@@ -221,12 +234,14 @@ export async function createWhiteboardAttachment(
     return attachment;
   } catch (error) {
     ztoolkit.log("createWhiteboardAttachment failed", error);
-    new ztoolkit.ProgressWindow(addon.data.config.addonName)
-      .createLine({
-        text: `Create failed: ${error instanceof Error ? error.message : String(error)}`,
-        type: "fail",
-      })
-      .show();
+    if (options.reportError !== false) {
+      new ztoolkit.ProgressWindow(addon.data.config.addonName)
+        .createLine({
+          text: `Create failed: ${error instanceof Error ? error.message : String(error)}`,
+          type: "fail",
+        })
+        .show();
+    }
     return null;
   } finally {
     try {

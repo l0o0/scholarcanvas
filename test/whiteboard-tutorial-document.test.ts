@@ -153,8 +153,6 @@ test("builds valid localized static tutorials along a stable guided path", () =>
       assert.ok(guide?.kind === "note");
       assert.equal(guide.badge, badge);
       assert.equal(guide.content, content);
-      assert.ok(guide.style?.fill);
-      assert.ok(guide.style?.textColor);
     }
 
     const question = byId.get("tutorial-question");
@@ -165,6 +163,20 @@ test("builds valid localized static tutorials along a stable guided path", () =>
     assert.ok(claim?.kind === "note");
     assert.equal(claim.badge, labels.claimBadge);
     assert.equal(claim.content, "");
+
+    for (const id of [
+      "tutorial-welcome",
+      "tutorial-add-literature",
+      "tutorial-browse-quotes",
+      "tutorial-write-note",
+      "tutorial-question",
+      "tutorial-claim",
+    ]) {
+      const badgeNote = byId.get(id);
+      assert.ok(badgeNote?.kind === "note" && badgeNote.badge);
+      assert.equal(badgeNote.style?.fill, undefined);
+      assert.equal(badgeNote.style?.textColor, undefined);
+    }
 
     const organize = byId.get("tutorial-organize");
     assert.ok(organize?.kind === "frame");

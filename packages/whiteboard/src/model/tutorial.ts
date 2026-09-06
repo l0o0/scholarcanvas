@@ -38,7 +38,6 @@ const headingStyle = {
 } as const;
 
 const guideStyle = {
-  fill: "#f8fafc",
   stroke: "#94a3b8",
   strokeWidth: 2,
   radius: 12,
@@ -46,15 +45,12 @@ const guideStyle = {
   fontWeight: "bold",
   textAlign: "left",
   verticalAlign: "top",
-  textColor: "#0f172a",
 } as const;
 
 const thoughtStyle = {
-  fill: "#fefce8",
   stroke: "#eab308",
   strokeWidth: 2,
   radius: 12,
-  textColor: "#422006",
 } as const;
 
 const frameStyle = {

@@ -537,3 +537,79 @@ test("malformed discovery, Item metadata, and Note lists degrade safely", async 
   assert.equal(notesResult?.quotes.length, 1);
   assert.equal(notesResult?.note, undefined);
 });
+
+test("filters malformed discovery entries before applying the candidate limit", async () => {
+  const valid = item("regular", { id: 200, key: "AFTERMALFORMED" });
+  const result = await selectTutorialSample(
+    dependencies(
+      [
+        ...Array.from({ length: TUTORIAL_CANDIDATE_LIMIT }, () => NaN),
+        valid.id,
+      ],
+      [valid],
+      gateway(),
+    ),
+  );
+
+  assert.equal(result?.literature.source.itemKey, valid.key);
+});
+
+test("does not resolve unsafe candidate IDs", async () => {
+  const valid = item("regular", { id: 210, key: "SAFEID" });
+  const deps = dependencies(
+    [Number.MAX_SAFE_INTEGER + 1, valid.id],
+    [valid],
+    gateway(),
+  );
+  const lookedUp: number[] = [];
+  const getItem = deps.getItem;
+  deps.getItem = (id) => {
+    lookedUp.push(id);
+    return getItem(id);
+  };
+
+  const result = await selectTutorialSample(deps);
+
+  assert.equal(result?.literature.source.itemKey, valid.key);
+  assert.deepEqual(lookedUp, [valid.id]);
+});
+
+test("ignores a resolved Item whose ID differs from the requested ID", async () => {
+  const mismatched = item("regular", {
+    id: 999,
+    key: "MISMATCHEDID",
+    dateModified: "2026-12-01 00:00:00",
+  });
+  const valid = item("regular", {
+    id: 220,
+    key: "MATCHEDID",
+    dateModified: "2026-01-01 00:00:00",
+  });
+  const deps = dependencies([219, valid.id], [valid], gateway());
+  const getItem = deps.getItem;
+  deps.getItem = (id) =>
+    id === 219 ? (mismatched as unknown as Zotero.Item) : getItem(id);
+
+  const result = await selectTutorialSample(deps);
+
+  assert.equal(result?.literature.source.itemKey, valid.key);
+});
+
+test("does not rank an invalid modification date above a valid Zotero date", async () => {
+  const malformed = item("regular", {
+    id: 230,
+    key: "INVALIDDATESTRING",
+    dateModified: "not-a-date",
+  });
+  const valid = item("regular", {
+    id: 231,
+    key: "VALIDDATESTRING",
+    dateModified: "2026-01-01 00:00:00",
+  });
+
+  const result = await selectTutorialSample(
+    dependencies([malformed.id, valid.id], [malformed, valid], gateway()),
+  );
+
+  assert.equal(result?.literature.source.itemKey, valid.key);
+});

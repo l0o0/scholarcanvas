@@ -30,7 +30,7 @@ export async function selectTutorialSample(
       TUTORIAL_CANDIDATE_LIMIT,
     );
     if (!Array.isArray(discovered)) return undefined;
-    itemIDs = discovered.slice(0, TUTORIAL_CANDIDATE_LIMIT).filter(isItemID);
+    itemIDs = discovered.filter(isItemID).slice(0, TUTORIAL_CANDIDATE_LIMIT);
   } catch {
     return undefined;
   }
@@ -42,7 +42,11 @@ export async function selectTutorialSample(
       if (
         !item ||
         !isItemID(item.id) ||
+        item.id !== itemID ||
         typeof item.dateModified !== "string" ||
+        !/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]) (?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(
+          item.dateModified,
+        ) ||
         typeof item.key !== "string" ||
         !item.key.length ||
         item.libraryID !== deps.userLibraryID ||
@@ -163,12 +167,7 @@ function tutorialNote(
 }
 
 function isItemID(value: unknown): value is number {
-  return (
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    Number.isInteger(value) &&
-    value > 0
-  );
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function productionDependencies(): TutorialSampleDependencies {

@@ -88,6 +88,38 @@ test("an existing completion marker skips tutorial work", async () => {
   assert.equal(createCalls, 0);
 });
 
+test("a throwing completion read returns a resolving promise", async () => {
+  const failure = new Error("completed failed");
+  const logs: unknown[][] = [];
+  let result: Promise<void> | undefined;
+  assert.doesNotThrow(() => {
+    result = ensureTutorialWhiteboard(
+      dependencies({
+        completed: () => {
+          throw failure;
+        },
+        log: (...args) => logs.push(args),
+      }),
+    );
+  });
+  await assert.doesNotReject(result!);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0][1], failure);
+});
+
+test("default dependency failures return a resolving promise", async (t) => {
+  const previous = (globalThis as { Zotero?: unknown }).Zotero;
+  delete (globalThis as { Zotero?: unknown }).Zotero;
+  t.after(() => {
+    (globalThis as { Zotero?: unknown }).Zotero = previous;
+  });
+  let result: Promise<void> | undefined;
+  assert.doesNotThrow(() => {
+    result = ensureTutorialWhiteboard();
+  });
+  await assert.doesNotReject(result!);
+});
+
 test("a null attachment leaves completion unset and logs the failure", async () => {
   let markCalls = 0;
   let openCalls = 0;
@@ -188,6 +220,85 @@ test("a selection exception logs and falls back to a static tutorial", async () 
   assert.deepEqual(events, ["select", "log", "create", "mark", "open"]);
 });
 
+test("a throwing logger cannot escape a selection failure", async () => {
+  let createCalls = 0;
+  await assert.doesNotReject(() =>
+    ensureTutorialWhiteboard(
+      dependencies({
+        selectSample: async () => {
+          throw new Error("selection failed");
+        },
+        create: async () => {
+          createCalls += 1;
+          return attachment;
+        },
+        log: () => {
+          throw new Error("log failed");
+        },
+      }),
+    ),
+  );
+  assert.equal(createCalls, 1);
+});
+
+test("a throwing logger cannot escape a null creation result", async () => {
+  let markCalls = 0;
+  await assert.doesNotReject(() =>
+    ensureTutorialWhiteboard(
+      dependencies({
+        create: async () => null,
+        markCompleted: () => {
+          markCalls += 1;
+        },
+        log: () => {
+          throw new Error("log failed");
+        },
+      }),
+    ),
+  );
+  assert.equal(markCalls, 0);
+});
+
+test("a throwing logger cannot escape a creation exception", async () => {
+  let markCalls = 0;
+  await assert.doesNotReject(() =>
+    ensureTutorialWhiteboard(
+      dependencies({
+        create: async () => {
+          throw new Error("create failed");
+        },
+        markCompleted: () => {
+          markCalls += 1;
+        },
+        log: () => {
+          throw new Error("log failed");
+        },
+      }),
+    ),
+  );
+  assert.equal(markCalls, 0);
+});
+
+test("a throwing logger cannot escape an open exception", async () => {
+  let markCalls = 0;
+  await assert.doesNotReject(() =>
+    ensureTutorialWhiteboard(
+      dependencies({
+        markCompleted: () => {
+          markCalls += 1;
+        },
+        open: async () => {
+          throw new Error("open failed");
+        },
+        log: () => {
+          throw new Error("log failed");
+        },
+      }),
+    ),
+  );
+  assert.equal(markCalls, 1);
+});
+
 test("simultaneous calls share one tutorial operation", async () => {
   let createCalls = 0;
   let markCalls = 0;
@@ -214,6 +325,35 @@ test("simultaneous calls share one tutorial operation", async () => {
   releaseCreate?.();
   await Promise.all([first, second]);
   assert.equal(markCalls, 1);
+});
+
+test("an in-flight call is returned before completion is read again", async () => {
+  let completedCalls = 0;
+  let releaseCreate: (() => void) | undefined;
+  const createPending = new Promise<void>((resolve) => {
+    releaseCreate = resolve;
+  });
+  const deps = dependencies({
+    completed: () => {
+      completedCalls += 1;
+      if (completedCalls > 1) throw new Error("completed read twice");
+      return false;
+    },
+    create: async () => {
+      await createPending;
+      return attachment;
+    },
+  });
+
+  const first = ensureTutorialWhiteboard(deps);
+  let second: Promise<void> | undefined;
+  assert.doesNotThrow(() => {
+    second = ensureTutorialWhiteboard(deps);
+  });
+  assert.equal(second, first);
+  assert.equal(completedCalls, 1);
+  releaseCreate?.();
+  await first;
 });
 
 test("production creation pins the tutorial to the user-library root", () => {

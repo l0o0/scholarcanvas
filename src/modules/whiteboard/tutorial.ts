@@ -214,12 +214,20 @@ function productionDependencies(): TutorialSampleDependencies {
 let tutorialInFlight: Promise<void> | undefined;
 
 export function ensureTutorialWhiteboard(
-  deps: TutorialOnboardingDependencies = productionOnboardingDependencies(),
+  deps?: TutorialOnboardingDependencies,
 ): Promise<void> {
-  if (deps.completed()) return Promise.resolve();
-  return (tutorialInFlight ??= runTutorial(deps).finally(() => {
-    tutorialInFlight = undefined;
-  }));
+  if (tutorialInFlight) return tutorialInFlight;
+  let resolved = deps;
+  try {
+    resolved ??= productionOnboardingDependencies();
+    if (resolved.completed()) return Promise.resolve();
+    return (tutorialInFlight = runTutorial(resolved).finally(() => {
+      tutorialInFlight = undefined;
+    }));
+  } catch (error) {
+    safeLog(resolved?.log, "Tutorial completion check failed", error);
+    return Promise.resolve();
+  }
 }
 
 async function runTutorial(
@@ -229,7 +237,7 @@ async function runTutorial(
   try {
     sample = await deps.selectSample();
   } catch (error) {
-    deps.log("Tutorial sample selection failed", error);
+    safeLog(deps.log, "Tutorial sample selection failed", error);
   }
 
   try {
@@ -237,13 +245,26 @@ async function runTutorial(
     const document = tutorialCanvasDocument(labels, sample);
     const attachment = await deps.create(document, labels.title);
     if (!attachment) {
-      deps.log("Tutorial whiteboard creation returned no attachment");
+      safeLog(deps.log, "Tutorial whiteboard creation returned no attachment");
       return;
     }
     deps.markCompleted();
     await deps.open(attachment);
   } catch (error) {
-    deps.log("Tutorial whiteboard creation or opening failed", error);
+    safeLog(deps.log, "Tutorial whiteboard creation or opening failed", error);
+  }
+}
+
+function safeLog(
+  log: TutorialOnboardingDependencies["log"] | undefined,
+  message: string,
+  error?: unknown,
+): void {
+  try {
+    if (log) log(message, error);
+    else if (typeof ztoolkit !== "undefined") ztoolkit.log(message, error);
+  } catch {
+    // Logging must not block plugin startup.
   }
 }
 

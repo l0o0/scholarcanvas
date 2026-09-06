@@ -7,6 +7,7 @@ import {
   isDrawTool,
   isLibraryKind,
   isStampTool,
+  noteTemplateShortcut,
   shouldEditOnCreate,
   toolShortcut,
   toolAfterDraw,
@@ -106,8 +107,8 @@ test("classifies draw tools vs stamp tools", () => {
   assert.equal(isStampTool("item"), true);
   assert.equal(isStampTool("text"), true);
   assert.equal(isStampTool("note"), true);
-  assert.equal(isStampTool("question"), true);
-  assert.equal(isStampTool("claim"), true);
+  assert.equal(isStampTool("question" as never), false);
+  assert.equal(isStampTool("claim" as never), false);
   assert.equal(isStampTool("frame"), true);
   assert.equal(isStampTool("rect"), false);
 });
@@ -117,20 +118,20 @@ test("only Zotero-backed basic nodes open the library picker", () => {
   assert.equal(isLibraryKind("pdf"), true);
   assert.equal(isLibraryKind("attachment"), true);
   assert.equal(isLibraryKind("note"), false);
-  assert.equal(isLibraryKind("question"), false);
+  assert.equal(isLibraryKind("note"), false);
 });
 
 test("academic creation tools use mnemonic shortcuts", () => {
-  assert.equal(toolShortcut("Q"), "question");
-  assert.equal(toolShortcut("c"), "claim");
+  assert.equal(toolShortcut("Q"), "note");
+  assert.equal(toolShortcut("c"), "note");
+  assert.equal(noteTemplateShortcut("Q"), "bamboo.question");
+  assert.equal(noteTemplateShortcut("c"), "bamboo.claim");
   assert.equal(toolShortcut("F"), "frame");
 });
 
 test("locally authored text stamps enter editing immediately", () => {
   assert.equal(shouldEditOnCreate("text"), true);
   assert.equal(shouldEditOnCreate("note"), true);
-  assert.equal(shouldEditOnCreate("question"), true);
-  assert.equal(shouldEditOnCreate("claim"), true);
   assert.equal(shouldEditOnCreate("frame"), true);
   assert.equal(shouldEditOnCreate("item"), false);
 });

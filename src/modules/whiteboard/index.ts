@@ -36,3 +36,8 @@ export type {
   CanvasNodeKind,
   CanvasConnection,
 } from "./snapshot";
+export { createZoteroSourceGateway, noteHtmlToText } from "./source-gateway";
+export type {
+  SourceGatewayDependencies,
+  ZoteroSourceGateway,
+} from "./source-gateway";

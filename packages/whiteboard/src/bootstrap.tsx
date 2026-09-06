@@ -3,39 +3,54 @@
  */
 /// <reference lib="dom" />
 
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { WhiteboardApp, type WhiteboardRuntime } from "./whiteboard/app";
 import {
   WHITEBOARD_MESSAGE_SOURCE,
   WHITEBOARD_PROTOCOL_VERSION,
-  isWhiteboardProtocolMessage,
+  dispatchWhiteboardParentMessageEvent,
   type ParentToWhiteboardMessage,
+  type WhiteboardToParentBody,
   type WhiteboardTheme,
 } from "./model/protocol";
 import { emptyCanvasDocument, type CanvasDocument } from "./model/document";
-import { createDeferredLabels } from "./bootstrapState";
+import type { NoteTemplate } from "./model/note-template";
+import {
+  createDeferredLabels,
+  forwardAcademicParentMessage,
+} from "./bootstrapState";
 
 const channel = new URL(window.location.href).searchParams.get("channel") || "";
 
 let theme: WhiteboardTheme = "light";
 let pendingSnapshot: CanvasDocument | null = null;
+let pendingTemplates: NoteTemplate[] = [];
 const deferredLabels = createDeferredLabels();
 let runtime: WhiteboardRuntime | null = null;
+let reactRoot: Root | null = null;
 let rev = 0;
 
-function postToParent(message: {
-  type:
-    | "ready"
-    | "change"
-    | "snapshot"
-    | "save"
-    | "error"
-    | "pickItem"
-    | "openItem"
-    | "dropItems"
-    | "exportFile";
-  payload?: unknown;
-}) {
+function onWindowKeyDown(event: KeyboardEvent) {
+  if (!(event.metaKey || event.ctrlKey)) return;
+  const key = event.key.toLowerCase();
+  if (key === "s") {
+    event.preventDefault();
+    postToParent({ type: "save" });
+    return;
+  }
+  if (key === "z") {
+    event.preventDefault();
+    if (event.shiftKey) runtime?.redo();
+    else runtime?.undo();
+    return;
+  }
+  if (key === "y") {
+    event.preventDefault();
+    runtime?.redo();
+  }
+}
+
+function postToParent(message: WhiteboardToParentBody) {
   window.parent?.postMessage(
     {
       source: WHITEBOARD_MESSAGE_SOURCE,
@@ -54,12 +69,15 @@ function applyDocumentTheme(next: WhiteboardTheme) {
 }
 
 function handleParentMessage(data: ParentToWhiteboardMessage) {
+  if (forwardAcademicParentMessage(runtime, data)) return;
   switch (data.type) {
     case "init":
       applyDocumentTheme(data.payload.theme);
       pendingSnapshot = data.payload.snapshot ?? null;
+      pendingTemplates = data.payload.templates ?? [];
       deferredLabels.receive(data.payload.labels);
       runtime?.setTheme(data.payload.theme);
+      runtime?.setTemplates(pendingTemplates);
       if (data.payload.snapshot) runtime?.loadSnapshot(data.payload.snapshot);
       break;
     case "setTheme":
@@ -85,18 +103,12 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
       if (data.payload.command === "undo") runtime?.undo();
       if (data.payload.command === "redo") runtime?.redo();
       break;
-    case "itemPicked":
-      runtime?.resolvePick(
-        data.payload.requestId,
-        data.payload.nodeId,
-        data.payload.data,
-      );
-      break;
-    case "pickFailed":
-      runtime?.rejectPick(data.payload.requestId, data.payload.message);
-      break;
     case "saveState":
       runtime?.setSaveState(data.payload.state);
+      break;
+    case "noteTemplatesChanged":
+      pendingTemplates = data.payload.templates;
+      runtime?.setTemplates(pendingTemplates);
       break;
     case "focus":
       window.focus();
@@ -105,6 +117,10 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
     case "destroy":
       runtime = null;
       deferredLabels.detach();
+      reactRoot?.unmount();
+      reactRoot = null;
+      window.removeEventListener("message", onWindowMessage);
+      window.removeEventListener("keydown", onWindowKeyDown);
       break;
     default:
       break;
@@ -112,10 +128,13 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
 }
 
 function onWindowMessage(event: MessageEvent) {
-  if (!isWhiteboardProtocolMessage(event.data)) return;
-  if (event.data.channel && event.data.channel !== channel) return;
   try {
-    handleParentMessage(event.data as ParentToWhiteboardMessage);
+    dispatchWhiteboardParentMessageEvent(
+      event,
+      window.parent,
+      channel,
+      handleParentMessage,
+    );
   } catch (error) {
     postToParent({
       type: "error",
@@ -137,26 +156,9 @@ function boot() {
   }
   applyDocumentTheme("light");
   window.addEventListener("message", onWindowMessage);
-  window.addEventListener("keydown", (event) => {
-    if (!(event.metaKey || event.ctrlKey)) return;
-    const key = event.key.toLowerCase();
-    if (key === "s") {
-      event.preventDefault();
-      postToParent({ type: "save" });
-      return;
-    }
-    if (key === "z") {
-      event.preventDefault();
-      if (event.shiftKey) runtime?.redo();
-      else runtime?.undo();
-      return;
-    }
-    if (key === "y") {
-      event.preventDefault();
-      runtime?.redo();
-    }
-  });
-  createRoot(host).render(
+  window.addEventListener("keydown", onWindowKeyDown);
+  reactRoot = createRoot(host);
+  reactRoot.render(
     <WhiteboardApp
       theme={theme}
       labels={deferredLabels.current}
@@ -166,26 +168,54 @@ function boot() {
         deferredLabels.attach(next);
         if (pendingSnapshot) next.loadSnapshot(pendingSnapshot);
         next.setTheme(theme);
+        next.setTemplates(pendingTemplates);
       }}
       onChange={(nextRev) => {
         rev = nextRev;
         postToParent({ type: "change", payload: { rev } });
       }}
-      onError={(message) =>
-        postToParent({ type: "error", payload: { message } })
-      }
       onSave={() => postToParent({ type: "save" })}
-      onPickItem={(requestId, nodeId, kind) =>
+      onSaveNoteTemplate={(template) =>
+        postToParent({ type: "saveNoteTemplate", payload: { template } })
+      }
+      onDeleteNoteTemplate={(templateId) =>
+        postToParent({ type: "deleteNoteTemplate", payload: { templateId } })
+      }
+      onPickAcademicSource={(requestId, nodeId, kind) =>
         postToParent({
-          type: "pickItem",
+          type: "pickAcademicSource",
           payload: { requestId, nodeId, kind },
         })
       }
       onOpenItem={(payload) => postToParent({ type: "openItem", payload })}
-      onDropItems={(requestId, nodeId, raw) =>
+      onDropAcademicSources={(requestId, nodeId, sources) =>
         postToParent({
-          type: "dropItems",
-          payload: { requestId, nodeId, raw },
+          type: "dropAcademicSources",
+          payload: { requestId, nodeId, sources },
+        })
+      }
+      onResolveAcademicSources={(requestId, generation, priority, sources) =>
+        postToParent({
+          type: "resolveAcademicSources",
+          payload: { requestId, generation, priority, sources },
+        })
+      }
+      onOpenAcademicSource={(requestId, nodeId, source) =>
+        postToParent({
+          type: "openAcademicSource",
+          payload: { requestId, nodeId, source },
+        })
+      }
+      onListLiteratureAnnotations={(requestId, source) =>
+        postToParent({
+          type: "listLiteratureAnnotations",
+          payload: { requestId, source },
+        })
+      }
+      onRefreshZoteroNote={(requestId, nodeId, source) =>
+        postToParent({
+          type: "refreshZoteroNote",
+          payload: { requestId, nodeId, source },
         })
       }
       onExportFile={(payload) => postToParent({ type: "exportFile", payload })}

@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CanvasNode } from "../packages/whiteboard/src/model/academic.ts";
 import { createBasicNode } from "../packages/whiteboard/src/model/basic.ts";
+import {
+  canvasDocumentToFile,
+  canvasFileToDocument,
+} from "../packages/whiteboard/src/model/canvas-file.ts";
 import type { CanvasDocument } from "../packages/whiteboard/src/model/document.ts";
+import { quoteSourceIdentity } from "../packages/whiteboard/src/model/academic.ts";
 import {
   buildCanvasMarkdown,
   buildCanvasSvg,
@@ -10,6 +15,7 @@ import {
   containGeometry,
   svgToPngDataUrl,
 } from "../packages/whiteboard/src/whiteboard/export.ts";
+import { createQuoteBatchRuntime } from "../packages/whiteboard/src/whiteboard/sourceState.ts";
 
 function canonicalDocument(): CanvasDocument {
   return {
@@ -17,11 +23,12 @@ function canonicalDocument(): CanvasDocument {
     nodes: [
       {
         id: "claim-1",
-        kind: "claim",
+        kind: "note",
         position: { x: 720, y: 40 },
         width: 260,
         height: 128,
         content: "The result generalizes",
+        badge: "Claim",
       },
       {
         id: "line-1",
@@ -103,11 +110,12 @@ function canonicalDocument(): CanvasDocument {
       },
       {
         id: "question-1",
-        kind: "question",
+        kind: "note",
         position: { x: 660, y: 280 },
         width: 260,
         height: 128,
         content: "Can **Markdown** stay raw?\nSecond line",
+        badge: "Question",
       },
       {
         id: "text-1",
@@ -209,7 +217,7 @@ test("Markdown groups Academic kinds, retains Basic objects, and describes relat
 
   assert.match(markdown, /## Literature: A paper/);
   assert.match(markdown, /> Evidence/);
-  assert.match(markdown, /Claim: The result generalizes/);
+  assert.match(markdown, /Note: The result generalizes/);
   assert.match(markdown, /supports: Evidence → The result generalizes/);
   assert.match(markdown, /## Other objects/);
   assert.match(markdown, /Arrow: arrow \[line-1\]/);
@@ -226,8 +234,6 @@ test("Markdown groups Academic kinds, retains Basic objects, and describes relat
     "## Literature:",
     "## Quote:",
     "## Note:",
-    "## Question:",
-    "## Claim:",
     "## Frame:",
     "## Other objects",
     "## Relationships",
@@ -246,6 +252,65 @@ test("Markdown groups Academic kinds, retains Basic objects, and describes relat
       connections: [...document.connections].reverse(),
     }),
     markdown,
+  );
+});
+
+test("an acquired Quote keeps its persisted fallback through save, reopen, and export", () => {
+  let live: CanvasDocument = {
+    version: 2,
+    nodes: [
+      {
+        id: "literature-1",
+        kind: "literature",
+        position: { x: 40, y: 40 },
+        width: 280,
+        height: 200,
+        source: { library: { type: "user" }, itemKey: "ITEM1234" },
+        snapshot: { title: "Offline paper" },
+      },
+    ],
+    connections: [],
+  };
+  const candidate = {
+    attachmentTitle: "Offline.pdf",
+    sortIndex: "00001",
+    acquisition: {
+      kind: "quote" as const,
+      source: {
+        library: { type: "user" as const },
+        itemKey: "ITEM1234",
+        attachmentKey: "PDF12345",
+        annotationKey: "ANN12345",
+      },
+      snapshot: { text: "Persisted fallback", pageLabel: "8" },
+    },
+  };
+  const batch = createQuoteBatchRuntime({
+    getWorkingDocument: () => live,
+    getHistoryDocument: () => live,
+    applyDocument: (document) => {
+      live = document;
+    },
+    commitHistory: () => undefined,
+    createNodeId: () => "quote-1",
+  });
+  batch.add(
+    "literature-1",
+    [candidate],
+    new Set([quoteSourceIdentity(candidate.acquisition.source)]),
+  );
+
+  const reopened = canvasFileToDocument(
+    canvasDocumentToFile(live, { now: "2026-09-04T00:00:00.000Z" }),
+  ).document;
+  const quote = reopened.nodes.find((node) => node.id === "quote-1");
+  assert.equal(
+    quote?.kind === "quote" && quote.snapshot.text,
+    "Persisted fallback",
+  );
+  assert.equal(
+    buildCanvasMarkdown(reopened).includes("Persisted fallback"),
+    true,
   );
 });
 
@@ -414,7 +479,7 @@ test("SVG export matches canonical stroke precedence and Frame defaults", () => 
       },
       {
         id: "solid-claim",
-        kind: "claim",
+        kind: "note",
         position: { x: 40, y: 40 },
         width: 200,
         height: 96,
@@ -574,7 +639,7 @@ test("SVG export limits lines by node height and positions vertical alignment", 
       nodes: [
         {
           id: verticalAlign,
-          kind: "claim",
+          kind: "note",
           position: { x: 0, y: 100 },
           width: 180,
           height: 100,
@@ -600,7 +665,7 @@ test("SVG export limits lines by node height and positions vertical alignment", 
     nodes: [
       {
         id: "short",
-        kind: "question",
+        kind: "note",
         position: { x: 0, y: 0 },
         width: 180,
         height: 49,

@@ -154,7 +154,7 @@ export interface AnnotationCandidate {
 
 Set `WHITEBOARD_PROTOCOL_VERSION` to `2`. Require the exact version in `isWhiteboardProtocolMessage()` and exact channel equality in `isWhiteboardProtocolMessageForChannel()`.
 
-Add parent-to-iframe messages `academicSourceAcquired`, `sourceResolutionBatch`, `annotationsListed`, `noteRefreshed`, and `academicRequestFailed`. Add iframe-to-parent messages `pickAcademicSource`, `dropAcademicSources`, `resolveAcademicSources`, `listLiteratureAnnotations`, `refreshZoteroNote`, and `openAcademicSource`. Every payload carries `requestId`; resolution messages also carry `generation`.
+Add parent-to-iframe messages `academicSourcesAcquired`, `sourceResolutionBatch`, `annotationsListed`, `noteRefreshed`, and `academicRequestFailed`. Add iframe-to-parent messages `pickAcademicSource`, `dropAcademicSources`, `resolveAcademicSources`, `listLiteratureAnnotations`, `refreshZoteroNote`, and `openAcademicSource`. Every payload carries `requestId`; resolution messages also carry `generation`. Single-item acquisitions use the same batch response.
 
 - [ ] **Step 4: Restrict user-facing tools**
 
@@ -317,7 +317,7 @@ git commit -m "feat(canvas): add Zotero academic source gateway"
 **Interfaces:**
 
 - Consumes: `AcademicAcquisition`, protocol v2, and `ZoteroSourceGateway.acquireItem()`.
-- Produces: `WhiteboardHandle.resolveAcademicAcquisition()`, Literature picker/drop integration, source-key collection canvases, and no Attachment acquisition path.
+- Produces: `WhiteboardHandle.resolveAcademicAcquisitionBatch()`, Literature picker/drop integration, source-key collection canvases, and no Attachment acquisition path.
 
 - [ ] **Step 1: Write failing bridge and vertical-slice tests**
 
@@ -353,10 +353,11 @@ Expected: FAIL because the old bridge returns `BasicPickerPayload` and collectio
 Replace `resolvePick()` with:
 
 ```ts
-resolveAcademicAcquisition(
+resolveAcademicAcquisitionBatch(
   requestId: string,
   nodeId: string,
-  acquisition: AcademicAcquisition,
+  successes: IndexedAcademicAcquisition[],
+  failures: AcademicAcquisitionFailure[],
 ): void;
 rejectAcademicRequest(requestId: string, nodeId: string, message: string): void;
 ```

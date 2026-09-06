@@ -1,138 +1,208 @@
-# Task 7 Report — Adopt Academic Host Persistence
+# Task 7 Report — Zotero Annotation Quotes
 
-## Result
+## Outcome
 
-The Zotero host now opens, saves, creates, and exchanges only canonical
-`CanvasDocument` snapshots. Host file I/O accepts `.canvas` paths, returns
-`ParsedCanvasFile` diagnostics, writes Bamboo schema version 2 atomically, and
-contains no runtime format switch or `.board`/`.zmdboard` compatibility API.
+Completed Quote acquisition, progressive resolution, explicit refresh, and
+source opening on base `1f57744`.
 
-The existing save lifecycle remains intact: autosave is still 800 ms, closing
-clears pending autosave work and flushes before editor destruction, and plugin
-shutdown still flushes every coordinator before closing sessions.
+- Selected annotation candidates become canonical Quote nodes in a stable
+  two-column layout beside the Literature that opened the browser.
+- One accepted selection batch creates exactly one history/save revision, no
+  automatic connection, and no persisted browser-only candidate fields.
+- Existing document Quotes and duplicates within the same selection are
+  filtered with the complete native source identity: library, item key,
+  attachment key, and annotation key.
+- Background resolution updates source snapshots and transient availability
+  without touching undo or save history.
+- Explicit **Refresh source** bypasses the session cache, promotes selected
+  priority, and advances the save revision once only when the resolved snapshot
+  changed. It never adds an undo entry.
+- **Open source** validates the complete key chain and uses Zotero Reader's
+  supported `{ annotationID }` location. Page fallback occurs only when the
+  exact-navigation capability reports unavailable; Reader failures propagate
+  without an arbitrary retry.
+- Saved snapshots remain the readable/exportable fallback when Zotero is
+  unavailable.
 
-## TDD Record
+No new user-facing strings were needed; the existing active-locale **Open
+source** and **Refresh source** labels are reused.
 
-### Primary host contract RED/GREEN
+## RED evidence
 
-The first required six-suite run contained 16 tests: 9 passed and 7 failed.
-The failures were the intended contract gaps:
+Behavioral tests were written before production changes.
 
-- `.board` and `.zmdboard` were still detected as whiteboards;
-- `readCanvasFile()` and `writeCanvasFile()` did not exist;
-- the host snapshot module still exported the old schema authority;
-- the protocol still imported `BoardDocument`, `BoardNodeData`, and
-  `WhiteboardSnapshot` and exposed `noteID`;
-- the tab still called the old read/write/parser APIs; and
-- collection creation still stored a Zotero Note integer ID.
+The initial focused command was:
 
-After the canonical re-export, file-I/O, protocol, creation, and tab changes,
-the same suites passed 28 tests with no failures. The expanded total includes
-the additional `.canvas` reader suffix guard and collection behavior coverage.
+```bash
+pnpm exec tsx --test test/whiteboard-app-state.test.ts test/whiteboard-source-state.test.ts test/whiteboard-source-gateway.test.ts test/whiteboard-export.test.ts test/whiteboard-source-scheduler.test.ts
+```
 
-### Focused behavior cycles
+It exited 1 with 32 tests reported: 26 passed and 6 failed. The failures showed
+the intended gaps:
 
-- Basic picker coverage first failed 1 of 24 app-state tests because the
-  parser still accepted a Note payload. GREEN removed Note from the picker
-  union/parser/merge path while retaining typed `item`, `pdf`, and
-  `attachment` payloads.
-- Runtime contract coverage first failed 1 of 25 app-state tests because
-  `applyDocument()` and `loadSnapshot()` still accepted `unknown`. GREEN types
-  both operations and the app/bootstrap handoff as `CanvasDocument`.
-- The `.board` direct-read regression first failed 1 of 6 file-I/O tests
-  because the reader still opened that suffix. GREEN rejects it before the
-  injected reader is called.
-- The collection builder test first failed at module loading because
-  `buildCollectionCanvas()` was not exported. GREEN exposes the pure builder
-  for testing and proves a mocked Zotero Note becomes local plain text with no
-  `noteID`.
+- Quote batch and academic refresh runtime exports did not exist;
+- the production Reader call used `annotationKey` instead of the supported
+  `annotationID` location;
+- production Reader errors were converted to false capability and incorrectly
+  retried by page;
+- the completed source cache had no invalidation path for explicit refresh.
+
+A separate wrong-annotation-key behavioral test then failed with “Missing
+expected rejection”, proving that a lookup result could pass parent validation
+without matching the requested annotation key. The full native identity check
+made this test GREEN before opening was attempted.
 
 ## Implementation
 
-- `readCanvasFile()` returns the canonical `{ document, issues }` result and
-  preserves every recoverable issue for the host.
-- The tab logs each issue separately with `code`, affected `objectId`, and
-  message, then mounts `parsed.document`.
-- `writeCanvasFile()` always serializes `CanvasDocument`, appends `.canvas`
-  when needed, and writes with `tmpPath: "${target}.tmp"` and `flush: true`.
-- New attachments serialize `emptyCanvasDocument()` by default.
-- Collection canvases use canonical Basic nodes/connections. Zotero Note HTML
-  is copied once into Academic Note plain-text `content`; no integer Note ID is
-  persisted.
-- Protocol snapshots, editor handles, runtime methods, save snapshots, and
-  host entry-point re-exports now use canonical v2 types.
-- Basic picker payloads have one explicit `BasicPickerPayload` union containing
-  only `item`, `pdf`, and `attachment`.
+`createQuoteBatchRuntime()` owns the application mutation boundary. It reads
+the working document, validates the originating Literature, deduplicates
+against both the document and the pending batch, creates canonical
+`createAcademicNode("quote", ...)` payloads, commits the pre-edit document once,
+and applies the complete node batch once. Existing connections are reused
+unchanged.
 
-## Removed Legacy Surface
+`createSourceRefreshRuntime()` distinguishes explicit refreshes from ordinary
+progressive results. Both paths use the existing snapshot-only resolution
+transition; only a correlated explicit result whose full identity matches and
+whose Literature/Quote snapshot actually differs calls `history.changed()`.
+Pending refresh state is cleared when a different document is loaded.
 
-The host no longer exports or consumes:
+The iframe sends an explicit refresh marker through the existing typed source
+request. The host invalidates any completed cache entry, promotes selected
+priority, and enqueues the lookup. This small protocol/scheduler extension is
+required to prevent a manual refresh from replaying an old session result.
 
-- `StoredCanvasFormat` or any `format: "legacy"` branch;
-- `canvasFormatForPath()`;
-- `readBoardFile()` / `writeBoardFile()` / `serializeBoardDocument()`;
-- `ensureBoardExtension` or legacy picker filters;
-- `parseBoardDocument()` / `emptyBoard()` / `demoBoard()`;
-- `BoardDocument`, `BoardNodeData`, or `WhiteboardSnapshot`; or
-- Note picker/drop/open payloads containing `noteID`.
+Academic open requests now cross the existing bootstrap/editor bridge to the
+host gateway. Quote opening resolves the annotation by native library and
+annotation key, verifies its annotation, attachment, and Literature keys, then
+attempts exact Reader navigation. A valid zero-based `pageIndex` from
+`annotationPosition` is the only page fallback; `pageLabel` is never presented
+as a Reader page index.
 
-Intentional legacy suffix strings remain only in negative tests that prove
-`.board` and `.zmdboard` are rejected or receive a new `.canvas` suffix.
+After a successful add, the originating Literature remains selected while the
+dialog closes, so the existing mounted focus-restoration behavior retains its
+trigger. Duplicate-only additions close without mutating the selection,
+document, history, or revision.
 
-## Diagnostics
+## Files
 
-A broad `test/whiteboard-*.test.ts` probe passed 139 of 140 tests. Its single
-failure is the planned Task 8 export fixture: `whiteboard-export.test.ts` still
-constructs the old `BoardDocument` with `edges`, while the already-canonical
-export implementation reads `CanvasDocument.connections`. Task 7 did not
-modify export and did not add a compatibility schema to conceal this known
-next-task boundary.
+- Updated Quote UI/application behavior in
+  `packages/whiteboard/src/chrome/AnnotationBrowser.tsx`,
+  `packages/whiteboard/src/chrome/PropertiesPanel.tsx`,
+  `packages/whiteboard/src/whiteboard/app.tsx`, and
+  `packages/whiteboard/src/whiteboard/sourceState.ts`.
+- Updated the typed bridge in `packages/whiteboard/src/model/protocol.ts`,
+  `packages/whiteboard/src/bootstrap.tsx`, and
+  `src/modules/whiteboard/editor.ts`.
+- Updated host resolution/open behavior in
+  `src/modules/whiteboard/source-gateway.ts`,
+  `src/modules/whiteboard/source-scheduler.ts`, and
+  `src/modules/whiteboard/tab.ts`.
+- Added behavioral coverage in `test/whiteboard-app-state.test.ts`,
+  `test/whiteboard-source-state.test.ts`,
+  `test/whiteboard-source-gateway.test.ts`,
+  `test/whiteboard-source-scheduler.test.ts`, and
+  `test/whiteboard-export.test.ts`.
 
-The affected-suite Vite SSR teardown printed `The build was canceled` while
-closing its middleware server; the Node test runner still reported 60 passed,
-0 failed and exited successfully.
+The bridge and scheduler files extend existing Task 4/6 production paths and
+are necessary for real explicit refresh and source opening; no Task 8
+multi-Literature ownership behavior was added.
 
-## Verification
+## GREEN and verification
 
-Fresh verification before the report:
+- Required Task 7 app/state/gateway/export/canvas-file/file-I/O command: 124
+  passed, 0 failed.
+- Supplemental scheduler/browser/DOM/session/bridge/protocol command: 39 passed,
+  0 failed.
+- Full `pnpm test:unit`, run once after GREEN: 556 passed, 0 failed.
+- `pnpm exec tsc --noEmit`: passed.
+- ESLint over every changed TypeScript/TSX file: passed.
+- Prettier check over every changed code, test, and report file: passed.
+- `git diff --check`: passed.
 
-- required six host suites: 28 passed, 0 failed;
-- root `pnpm exec tsc --noEmit`: exited 0;
-- affected app/bootstrap/codec/document/session/module/localization/toolbar
-  suites: 60 passed, 0 failed;
-- package `pnpm --filter @zotero-markdown/whiteboard exec tsc --noEmit`:
-  exited 0;
-- `pnpm lint:check`: exited 0 after a mechanical Prettier pass;
-- `git diff --check`: exited 0.
+## Self-review
 
-## Review Fix — Preserve Zotero Note Text
+- Identity: batch deduplication, resolution, refresh comparison, and opening all
+  use the complete native identity. Same annotation keys in distinct PDF
+  attachments remain distinct, while duplicate payloads in one reply collapse.
+- Persistence: Quote source/snapshot contain only canonical native source keys
+  and snapshot fields. Attachment titles, sort indexes, transient state, queue
+  metadata, and integer Zotero IDs do not enter `CanvasDocument`.
+- History: a non-empty Quote batch commits once; duplicate-only batches do
+  nothing. Background results never call the revision callback. A changed
+  explicit refresh calls it exactly once and deliberately skips history commit;
+  unchanged and unavailable results do neither.
+- Geometry/relationships: deterministic placement derives from the originating
+  Literature and existing Quote rows. Resolution and refresh replace only
+  source-owned snapshot data, preserving geometry, styling, frames, and
+  connections. Acquisition creates no connection.
+- Reader behavior: gateway capability tests cover exact success, explicit
+  capability unavailability, missing page data, arbitrary exact-call failure,
+  full-key mismatch, and the production Reader argument shape.
+- Offline behavior: a Quote acquired from a candidate survives canonical save
+  and reopen and exports its persisted fallback without requiring live source
+  resolution.
+- UI lifecycle: the dialog still closes on add, keeps the originating
+  Literature selected for trigger focus restoration, and retains the existing
+  Escape/backdrop/close/focus-existing DOM guarantees.
+- Scope: no Reader command integration, drag-and-drop annotation acquisition,
+  automatic semantic edges, schema uniqueness rule, or Task 8 duplicate
+  Literature policy was introduced.
 
-The Task 7 review identified two failures in `zoteroNotePlainText()`:
+No blocking concerns remain. Real Zotero Reader navigation is still an
+appropriate host-runtime smoke test in addition to the production dependency
+contract exercised by the Node suite.
 
-1. HTML entities were decoded before markup was removed, so escaped user text
-   such as `1 &lt; 2 &gt; 0` became angle brackets and was mistaken for a tag.
-2. Numeric entities were passed to `String.fromCodePoint()` after only a
-   finite-number check. Out-of-range and surrogate values could throw, causing
-   the outer Note read guard to return an empty string for the entire Note.
+## Important review fix — Independent Reader fallback
 
-Two regression tests were added first. The focused RED run passed 6 tests and
-failed exactly those 2 cases: escaped mathematical comparison text became
-`Math: 1 0`, and an out-of-range entity cleared the whole result.
+The review found that the production adapter correctly reported missing
+`Zotero.Reader.open` as unavailable, but its fallback immediately called the
+same missing Reader API. Quote opening therefore threw a `TypeError` instead of
+opening the resolved attachment.
 
-GREEN now removes actual HTML markup before decoding entities. A small
-dependency-free tag scanner handles quoted tag attributes and comments, keeps
-paragraph/list/table boundaries and `br`/`hr` as line breaks, and leaves
-non-tag angle-bracket text alone. Numeric entities decode only when they are
-valid Unicode scalar values (`1..0x10FFFF`, excluding the surrogate range);
-invalid references remain readable verbatim instead of throwing. The focused
-suite then passed 8 tests with no failures, including valid supplementary
-Unicode decoding.
+Local `zotero-types` 4.1.3 defines the project-supported independent entrypoint
+as:
+
+```ts
+Zotero.FileHandlers.open(item, {
+  location: { pageIndex },
+});
+```
+
+The existing whiteboard host also uses `Zotero.FileHandlers.open(attachment)`
+as its default attachment opener. The production gateway now uses this entrypoint
+for capability fallback. A valid zero-based annotation page is passed through
+the typed `location.pageIndex`; missing or invalid position data opens only the
+attachment and does not claim page or annotation navigation.
+
+### Review-fix RED / GREEN
+
+Production-adapter tests were added before changing the adapter. The first
+source-gateway run reported 20 tests: 18 passed and 2 failed. With `Reader`
+absent, the valid-page test failed with
+`Cannot read properties of undefined (reading 'open')`; with `Reader.open`
+absent, the no-page test failed with `Reader.open is not a function`. Neither
+case reached the expected independent attachment opener.
+
+After switching only the fallback dependency to `FileHandlers.open`, the same
+gateway suite passed 20/20. The new tests prove:
+
+- missing `Reader` plus `{"pageIndex":7}` calls
+  `FileHandlers.open(attachment, { location: { pageIndex: 7 } })` exactly once;
+- missing `Reader.open` plus absent position, and missing `Reader` plus invalid
+  position, each call `FileHandlers.open(attachment)` exactly once;
+- the existing production exact-annotation test still calls
+  `Reader.open(attachment.id, { annotationID })`; and
+- a rejected exact Reader call still propagates and never invokes fallback.
 
 Fresh review-fix verification:
 
-- required Task 7 host suites: 30 passed, 0 failed;
-- affected app/bootstrap/codec/document/session/module/localization/toolbar
-  suites: 60 passed, 0 failed;
-- root and standalone whiteboard TypeScript checks: exited 0;
-- full `pnpm lint:check`: exited 0;
-- `git diff --check`: exited 0.
+- Task 7 focused app/state/gateway/export/canvas-file/file-I/O suite: 126 passed,
+  0 failed.
+- Full `pnpm test:unit`, run once for this fix: 558 passed, 0 failed.
+- `pnpm exec tsc --noEmit`: passed.
+- ESLint and Prettier over both changed TypeScript files: passed.
+- `git diff --check`: passed.
+
+The fix does not alter source identity resolution, Quote acquisition/history,
+snapshot persistence, explicit refresh scheduling, or Task 8 behavior.

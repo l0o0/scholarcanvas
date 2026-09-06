@@ -7,8 +7,12 @@ import {
 import type { CanvasConnection } from "../model/connection";
 import type { CanvasNodeStyle } from "../model/core";
 import type { CanvasDocument } from "../model/document";
-import type { BasicPickerPayload } from "../model/protocol";
+import type { SourceResolutionResult } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
+import {
+  applyResolvedAcquisition,
+  applyResolvedAcquisitionToCanvasNode,
+} from "./sourceState";
 
 export interface CanvasFlowEdgeData extends Record<string, unknown> {
   connection: CanvasConnection;
@@ -25,126 +29,6 @@ export interface CanvasFlowDocument {
   nodes: CanvasFlowNode[];
   edges: CanvasFlowEdge[];
   shell: CanvasDocumentShell;
-}
-
-export type PickerNodeData = BasicPickerPayload;
-
-export function parsePickerNodeData(
-  value: unknown,
-): PickerNodeData | undefined {
-  if (!isRecord(value) || typeof value.title !== "string") return undefined;
-  if (!hasValidOptionalPickerFields(value, ["subtitle", "preview"], [])) {
-    return undefined;
-  }
-  const common = {
-    title: value.title,
-    ...optionalStringProperty(value, "subtitle"),
-    ...optionalStringProperty(value, "preview"),
-  };
-  switch (value.kind) {
-    case "item": {
-      if (!hasValidOptionalPickerFields(value, [], ["itemID"])) {
-        return undefined;
-      }
-      return {
-        kind: "item",
-        ...common,
-        ...optionalNumberProperty(value, "itemID"),
-      };
-    }
-    case "pdf": {
-      if (
-        !hasValidOptionalPickerFields(
-          value,
-          ["image", "asset"],
-          ["itemID", "attachmentID", "pdfPage"],
-        )
-      ) {
-        return undefined;
-      }
-      return {
-        kind: "pdf",
-        ...common,
-        ...optionalNumberProperty(value, "itemID"),
-        ...optionalNumberProperty(value, "attachmentID"),
-        ...optionalNumberProperty(value, "pdfPage"),
-        ...optionalStringProperty(value, "image"),
-        ...optionalStringProperty(value, "asset"),
-      };
-    }
-    case "attachment": {
-      if (
-        !hasValidOptionalPickerFields(value, [], ["itemID", "attachmentID"])
-      ) {
-        return undefined;
-      }
-      return {
-        kind: "attachment",
-        ...common,
-        ...optionalNumberProperty(value, "itemID"),
-        ...optionalNumberProperty(value, "attachmentID"),
-      };
-    }
-    default:
-      return undefined;
-  }
-}
-
-export function mergePickerData(
-  model: CanvasNode,
-  picker: PickerNodeData,
-): CanvasNode {
-  const shared = {
-    id: model.id,
-    position: model.position,
-    width: model.width,
-    height: model.height,
-    ...(model.kind !== "frame" && model.frameId
-      ? { frameId: model.frameId }
-      : {}),
-    ...(model.style ? { style: model.style } : {}),
-    ...(model.extensions ? { extensions: model.extensions } : {}),
-  };
-  switch (picker.kind) {
-    case "item":
-      return {
-        ...shared,
-        kind: "item",
-        data: {
-          title: picker.title,
-          ...definedString("subtitle", picker.subtitle),
-          ...definedString("preview", picker.preview),
-          ...definedNumber("itemID", picker.itemID),
-        },
-      };
-    case "pdf":
-      return {
-        ...shared,
-        kind: "pdf",
-        data: {
-          title: picker.title,
-          ...definedString("subtitle", picker.subtitle),
-          ...definedString("preview", picker.preview),
-          ...definedNumber("itemID", picker.itemID),
-          ...definedNumber("attachmentID", picker.attachmentID),
-          ...definedNumber("pdfPage", picker.pdfPage),
-          ...definedString("image", picker.image),
-          ...definedString("asset", picker.asset),
-        },
-      };
-    case "attachment":
-      return {
-        ...shared,
-        kind: "attachment",
-        data: {
-          title: picker.title,
-          ...definedString("subtitle", picker.subtitle),
-          ...definedString("preview", picker.preview),
-          ...definedNumber("itemID", picker.itemID),
-          ...definedNumber("attachmentID", picker.attachmentID),
-        },
-      };
-  }
 }
 
 export function nodeTextStyle(style: Partial<CanvasNodeStyle>): CSSProperties {
@@ -244,7 +128,7 @@ export function flowToCanvasDocument(
   viewport: Viewport,
   shell: CanvasDocumentShell = {},
 ): CanvasDocument {
-  return {
+  return omitUndefinedRecordFields({
     version: 2,
     viewport,
     ...(shell.metadata ? { metadata: shell.metadata } : {}),
@@ -271,23 +155,32 @@ export function flowToCanvasDocument(
         source: edge.source,
         target: edge.target,
       };
+      const {
+        sourceHandle: _sourceHandle,
+        targetHandle: _targetHandle,
+        label: _label,
+        color: _color,
+        dashed: _dashed,
+        arrow: _arrow,
+        ...persistentConnection
+      } = connection;
+      const label = typeof edge.label === "string" ? edge.label : undefined;
+      const color =
+        typeof edge.style?.stroke === "string" ? edge.style.stroke : undefined;
       return {
-        ...connection,
+        ...persistentConnection,
         id: edge.id,
         source: edge.source,
         target: edge.target,
         sourceHandle: edge.sourceHandle ?? null,
         targetHandle: edge.targetHandle ?? null,
-        label: typeof edge.label === "string" ? edge.label : undefined,
+        ...(label !== undefined ? { label } : {}),
         dashed: Boolean(edge.style?.strokeDasharray),
-        color:
-          typeof edge.style?.stroke === "string"
-            ? edge.style.stroke
-            : undefined,
+        ...(color !== undefined ? { color } : {}),
         arrow: Boolean(edge.markerEnd),
       };
     }),
-  };
+  });
 }
 
 export function updateFlowNodeModel(
@@ -296,6 +189,66 @@ export function updateFlowNodeModel(
 ): CanvasFlowNode {
   const model = update(node.data.model);
   return { ...node, type: model.kind, data: { ...node.data, model } };
+}
+
+export function applySourceResolutionResults(
+  nodes: CanvasFlowNode[],
+  generation: number,
+  results: readonly SourceResolutionResult[],
+): CanvasFlowNode[] {
+  const resolved = new Map(
+    results.flatMap((result) =>
+      result.generation === generation && result.status === "resolved"
+        ? [[result.nodeId, result.acquisition] as const]
+        : [],
+    ),
+  );
+  if (!resolved.size) return nodes;
+  return nodes.map((node) => {
+    const acquisition = resolved.get(node.id);
+    return acquisition ? applyResolvedAcquisition(node, acquisition) : node;
+  });
+}
+
+export function sourceOwnedResolutionResults(
+  nodes: readonly CanvasFlowNode[],
+  generation: number,
+  results: readonly SourceResolutionResult[],
+): SourceResolutionResult[] {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  return results.filter((result) => {
+    if (result.generation !== generation || result.status !== "resolved") {
+      return false;
+    }
+    const node = nodesById.get(result.nodeId);
+    return Boolean(
+      node && applyResolvedAcquisition(node, result.acquisition) !== node,
+    );
+  });
+}
+
+export function applySourceOwnedResolutionResults(
+  document: CanvasDocument,
+  generation: number,
+  results: readonly SourceResolutionResult[],
+): CanvasDocument {
+  const resolved = new Map(
+    results.flatMap((result) =>
+      result.generation === generation && result.status === "resolved"
+        ? [[result.nodeId, result.acquisition] as const]
+        : [],
+    ),
+  );
+  if (!resolved.size) return document;
+  let changed = false;
+  const nodes = document.nodes.map((node) => {
+    const acquisition = resolved.get(node.id);
+    if (!acquisition) return node;
+    const next = applyResolvedAcquisitionToCanvasNode(node, acquisition);
+    if (next !== node) changed = true;
+    return next;
+  });
+  return changed ? { ...document, nodes } : document;
 }
 
 export function beginNodeEditing(
@@ -318,11 +271,7 @@ export function beginNodeEditing(
 
 export function flowNodeText(node: CanvasFlowNode): string {
   const model = node.data.model;
-  if (
-    model.kind === "note" ||
-    model.kind === "question" ||
-    model.kind === "claim"
-  ) {
+  if (model.kind === "note") {
     return model.content;
   }
   if (model.kind === "frame") return model.title;
@@ -397,9 +346,19 @@ export class CanvasDocumentHistory {
     this.future = [];
   }
 
+  commit(document: CanvasDocument) {
+    this.push(document);
+    this.changed();
+  }
+
   replace() {
     this.history = [];
     this.future = [];
+  }
+
+  rebase(update: (document: CanvasDocument) => CanvasDocument) {
+    this.history = this.history.map(update);
+    this.future = this.future.map(update);
   }
 
   undo(current: CanvasDocument): CanvasDocument | undefined {
@@ -423,11 +382,41 @@ function numericStyleDimension(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
+function omitUndefinedRecordFields<T>(
+  value: T,
+  seen = new WeakMap<object, unknown>(),
+): T {
+  if (value === null || typeof value !== "object") return value;
+  const prior = seen.get(value);
+  if (prior !== undefined) return prior as T;
+  const prototype = Object.getPrototypeOf(value);
+  if (
+    !Array.isArray(value) &&
+    prototype !== Object.prototype &&
+    prototype !== null
+  ) {
+    return value;
+  }
+  const clone = Array.isArray(value)
+    ? new Array(value.length)
+    : Object.create(prototype);
+  seen.set(value, clone);
+  for (const key of Reflect.ownKeys(value)) {
+    if (Array.isArray(value) && key === "length") continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor) continue;
+    if ("value" in descriptor) {
+      if (!Array.isArray(value) && descriptor.value === undefined) continue;
+      descriptor.value = omitUndefinedRecordFields(descriptor.value, seen);
+    }
+    Object.defineProperty(clone, key, descriptor);
+  }
+  return clone as T;
+}
+
 function updateCanvasNodeText(model: CanvasNode, text: string): CanvasNode {
   switch (model.kind) {
     case "note":
-    case "question":
-    case "claim":
       return { ...model, content: text };
     case "frame":
       return { ...model, title: text };
@@ -438,61 +427,4 @@ function updateCanvasNodeText(model: CanvasNode, text: string): CanvasNode {
     default:
       return { ...model, data: { ...model.data, title: text } };
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function optionalStringProperty<K extends string>(
-  value: Record<string, unknown>,
-  key: K,
-): Partial<Record<K, string>> {
-  return typeof value[key] === "string"
-    ? ({ [key]: value[key] } as Partial<Record<K, string>>)
-    : {};
-}
-
-function optionalNumberProperty<K extends string>(
-  value: Record<string, unknown>,
-  key: K,
-): Partial<Record<K, number>> {
-  return typeof value[key] === "number" && Number.isFinite(value[key])
-    ? ({ [key]: value[key] } as Partial<Record<K, number>>)
-    : {};
-}
-
-function hasValidOptionalPickerFields(
-  value: Record<string, unknown>,
-  stringKeys: string[],
-  numberKeys: string[],
-): boolean {
-  return (
-    stringKeys.every(
-      (key) => !Object.hasOwn(value, key) || typeof value[key] === "string",
-    ) &&
-    numberKeys.every(
-      (key) =>
-        !Object.hasOwn(value, key) ||
-        (typeof value[key] === "number" && Number.isFinite(value[key])),
-    )
-  );
-}
-
-function definedString<K extends string>(
-  key: K,
-  value: string | undefined,
-): Partial<Record<K, string>> {
-  return value === undefined
-    ? {}
-    : ({ [key]: value } as Partial<Record<K, string>>);
-}
-
-function definedNumber<K extends string>(
-  key: K,
-  value: number | undefined,
-): Partial<Record<K, number>> {
-  return value === undefined
-    ? {}
-    : ({ [key]: value } as Partial<Record<K, number>>);
 }

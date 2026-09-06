@@ -1,18 +1,12 @@
 import type { CanvasNodeKind } from "../model/academic";
 import type { CanvasTool } from "./tools";
+import { BUILTIN_NOTE_TEMPLATE_IDS } from "../model/note-template";
 
 export const CLICK_THRESHOLD = 5;
 
 export type DrawKind = "rect" | "ellipse" | "line" | "arrow";
 export type StampKind =
-  | "item"
-  | "pdf"
-  | "attachment"
-  | "text"
-  | "note"
-  | "question"
-  | "claim"
-  | "frame";
+  "item" | "pdf" | "attachment" | "text" | "note" | "frame";
 
 export interface Point {
   x: number;
@@ -35,8 +29,6 @@ const STAMP_KINDS = new Set<StampKind>([
   "pdf",
   "attachment",
   "text",
-  "question",
-  "claim",
   "frame",
 ]);
 
@@ -44,7 +36,9 @@ export function isDrawTool(tool: CanvasTool): tool is DrawKind {
   return DRAW_KINDS.has(tool as DrawKind);
 }
 
-export function isStampTool(tool: CanvasTool): tool is StampKind {
+export function isStampTool(
+  tool: CanvasTool | CanvasNodeKind,
+): tool is StampKind {
   return STAMP_KINDS.has(tool as StampKind);
 }
 
@@ -140,9 +134,8 @@ export function toolShortcut(key: string): CanvasTool | null {
     case "t":
       return "text";
     case "q":
-      return "question";
     case "c":
-      return "claim";
+      return "note";
     case "f":
       return "frame";
     default:
@@ -157,13 +150,13 @@ export function isLibraryKind(
 }
 
 export function shouldEditOnCreate(kind: StampKind): boolean {
-  return (
-    kind === "text" ||
-    kind === "note" ||
-    kind === "question" ||
-    kind === "claim" ||
-    kind === "frame"
-  );
+  return kind === "text" || kind === "note" || kind === "frame";
+}
+
+export function noteTemplateShortcut(key: string): string | null {
+  if (key.toLowerCase() === "q") return BUILTIN_NOTE_TEMPLATE_IDS.question;
+  if (key.toLowerCase() === "c") return BUILTIN_NOTE_TEMPLATE_IDS.claim;
+  return null;
 }
 
 export function toolAfterDraw(_kind: DrawKind): CanvasTool {

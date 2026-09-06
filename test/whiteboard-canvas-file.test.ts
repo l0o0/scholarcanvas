@@ -77,19 +77,21 @@ const document = parseCanvasDocument({
     },
     {
       id: "question-1",
-      kind: "question",
+      kind: "note",
       position: { x: 0, y: 220 },
       width: 260,
       height: 128,
       content: "Why?",
+      badge: "Question",
     },
     {
       id: "claim-1",
-      kind: "claim",
+      kind: "note",
       position: { x: 320, y: 220 },
       width: 260,
       height: 128,
       content: "A claim",
+      badge: "Claim",
     },
     {
       id: "frame-1",

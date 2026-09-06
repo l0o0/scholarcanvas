@@ -13,14 +13,16 @@ createRoot(root).render(
       initialSnapshot={demoCanvasDocument()}
       onReady={() => undefined}
       onChange={() => undefined}
-      onError={(message) => console.error(message)}
       onSave={() => console.info("save")}
-      onPickItem={(requestId, nodeId, kind) => {
-        console.info("pickItem", { requestId, nodeId, kind });
+      onPickAcademicSource={(requestId, nodeId, kind) => {
+        console.info("pickAcademicSource", { requestId, nodeId, kind });
       }}
       onOpenItem={(payload) => console.info("openItem", payload)}
-      onDropItems={(requestId, nodeId) => {
-        console.info("dropItems", { requestId, nodeId });
+      onDropAcademicSources={(requestId, nodeId) => {
+        console.info("dropAcademicSources", { requestId, nodeId });
+      }}
+      onRefreshZoteroNote={(requestId, nodeId, source) => {
+        console.info("refreshZoteroNote", { requestId, nodeId, source });
       }}
       onExportFile={(payload) => console.info("exportFile", payload.format)}
     />

@@ -1,4 +1,7 @@
-import { WHITEBOARD_MESSAGE_SOURCE } from "./protocol";
+import {
+  WHITEBOARD_MESSAGE_SOURCE,
+  WHITEBOARD_PROTOCOL_VERSION,
+} from "./protocol";
 import { whiteboardRegistry } from "./session-registry";
 
 /**
@@ -42,6 +45,7 @@ export function registerWhiteboardTabHooks(win: _ZoteroTypes.MainWindow) {
         {
           source: WHITEBOARD_MESSAGE_SOURCE,
           channel: `${tab.id}:${tab.data?.canvasId ?? ""}`,
+          v: WHITEBOARD_PROTOCOL_VERSION,
           type: "focus",
         },
         "*",

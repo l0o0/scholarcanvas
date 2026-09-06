@@ -14,6 +14,35 @@ test("rejects a wholly invalid Bamboo document", () => {
   );
 });
 
+test("Literature annotation counts are non-negative safe integers", () => {
+  for (const annotationCount of [
+    -1,
+    1.5,
+    Number.MAX_SAFE_INTEGER + 1,
+    NaN,
+    Infinity,
+  ]) {
+    const node = literature("invalid-count", "ITEM1234");
+    const parsed = parseCanvasDocument({
+      version: 2,
+      nodes: [{ ...node, snapshot: { ...node.snapshot, annotationCount } }],
+      connections: [],
+    });
+    assert.equal(parsed.document.nodes.length, 0, String(annotationCount));
+    assert.equal(parsed.issues[0]?.code, "malformed-node");
+  }
+  for (const annotationCount of [0, 2, Number.MAX_SAFE_INTEGER]) {
+    const node = literature("valid-count", "ITEM1234");
+    const parsed = parseCanvasDocument({
+      version: 2,
+      nodes: [{ ...node, snapshot: { ...node.snapshot, annotationCount } }],
+      connections: [],
+    });
+    assert.equal(parsed.document.nodes.length, 1);
+    assert.deepEqual(parsed.issues, []);
+  }
+});
+
 test("direct parser requires own root fields and ignores inherited optionals", () => {
   const rootFields = {
     version: 2,
@@ -56,7 +85,7 @@ test("direct parser rejects inherited node geometry and content fields", () => {
     nodes: [
       inheritedNode(
         "inherited-position",
-        { kind: "claim", width: 240, height: 120, content: "Claim" },
+        { kind: "note", width: 240, height: 120, content: "Claim" },
         { position: { x: 0, y: 0 } },
       ),
       {
@@ -66,7 +95,7 @@ test("direct parser rejects inherited node geometry and content fields", () => {
       inheritedNode(
         "inherited-content",
         {
-          kind: "claim",
+          kind: "note",
           position: { x: 0, y: 0 },
           width: 240,
           height: 120,
@@ -181,7 +210,7 @@ test("direct parser preserves own __proto__ extension data without mutation", ()
     "version": 2,
     "nodes": [{
       "id": "claim-1",
-      "kind": "claim",
+      "kind": "note",
       "position": { "x": 0, "y": 0 },
       "width": 240,
       "height": 120,
@@ -284,7 +313,7 @@ test("repairs dangling connections and invalid frame membership", () => {
       },
       {
         id: "claim-1",
-        kind: "claim",
+        kind: "note",
         position: { x: 20, y: 30 },
         width: 240,
         height: 120,
@@ -325,7 +354,8 @@ test("allows semantic relationships between arbitrary existing nodes", () => {
       },
       {
         id: "question-1",
-        kind: "question",
+        kind: "note",
+        badge: "Question",
         position: { x: 200, y: 0 },
         width: 240,
         height: 120,
@@ -487,15 +517,40 @@ test("requires non-empty Zotero keys", () => {
   );
 });
 
-test("parses all six academic node payloads", () => {
+test("requires positive safe integer Zotero group identifiers", () => {
+  const groupLiterature = (id: string, groupID: number) => ({
+    ...literature(id, "ITEM1234"),
+    source: { library: { type: "group", groupID }, itemKey: "ITEM1234" },
+  });
+  const result = parseCanvasDocument({
+    version: 2,
+    nodes: [
+      groupLiterature("negative-group", -1),
+      groupLiterature("zero-group", 0),
+      groupLiterature("fractional-group", 1.5),
+      groupLiterature("unsafe-group", Number.MAX_SAFE_INTEGER + 1),
+      groupLiterature("valid-group", 42),
+    ],
+    connections: [],
+  });
+
+  assert.deepEqual(
+    result.document.nodes.map((node) => node.id),
+    ["valid-group"],
+  );
+  assert.deepEqual(
+    result.issues.map((issue) => issue.code),
+    ["malformed-node", "malformed-node", "malformed-node", "malformed-node"],
+  );
+});
+
+test("parses the four academic node payloads", () => {
   const result = parseCanvasDocument({
     version: 2,
     nodes: [
       literature("literature-1", "ITEM1234"),
       quote("quote-1", "ITEM1234", "ATTACH12", "ANNO1234"),
       note("note-1", "NOTE1234"),
-      { ...claim("question-1"), kind: "question", content: "Why?" },
-      claim("claim-1"),
       frame("frame-1"),
     ],
     connections: [],
@@ -503,9 +558,30 @@ test("parses all six academic node payloads", () => {
 
   assert.deepEqual(
     result.document.nodes.map((node) => node.kind),
-    ["literature", "quote", "note", "question", "claim", "frame"],
+    ["literature", "quote", "note", "frame"],
   );
   assert.deepEqual(result.issues, []);
+});
+
+test("persists a Note badge and rejects retired thought kinds", () => {
+  const result = parseCanvasDocument({
+    version: 2,
+    nodes: [
+      { ...note("note-1", "NOTE1234"), badge: "观点" },
+      { ...claim("question-1"), kind: "question" },
+      { ...claim("claim-1"), kind: "claim" },
+      { ...note("bad-badge", "NOTE5678"), badge: 42 },
+    ],
+    connections: [],
+  });
+
+  assert.deepEqual(result.document.nodes, [
+    { ...note("note-1", "NOTE1234"), badge: "观点" },
+  ]);
+  assert.deepEqual(
+    result.issues.map((issue) => issue.code),
+    ["malformed-node", "malformed-node", "malformed-node"],
+  );
 });
 
 test("preserves only explicit extension records", () => {
@@ -593,7 +669,7 @@ test("creates a valid academic demo without Zotero integer IDs", () => {
 
   assert.deepEqual(
     result.document.nodes.map((node) => node.kind),
-    ["literature", "quote", "claim"],
+    ["literature", "quote", "note"],
   );
   assert.equal(result.document.connections[0].relation, "supports");
   assert.deepEqual(result.issues, []);
@@ -602,11 +678,12 @@ test("creates a valid academic demo without Zotero integer IDs", () => {
 function claim(id: string) {
   return {
     id,
-    kind: "claim",
+    kind: "note",
     position: { x: 0, y: 0 },
     width: 240,
     height: 120,
     content: "Claim",
+    badge: "Claim",
   };
 }
 

@@ -256,8 +256,6 @@ function academicText(node: AcademicNode): string {
         .filter(Boolean)
         .join("\n\n");
     case "note":
-    case "question":
-    case "claim":
       return node.content;
     case "frame":
       return node.title;
@@ -358,6 +356,7 @@ function payloadSchema(kind: unknown): PayloadSchema | undefined {
       return {
         ...common,
         content: true,
+        badge: true,
         source: {
           library: LIBRARY_SCHEMA,
           noteKey: true,
@@ -365,9 +364,6 @@ function payloadSchema(kind: unknown): PayloadSchema | undefined {
         },
         sourceSnapshot: { title: true },
       };
-    case "question":
-    case "claim":
-      return { ...common, content: true };
     case "frame":
       return { ...common, title: true };
     default:
@@ -589,9 +585,7 @@ function toCanvasNode(node: CanvasNode): CanvasFileNode {
     text:
       node.kind === "literature" ||
       node.kind === "quote" ||
-      node.kind === "note" ||
-      node.kind === "question" ||
-      node.kind === "claim"
+      node.kind === "note"
         ? academicText(node)
         : basicText(node),
     bamboo,

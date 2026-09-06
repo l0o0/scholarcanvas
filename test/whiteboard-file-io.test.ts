@@ -45,7 +45,7 @@ test("reads a schema-v2 canvas with recoverable diagnostics", async () => {
         version: 1,
         nodes: [
           {
-            id: "claim-1",
+            id: "note-1",
             type: "text",
             x: 0,
             y: 0,
@@ -53,7 +53,7 @@ test("reads a schema-v2 canvas with recoverable diagnostics", async () => {
             height: 128,
             text: "Claim",
             bamboo: {
-              node: { kind: "claim", content: "Claim" },
+              node: { kind: "note", content: "Claim", badge: "Claim" },
             },
           },
           {

@@ -39,3 +39,25 @@ test("registers canvases by tab and item id and isolates windows", () => {
   assert.equal(registry.findByItem(11), undefined);
   assert.equal(registry.sessionsForWindow(winA).length, 1);
 });
+
+test("unregistering a session disposes its scheduler and template subscription", () => {
+  const registry = new WhiteboardSessionRegistry();
+  let disposed = 0;
+  let unsubscribed = 0;
+  const current = session("tab-source", {} as Window, 21);
+  current.sourceScheduler = {
+    dispose: () => {
+      disposed += 1;
+    },
+  } as WhiteboardSession["sourceScheduler"];
+  current.unsubscribeTemplates = () => {
+    unsubscribed += 1;
+  };
+  registry.register(current);
+
+  registry.unregister(current.tabID);
+  registry.unregister(current.tabID);
+
+  assert.equal(disposed, 1);
+  assert.equal(unsubscribed, 1);
+});

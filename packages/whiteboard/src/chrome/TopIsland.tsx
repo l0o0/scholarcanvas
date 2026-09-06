@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { WhiteboardLabels } from "../model/protocol";
+import type { NoteTemplate } from "../model/note-template";
 import {
   IconAlignBottom,
   IconAlignHCenter,
@@ -8,12 +9,10 @@ import {
   IconAlignTop,
   IconAlignVCenter,
   IconArrow,
-  IconClaim,
   IconDistributeH,
   IconDistributeV,
   IconEllipse,
   IconEraser,
-  IconFile,
   IconFitView,
   IconFrame,
   IconHand,
@@ -22,8 +21,6 @@ import {
   IconLine,
   IconMore,
   IconNote,
-  IconPdf,
-  IconQuestion,
   IconRect,
   IconRedo,
   IconSave,
@@ -43,6 +40,9 @@ export function TopIsland(props: {
   labels: WhiteboardLabels;
   activeTool: CanvasTool;
   onSelectTool: (tool: CanvasTool) => void;
+  noteTemplates: NoteTemplate[];
+  activeNoteTemplateId: string;
+  onSelectNoteTemplate: (templateId: string) => void;
   saveState: "saved" | "saving" | "error";
   selectedNodeCount: number;
   selectedEdgeCount: number;
@@ -79,23 +79,9 @@ export function TopIsland(props: {
       { tool: "select", title: labels.select, icon: <IconSelect /> },
       { tool: "hand", title: labels.hand, icon: <IconHand /> },
     ],
-    [
-      { tool: "item", title: labels.addItem, icon: <IconItem /> },
-      { tool: "pdf", title: labels.addPdf, icon: <IconPdf /> },
-      { tool: "attachment", title: labels.addFile, icon: <IconFile /> },
-    ],
+    [{ tool: "literature", title: labels.addItem, icon: <IconItem /> }],
     [
       { tool: "note", title: labels.addNote, icon: <IconNote /> },
-      {
-        tool: "question",
-        title: `${labels.addQuestion} (Q)`,
-        icon: <IconQuestion />,
-      },
-      {
-        tool: "claim",
-        title: `${labels.addClaim} (C)`,
-        icon: <IconClaim />,
-      },
       {
         tool: "frame",
         title: `${labels.addFrame} (F)`,
@@ -137,6 +123,24 @@ export function TopIsland(props: {
               {item.icon}
             </button>
           ))}
+          {group.some((item) => item.tool === "note") ? (
+            <select
+              className="zmd-board-template-picker"
+              title={labels.addNote}
+              aria-label={labels.addNote}
+              value={props.activeNoteTemplateId}
+              onChange={(event) => {
+                props.onSelectNoteTemplate(event.currentTarget.value);
+                props.onSelectTool("note");
+              }}
+            >
+              {props.noteTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
       ))}
       <span className="zmd-board-toolbar-sep" />

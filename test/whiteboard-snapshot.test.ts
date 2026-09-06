@@ -69,45 +69,123 @@ test("invalid numeric entities cannot clear the surrounding note", () => {
   assert.equal(content, "Before &#x110000; middle &#xD800; after 😀");
 });
 
-test("collection canvas stores Zotero Notes as local Academic Note content", (t) => {
+test("collection canvas stores Zotero Notes by native key with copied content", (t) => {
   const previous = (globalThis as { Zotero?: unknown }).Zotero;
+  let attachmentReads = 0;
   const note = {
+    id: 77,
+    key: "NOTE2345",
+    libraryID: 1,
+    parentItem: null as Zotero.Item | null,
+    isRegularItem: () => false,
     isNote: () => true,
+    isAnnotation: () => false,
+    isAttachment: () => false,
     getNote: () => "<p>Copied <strong>research note</strong></p>",
+    getNoteTitle: () => "Research note",
   };
+  const regular = {
+    id: 11,
+    key: "ABCD2345",
+    libraryID: 1,
+    firstCreator: "Ada Lovelace",
+    parentItem: null,
+    isRegularItem: () => true,
+    isNote: () => false,
+    isAnnotation: () => false,
+    isAttachment: () => false,
+    getField: (field: string) =>
+      field === "title" ? "Paper" : field === "date" ? "2026" : "",
+    getDisplayTitle: () => "Paper",
+    getCreators: () => [],
+    getTags: () => [],
+    getAttachments: () => {
+      attachmentReads += 1;
+      return [88];
+    },
+    getNotes: () => [77],
+  };
+  const pdf = {
+    id: 88,
+    key: "PDF23456",
+    libraryID: 1,
+    parentItem: regular,
+    attachmentContentType: "application/pdf",
+    attachmentFilename: "paper.pdf",
+    isRegularItem: () => false,
+    isNote: () => false,
+    isAnnotation: () => false,
+    isAttachment: () => true,
+  };
+  note.parentItem = regular as unknown as Zotero.Item;
   (globalThis as { Zotero?: unknown }).Zotero = {
-    Items: { get: (id: number) => (id === 77 ? note : undefined) },
+    Items: {
+      get: (id: number) => (id === 77 ? note : id === 88 ? pdf : undefined),
+    },
+    Libraries: {
+      userLibraryID: 1,
+      get: () => ({ libraryType: "user" }),
+    },
+    Groups: { get: () => undefined },
+    Utilities: {
+      cleanTags: (html: string) => html.replace(/<[^>]*>/g, ""),
+      unescapeHTML: (html: string) => html,
+    },
   };
   t.after(() => {
     (globalThis as { Zotero?: unknown }).Zotero = previous;
   });
 
   const document = buildCollectionCanvas({
-    getChildItems: () => [
-      {
-        id: 11,
-        parentItem: null,
-        isRegularItem: () => true,
-        getField: (field: string) => (field === "title" ? "Paper" : "2026"),
-        getDisplayTitle: () => "Paper",
-        getCreators: () => [],
-        getAttachments: () => [],
-        getNotes: () => [77],
-      },
-    ],
+    getChildItems: () => [regular],
   } as Zotero.Collection);
 
   assert.equal(document.version, 2);
+  assert.equal(document.nodes[0].kind, "literature");
+  assert.deepEqual(
+    document.nodes[0].kind === "literature" && document.nodes[0].source,
+    {
+      library: { type: "user" },
+      itemKey: "ABCD2345",
+    },
+  );
+  assert.equal(JSON.stringify(document).includes("itemID"), false);
+  assert.equal(attachmentReads, 0);
+  assert.equal(
+    document.nodes.some((node) => node.kind === "pdf"),
+    false,
+  );
   const academicNote = document.nodes.find((node) => node.kind === "note");
   assert.ok(academicNote && academicNote.kind === "note");
   assert.equal(academicNote.content, "Copied research note");
   assert.equal("noteID" in academicNote, false);
+  assert.deepEqual(academicNote.source, {
+    library: { type: "user" },
+    noteKey: "NOTE2345",
+    itemKey: "ABCD2345",
+  });
+  assert.ok(
+    academicNote.position.y >=
+      document.nodes[0].position.y + document.nodes[0].height,
+  );
   assert.deepEqual(document.connections[0], {
     id: "col-item-0-e-note",
     kind: "basic",
     source: "col-item-0",
     target: "col-item-0-note",
   });
+
+  note.getNote = () => "";
+  note.getNoteTitle = () => "";
+  const emptyNoteDocument = buildCollectionCanvas({
+    getChildItems: () => [regular],
+  } as Zotero.Collection);
+  const emptyNote = emptyNoteDocument.nodes.find(
+    (node) => node.kind === "note",
+  );
+  assert.ok(emptyNote && emptyNote.kind === "note");
+  assert.equal(emptyNote.content, "");
+  assert.equal(JSON.stringify(emptyNoteDocument).includes("Empty note"), false);
 });
 
 test("host snapshot is a compatibility re-export rather than a schema", () => {

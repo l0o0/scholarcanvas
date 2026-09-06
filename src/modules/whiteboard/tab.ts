@@ -1,16 +1,66 @@
 import { resolveEditorTheme } from "../markdown/editor";
 import { getString } from "../../utils/locale";
 import { ensureDOMGlobals } from "../../utils/dom";
-import { createWhiteboardEditor } from "./editor";
+import {
+  createWhiteboardEditor,
+  type NativeAcademicDropResolution,
+} from "./editor";
 import { readCanvasFile, writeCanvasFile } from "./file-io";
-import { parseCanvasDocument, type CanvasDocument } from "./snapshot";
-import { whiteboardChannel } from "./protocol";
+import {
+  parseCanvasDocument,
+  type CanvasDocument,
+  type LiteratureSource,
+  type NoteSource,
+} from "./snapshot";
+import {
+  whiteboardChannel,
+  type AcademicAcquisition,
+  type AcademicAcquisitionBatch,
+  type AcademicAcquisitionFailure,
+  type AcademicDropFailureCode,
+  type AcademicDropSourceRef,
+  type AcademicRequestFailureCode,
+  type AcademicSourceDescriptor,
+  type AnnotationListFailure,
+} from "./protocol";
 import { WhiteboardSaveCoordinator } from "./save-coordinator";
 import { whiteboardRegistry, type WhiteboardSession } from "./session-registry";
 import { WHITEBOARD_TAB_TYPE } from "./tabHooks";
 import { isWhiteboardAttachment } from "./detect";
+import {
+  createZoteroSourceGateway,
+  SourceGatewayError,
+  type ZoteroSourceGateway,
+} from "./source-gateway";
+import { ProgressiveSourceScheduler } from "./source-scheduler";
+import { sourceCacheKey } from "../../../packages/whiteboard/src/whiteboard/sourceState";
+import { getZoteroNoteTemplateRepository } from "./template-repository";
 
 const AUTOSAVE_MS = 800;
+
+function logAcademicDiagnostic(message: string, detail: object) {
+  if (typeof ztoolkit !== "undefined") ztoolkit.log(message, detail);
+}
+
+export type AcademicRequestFailureDiagnostic = {
+  operation: "picker" | "drop";
+  requestId: string;
+  nodeId?: string;
+  index?: number;
+  code:
+    | AcademicRequestFailureCode
+    | AcademicDropFailureCode
+    | AcademicAcquisitionFailure["code"];
+  diagnostic?: string;
+};
+
+export function reportAcademicRequestFailure(
+  detail: AcademicRequestFailureDiagnostic,
+  log: (message: string, detail: object) => void = logAcademicDiagnostic,
+) {
+  const operation = detail.operation === "picker" ? "picker" : "drop";
+  log(`Academic source ${operation} failed`, detail);
+}
 
 function newCanvasId() {
   try {
@@ -106,9 +156,9 @@ function pickZoteroItem(
     multiSelect: boolean;
   } = {
     dataOut: null,
-    singleSelection: true,
+    singleSelection: false,
     onlyRegularItems: opts.onlyRegularItems,
-    multiSelect: false,
+    multiSelect: true,
   };
   Services.ww.openWindow(
     null,
@@ -120,31 +170,100 @@ function pickZoteroItem(
   return io.dataOut?.length ? io.dataOut : null;
 }
 
-function promptPageNumber(win: Window): number | null {
-  const Services = ztoolkit.getGlobal("Services") as {
-    prompt: {
-      prompt: (
-        parent: Window,
-        title: string,
-        text: string,
-        value: { value: string },
-        checkMsg: string | null,
-        checkState: { value: boolean },
-      ) => boolean;
-    };
-  };
-  const value = { value: "1" };
-  const ok = Services.prompt.prompt(
-    win,
-    getString("whiteboard-pdf-page-title"),
-    getString("whiteboard-pdf-page-prompt"),
-    value,
-    null,
-    { value: false },
+type AcademicItemGateway = {
+  acquireItem(
+    item: Zotero.Item,
+  ): AcademicAcquisition | Promise<AcademicAcquisition>;
+};
+
+export async function acquireAcademicItems(
+  items: readonly (Zotero.Item | undefined)[],
+  gateway: AcademicItemGateway,
+): Promise<AcademicAcquisitionBatch> {
+  const outcomes = await Promise.all(
+    items.map(async (item, index) => {
+      if (!item) {
+        return {
+          failure: {
+            index,
+            code: "item-missing",
+            message: "Zotero item not found.",
+          } satisfies AcademicAcquisitionFailure,
+        };
+      }
+      try {
+        if (item.isRegularItem() || item.isNote()) {
+          return {
+            success: { index, acquisition: await gateway.acquireItem(item) },
+          };
+        }
+        if (item.isAttachment()) {
+          return {
+            failure: {
+              index,
+              code: "unsupported-attachment",
+              message: "Zotero attachments cannot be added to the canvas.",
+            } satisfies AcademicAcquisitionFailure,
+          };
+        }
+        return {
+          failure: {
+            index,
+            code: "unsupported-kind",
+            message: "This Zotero item type cannot be added to the canvas.",
+          } satisfies AcademicAcquisitionFailure,
+        };
+      } catch (error) {
+        return {
+          failure: {
+            index,
+            code: "acquisition-failed",
+            message: error instanceof Error ? error.message : String(error),
+          } satisfies AcademicAcquisitionFailure,
+        };
+      }
+    }),
   );
-  if (!ok) return null;
-  const page = Number.parseInt(value.value, 10);
-  return Number.isFinite(page) && page > 0 ? page : null;
+  return {
+    successes: outcomes.flatMap((outcome) =>
+      "success" in outcome && outcome.success ? [outcome.success] : [],
+    ),
+    failures: outcomes.flatMap((outcome) =>
+      "failure" in outcome && outcome.failure ? [outcome.failure] : [],
+    ),
+  };
+}
+
+async function resolveAcademicItems(
+  session: WhiteboardSession,
+  requestId: string,
+  nodeId: string,
+  itemIDs: readonly number[],
+) {
+  const editor = session.editor;
+  if (!editor) return;
+  const gateway = createZoteroSourceGateway();
+  const items = itemIDs.map((itemID) => {
+    try {
+      return Zotero.Items.get(itemID) || undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const result = await acquireAcademicItems(items, gateway);
+  for (const failure of result.failures) {
+    ztoolkit.log("Academic source acquisition failed", {
+      index: failure.index,
+      code: failure.code,
+      message: failure.message,
+    });
+  }
+  editor.resolveAcademicAcquisitionBatch(
+    requestId,
+    nodeId,
+    result.successes,
+    result.failures,
+  );
 }
 
 function dataUrlToBytes(
@@ -167,23 +286,6 @@ function dataUrlToBytes(
   return { bytes, mimeType };
 }
 
-async function renderPdfPageToDataUrl(
-  attachment: Zotero.Item,
-  pageIndex: number,
-): Promise<string | null> {
-  const worker = (Zotero as any).PDFWorker;
-  if (!worker?.getPageImage) return null;
-  const result = await worker.getPageImage(attachment, pageIndex, 1.5);
-  if (typeof result === "string") return result;
-  if (result && typeof result === "object") {
-    if (typeof result.dataURL === "string") return result.dataURL;
-    if (typeof result.dataUrl === "string") return result.dataUrl;
-    if (typeof result.image === "string") return result.image;
-    if (typeof result.data === "string") return result.data;
-  }
-  return null;
-}
-
 function canvasStorageDir(session: WhiteboardSession): string {
   try {
     const item = Zotero.Items.get(session.itemID);
@@ -197,117 +299,38 @@ function canvasStorageDir(session: WhiteboardSession): string {
   return PathUtils.parent(session.path) ?? session.path;
 }
 
-async function saveCanvasAsset(
-  session: WhiteboardSession,
-  bytes: Uint8Array,
-  mimeType: string,
-): Promise<{ relativePath: string }> {
-  const root = canvasStorageDir(session);
-  const assetsDir = PathUtils.join(root, "assets");
-  await IOUtils.makeDirectory(assetsDir, { ignoreExisting: true });
-  const extension = mimeType === "image/jpeg" ? "jpg" : "png";
-  const filename = `page-${Date.now()}-${Math.random().toString(16).slice(2, 6)}.${extension}`;
-  const relativePath = `assets/${filename}`;
-  await IOUtils.write(PathUtils.join(assetsDir, filename), bytes);
-  return { relativePath };
-}
-
-function creatorsText(item: Zotero.Item): string {
-  const creators = item.getCreators?.() || [];
-  return creators
-    .map((creator: any) =>
-      creator.lastName
-        ? `${creator.firstName ? creator.firstName + " " : ""}${creator.lastName}`
-        : creator.name || "",
-    )
-    .filter(Boolean)
-    .join(", ");
-}
-
-async function handlePickItem(
+async function handlePickAcademicSource(
   session: WhiteboardSession,
   requestId: string,
   nodeId: string,
-  kind: "item" | "pdf" | "attachment",
+  kind: "literature",
 ) {
   const editor = session.editor;
   if (!editor) return;
   try {
-    const itemIDs = pickZoteroItem(session.win, {
-      onlyRegularItems: kind === "item",
-    });
-    if (!itemIDs) return;
-    const item = Zotero.Items.get(itemIDs[0]);
-    if (!item) throw new Error("Item not found");
-
-    if (kind === "item") {
-      if (!item.isRegularItem())
-        throw new Error("Selected item is not a regular item");
-      const date = item.getField?.("date");
-      editor.resolvePick(requestId, nodeId, {
-        kind: "item",
-        title:
-          (item as any).getDisplayTitle?.() ||
-          item.getField?.("title") ||
-          "Untitled",
-        subtitle: [creatorsText(item), date].filter(Boolean).join(" · "),
-        itemID: item.id,
-      });
+    const itemIDs = pickZoteroItem(session.win);
+    if (!itemIDs) {
+      editor.rejectAcademicRequest(requestId, nodeId, "picker-cancelled");
       return;
     }
-
-    if (kind === "attachment") {
-      if (!item.isAttachment())
-        throw new Error("Selected item is not an attachment");
-      const filename =
-        item.attachmentFilename || item.getField?.("title") || "Attachment";
-      const size = (item as any).attachmentSize;
-      editor.resolvePick(requestId, nodeId, {
-        kind: "attachment",
-        title: filename,
-        subtitle: size ? `${Math.ceil(size / 1024)} KB` : "File",
-        attachmentID: item.id,
-      });
-      return;
+    if (kind !== "literature") {
+      throw new Error("Select a regular Zotero item or Note");
     }
-
-    // pdf
-    if (!item.isAttachment()) {
-      throw new Error("Selected item is not an attachment");
-    }
-    const filename = item.attachmentFilename || "";
-    const isPdf =
-      item.attachmentContentType === "application/pdf" ||
-      /\.pdf$/i.test(filename);
-    if (!isPdf) throw new Error("Selected attachment is not a PDF");
-
-    const page = promptPageNumber(session.win);
-    if (page == null) return;
-
-    const dataUrl = await renderPdfPageToDataUrl(item, page);
-    if (!dataUrl) {
-      throw new Error("PDF page rendering is not available in this Zotero");
-    }
-    const parsed = dataUrlToBytes(dataUrl);
-    if (!parsed) throw new Error("Invalid rendered image data");
-    const { relativePath } = await saveCanvasAsset(
-      session,
-      parsed.bytes,
-      parsed.mimeType,
-    );
-    editor.resolvePick(requestId, nodeId, {
-      kind: "pdf",
-      title: filename || item.getField?.("title") || "PDF",
-      subtitle: `p. ${page}`,
-      pdfPage: page,
-      attachmentID: item.id,
-      image: dataUrl,
-      asset: relativePath,
-    });
+    await resolveAcademicItems(session, requestId, nodeId, itemIDs);
   } catch (error) {
-    editor.rejectPick(
+    const diagnostic = error instanceof Error ? error.message : String(error);
+    reportAcademicRequestFailure({
+      operation: "picker",
       requestId,
-      error instanceof Error ? error.message : String(error),
+      nodeId,
+      code: "picker-failed",
+      diagnostic,
+    });
+    editor.rejectAcademicRequest(
+      requestId,
+      nodeId,
+      "picker-failed",
+      diagnostic,
     );
   }
 }
@@ -344,105 +367,278 @@ function openZoteroItem(payload: {
   }
 }
 
-function parseDroppedItemID(raw: Record<string, string>): number | null {
-  for (const value of Object.values(raw)) {
-    if (!value) continue;
-    const direct = Number.parseInt(value, 10);
-    if (Number.isFinite(direct) && direct > 0) return direct;
-    try {
-      const parsed = JSON.parse(value);
-      if (typeof parsed === "number" && parsed > 0) return parsed;
-      if (Array.isArray(parsed)) {
-        for (const entry of parsed) {
-          const id =
-            typeof entry === "number"
-              ? entry
-              : entry && typeof entry === "object"
-                ? entry.itemID || entry.id
-                : null;
-          if (typeof id === "number" && id > 0) return id;
-        }
-      }
-      if (parsed && typeof parsed === "object") {
-        const id = parsed.itemID || parsed.id;
-        if (typeof id === "number" && id > 0) return id;
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return null;
+type ZoteroDragTransfer = Pick<DataTransfer, "types" | "getData">;
+
+const ZOTERO_DRAG_PRECEDENCE = [
+  "zotero/collection",
+  "zotero/item",
+  "zotero/search",
+] as const;
+
+function primaryZoteroDragType(transfer: ZoteroDragTransfer) {
+  const types = Array.from(transfer.types ?? []);
+  return ZOTERO_DRAG_PRECEDENCE.find((type) => types.includes(type));
 }
 
-async function handleDropItems(
+export function parseDroppedItemIDs(transfer: ZoteroDragTransfer): number[] {
+  return readDroppedItemIDs(transfer).itemIDs;
+}
+
+function readDroppedItemIDs(transfer: ZoteroDragTransfer): {
+  itemIDs: number[];
+  diagnostic?: string;
+} {
+  if (primaryZoteroDragType(transfer) !== "zotero/item") {
+    return { itemIDs: [] };
+  }
+  let payload: string;
+  try {
+    payload = transfer.getData("zotero/item").trim();
+  } catch (error) {
+    return {
+      itemIDs: [],
+      diagnostic: error instanceof Error ? error.message : String(error),
+    };
+  }
+  if (!payload || !/^\d+(?:\s*,\s*\d+)*$/.test(payload)) {
+    return { itemIDs: [] };
+  }
+  const ids = payload.split(",").map((value) => Number(value.trim()));
+  return {
+    itemIDs: ids.every((id) => Number.isSafeInteger(id) && id > 0) ? ids : [],
+  };
+}
+
+interface AcademicDropResolverDependencies {
+  userLibraryID: number;
+  getItem(itemID: number): Zotero.Item | null;
+  getLibrary(
+    libraryID: number,
+  ): { libraryType: string; groupID?: number } | null;
+}
+
+export function resolveNativeAcademicDrop(
+  transfer: ZoteroDragTransfer,
+  dependencies: AcademicDropResolverDependencies = {
+    userLibraryID: Zotero.Libraries.userLibraryID,
+    getItem: (itemID) => Zotero.Items.get(itemID) || null,
+    getLibrary: (libraryID) => Zotero.Libraries.get(libraryID) || null,
+  },
+): NativeAcademicDropResolution {
+  const type = primaryZoteroDragType(transfer);
+  if (!type) return { status: "ignored" };
+  if (type !== "zotero/item") {
+    return { status: "rejected", code: "drop-unsupported" };
+  }
+  const parsed = readDroppedItemIDs(transfer);
+  const itemIDs = parsed.itemIDs;
+  if (!itemIDs.length) {
+    return {
+      status: "rejected",
+      code: "drop-malformed",
+      ...(parsed.diagnostic ? { diagnostic: parsed.diagnostic } : {}),
+    };
+  }
+  const sources: AcademicDropSourceRef[] = [];
+  try {
+    for (const itemID of itemIDs) {
+      const item = dependencies.getItem(itemID);
+      if (!item?.key) {
+        return { status: "rejected", code: "drop-malformed" };
+      }
+      if (item.libraryID === dependencies.userLibraryID) {
+        sources.push({ library: { type: "user" }, itemKey: item.key });
+        continue;
+      }
+      const library = dependencies.getLibrary(item.libraryID);
+      if (
+        library?.libraryType !== "group" ||
+        typeof library.groupID !== "number"
+      ) {
+        return { status: "rejected", code: "drop-unsupported" };
+      }
+      sources.push({
+        library: { type: "group", groupID: library.groupID },
+        itemKey: item.key,
+      });
+    }
+  } catch (error) {
+    return {
+      status: "rejected",
+      code: "drop-malformed",
+      diagnostic: error instanceof Error ? error.message : String(error),
+    };
+  }
+  return { status: "accepted", sources };
+}
+
+async function handleDropAcademicSources(
   session: WhiteboardSession,
   requestId: string,
   nodeId: string,
-  raw: Record<string, string>,
+  sources: readonly AcademicDropSourceRef[],
 ) {
   const editor = session.editor;
   if (!editor) return;
   try {
-    const itemID = parseDroppedItemID(raw);
-    if (!itemID) throw new Error("Could not parse dropped item");
-    const item = Zotero.Items.get(itemID);
-    if (!item) throw new Error("Dropped item not found");
-
-    if (item.isRegularItem()) {
-      const date = item.getField?.("date");
-      editor.resolvePick(requestId, nodeId, {
-        kind: "item",
-        title:
-          (item as any).getDisplayTitle?.() ||
-          item.getField?.("title") ||
-          "Untitled",
-        subtitle: [creatorsText(item), date].filter(Boolean).join(" · "),
-        itemID: item.id,
+    if (!sources.length) {
+      reportAcademicRequestFailure({
+        operation: "drop",
+        requestId,
+        nodeId,
+        code: "acquisition-failed",
+        diagnostic: "The native source list was empty.",
       });
+      editor.rejectAcademicRequest(requestId, nodeId, "acquisition-failed");
       return;
     }
-    if (item.isNote?.()) throw new Error("Zotero Notes cannot be dropped here");
-    if (item.isAttachment()) {
-      const filename =
-        item.attachmentFilename || item.getField?.("title") || "Attachment";
-      const isPdf =
-        item.attachmentContentType === "application/pdf" ||
-        /\.pdf$/i.test(filename);
-      if (isPdf) {
-        const dataUrl = await renderPdfPageToDataUrl(item, 1);
-        if (!dataUrl) throw new Error("PDF page rendering is not available");
-        const parsed = dataUrlToBytes(dataUrl);
-        if (!parsed) throw new Error("Invalid rendered image data");
-        const { relativePath } = await saveCanvasAsset(
-          session,
-          parsed.bytes,
-          parsed.mimeType,
-        );
-        editor.resolvePick(requestId, nodeId, {
-          kind: "pdf",
-          title: filename,
-          subtitle: "p. 1",
-          pdfPage: 1,
-          attachmentID: item.id,
-          image: dataUrl,
-          asset: relativePath,
-        });
-        return;
-      }
-      editor.resolvePick(requestId, nodeId, {
-        kind: "attachment",
-        title: filename,
-        subtitle: "File",
-        attachmentID: item.id,
+    const items = sources.map(({ library, itemKey }) => {
+      const libraryID =
+        library.type === "user"
+          ? Zotero.Libraries.userLibraryID
+          : (Zotero.Groups.get(library.groupID)?.libraryID ?? null);
+      if (libraryID === null) return undefined;
+      return Zotero.Items.getByLibraryAndKey(libraryID, itemKey) || undefined;
+    });
+    const gateway = createZoteroSourceGateway();
+    const result = await acquireAcademicItems(items, gateway);
+    for (const failure of result.failures) {
+      reportAcademicRequestFailure({
+        operation: "drop",
+        requestId,
+        nodeId,
+        index: failure.index,
+        code: failure.code,
+        diagnostic: failure.message,
       });
-      return;
     }
-    throw new Error("Unsupported dropped item type");
-  } catch (error) {
-    editor.rejectPick(
+    editor.resolveAcademicAcquisitionBatch(
       requestId,
+      nodeId,
+      result.successes,
+      result.failures,
+    );
+  } catch (error) {
+    const diagnostic = error instanceof Error ? error.message : String(error);
+    reportAcademicRequestFailure({
+      operation: "drop",
+      requestId,
+      nodeId,
+      code: "acquisition-failed",
+      diagnostic,
+    });
+    editor.rejectAcademicRequest(
+      requestId,
+      nodeId,
+      "acquisition-failed",
+      diagnostic,
+    );
+  }
+}
+
+async function handleRefreshZoteroNote(
+  session: WhiteboardSession,
+  requestId: string,
+  nodeId: string,
+  source: NoteSource,
+) {
+  const editor = session.editor;
+  if (!editor) return;
+  try {
+    const gateway = createZoteroSourceGateway();
+    const acquisition = await gateway.refreshNote(source);
+    editor.applyNoteRefresh(requestId, nodeId, acquisition);
+  } catch (error) {
+    const code =
+      error instanceof SourceGatewayError &&
+      error.code !== "list-failed" &&
+      error.code !== "open-failed"
+        ? error.code
+        : "note-refresh-failed";
+    logAcademicDiagnostic("Zotero Note refresh failed", {
+      nodeId,
+      code,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    editor.rejectAcademicRequest(
+      requestId,
+      nodeId,
+      code,
       error instanceof Error ? error.message : String(error),
     );
+  }
+}
+
+export async function handleListLiteratureAnnotations(
+  session: WhiteboardSession,
+  requestId: string,
+  source: LiteratureSource,
+  gateway: Pick<
+    ZoteroSourceGateway,
+    "listAnnotations"
+  > = createZoteroSourceGateway(),
+) {
+  const editor = session.editor;
+  if (!editor) return;
+  try {
+    const { candidates, failures } = await gateway.listAnnotations(source);
+    for (const failure of failures) {
+      logAcademicDiagnostic("Zotero annotation unavailable", {
+        code: failure.code,
+        attachmentKey: failure.attachmentKey,
+        annotationKey: failure.annotationKey,
+        message: failure.message,
+      });
+    }
+    editor.applyAnnotationCandidates(requestId, source, candidates, failures);
+  } catch (error) {
+    const failure: AnnotationListFailure =
+      error instanceof SourceGatewayError &&
+      error.code !== "open-failed" &&
+      error.code !== "note-refresh-failed"
+        ? { code: error.code, message: error.message }
+        : {
+            code: "list-failed",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Zotero annotations could not be loaded.",
+          };
+    logAcademicDiagnostic("Zotero annotation list failed", {
+      code: failure.code,
+      message: failure.message,
+    });
+    editor.rejectAnnotationList(requestId, source, failure);
+  }
+}
+
+export async function handleOpenAcademicSource(
+  session: WhiteboardSession,
+  requestId: string,
+  nodeId: string,
+  source: AcademicSourceDescriptor,
+  gateway: Pick<ZoteroSourceGateway, "open"> = createZoteroSourceGateway(),
+) {
+  try {
+    await gateway.open(source);
+    session.editor?.acceptSourceAction(requestId, nodeId, "open", source);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const code =
+      error instanceof SourceGatewayError &&
+      error.code !== "list-failed" &&
+      error.code !== "note-refresh-failed"
+        ? error.code
+        : "open-failed";
+    logAcademicDiagnostic("Academic source open failed", {
+      nodeId,
+      code,
+      message,
+    });
+    session.editor?.rejectSourceAction(requestId, nodeId, source, {
+      code,
+      message,
+    });
   }
 }
 
@@ -612,6 +808,37 @@ function mountWhiteboardUI(
   container.appendChild(root);
 
   session.view = { root, host };
+  const gateway = createZoteroSourceGateway();
+  const templateRepository = getZoteroNoteTemplateRepository(
+    getString("whiteboard-template-conflict-copy"),
+  );
+  let resolutionBatchSequence = 0;
+  session.sourceScheduler = new ProgressiveSourceScheduler({
+    run: (job) => gateway.resolve(job.nodeId, job.generation, job.descriptor),
+    emit: (results) => {
+      for (const result of results) {
+        if (result.status !== "unavailable") continue;
+        ztoolkit.log("Academic source resolution failed", {
+          nodeId: result.nodeId,
+          code: result.code,
+          message: result.message,
+        });
+      }
+      const generations = new Map<number, typeof results>();
+      for (const result of results) {
+        const batch = generations.get(result.generation) ?? [];
+        batch.push(result);
+        generations.set(result.generation, batch);
+      }
+      for (const [generation, batch] of generations) {
+        session.editor?.applySourceResolutionBatch(
+          `source-result-${generation}-${resolutionBatchSequence++}`,
+          generation,
+          batch,
+        );
+      }
+    },
+  });
   session.saveCoordinator = new WhiteboardSaveCoordinator({
     getSnapshot: async () => {
       if (!session.editor) throw new Error("Canvas editor is unavailable");
@@ -642,8 +869,10 @@ function mountWhiteboardUI(
     win,
     channel: whiteboardChannel(session.tabID, session.canvasId),
     snapshot: initialSnapshot,
+    templates: templateRepository.list(),
     labels: {
       canvas: getString("whiteboard-canvas"),
+      selection: getString("whiteboard-selection"),
       select: getString("whiteboard-select"),
       hand: getString("whiteboard-hand"),
       addItem: getString("whiteboard-add-item"),
@@ -661,14 +890,78 @@ function mountWhiteboardUI(
       kindLiterature: getString("whiteboard-kind-literature"),
       kindQuote: getString("whiteboard-kind-quote"),
       kindNote: getString("whiteboard-kind-note"),
-      kindQuestion: getString("whiteboard-kind-question"),
-      kindClaim: getString("whiteboard-kind-claim"),
+      emptyNote: getString("whiteboard-note-empty"),
+      badge: getString("whiteboard-badge"),
+      applyTemplate: getString("whiteboard-apply-template"),
+      chooseTemplate: getString("whiteboard-choose-template"),
+      saveAsTemplate: getString("whiteboard-save-as-template"),
+      templateName: getString("whiteboard-template-name"),
+      includeTemplateContent: getString("whiteboard-include-template-content"),
+      customTemplates: getString("whiteboard-custom-templates"),
+      noCustomTemplates: getString("whiteboard-no-custom-templates"),
+      renameTemplate: getString("whiteboard-rename-template"),
+      duplicateTemplate: getString("whiteboard-duplicate-template"),
+      deleteTemplate: getString("whiteboard-delete-template"),
       kindFrame: getString("whiteboard-kind-frame"),
       annotationColor: getString("whiteboard-annotation-color"),
       annotations: {
         one: getString("whiteboard-annotations", { args: { count: 1 } }),
         other: getString("whiteboard-annotations", { args: { count: 2 } }),
       },
+      sourceStatus: getString("whiteboard-source-status"),
+      sourceIdle: getString("whiteboard-source-idle"),
+      sourceAvailable: getString("whiteboard-source-available"),
+      sourceLoading: getString("whiteboard-source-loading"),
+      sourceMissing: getString("whiteboard-source-missing"),
+      acquisitionSummary: getString("whiteboard-acquisition-summary", {
+        args: {
+          successCount: "{successCount}",
+          failureCount: "{failureCount}",
+        },
+      }),
+      dropMalformed: getString("whiteboard-drop-malformed"),
+      dropUnsupported: getString("whiteboard-drop-unsupported"),
+      acquisitionFailed: getString("whiteboard-acquisition-failed"),
+      sourceOpenFailed: getString("whiteboard-source-open-failed"),
+      sourceRefreshFailed: getString("whiteboard-source-refresh-failed"),
+      noteRefreshFailed: getString("whiteboard-note-refresh-failed"),
+      failureLibraryMissing: getString("whiteboard-failure-library-missing"),
+      failureItemMissing: getString("whiteboard-failure-item-missing"),
+      failureWrongKind: getString("whiteboard-failure-wrong-kind"),
+      failureParentMismatch: getString("whiteboard-failure-parent-mismatch"),
+      failureAttachmentUnavailable: getString(
+        "whiteboard-failure-attachment-unavailable",
+      ),
+      failureAnnotationUnavailable: getString(
+        "whiteboard-failure-annotation-unavailable",
+      ),
+      failureResolutionFailed: getString(
+        "whiteboard-failure-resolution-failed",
+      ),
+      failureOpenFailed: getString("whiteboard-failure-open-failed"),
+      failureListFailed: getString("whiteboard-failure-list-failed"),
+      openSource: getString("whiteboard-open-source"),
+      refreshSource: getString("whiteboard-refresh-source"),
+      refreshNote: getString("whiteboard-refresh-note"),
+      viewAnnotations: getString("whiteboard-view-annotations"),
+      annotationBrowserTitle: getString("whiteboard-annotation-browser-title"),
+      searchAnnotations: getString("whiteboard-search-annotations"),
+      annotationsLoading: getString("whiteboard-annotations-loading"),
+      annotationsEmpty: getString("whiteboard-annotations-empty"),
+      annotationsUnavailable: getString("whiteboard-annotations-unavailable"),
+      annotationsPartialFailure: getString(
+        "whiteboard-annotations-partial-failure",
+      ),
+      annotationAlreadyAdded: getString("whiteboard-annotation-already-added"),
+      focusExistingAnnotation: getString(
+        "whiteboard-focus-existing-annotation",
+      ),
+      addSelectedAnnotations: getString("whiteboard-add-selected-annotations"),
+      annotationPage: getString("whiteboard-annotation-page"),
+      noteOverwriteTitle: getString("whiteboard-note-overwrite-title"),
+      noteOverwriteBody: getString("whiteboard-note-overwrite-body"),
+      confirm: getString("whiteboard-confirm"),
+      cancel: getString("whiteboard-cancel"),
       eraser: getString("whiteboard-eraser"),
       undo: getString("whiteboard-undo"),
       redo: getString("whiteboard-redo"),
@@ -746,21 +1039,90 @@ function mountWhiteboardUI(
     onSave() {
       void saveSession(session);
     },
+    onSaveNoteTemplate(template) {
+      void templateRepository.save(template).catch((error) => {
+        ztoolkit.log("Failed to save Note template", error);
+        session.editor?.setTemplates(templateRepository.list());
+      });
+    },
+    onDeleteNoteTemplate(templateId) {
+      void templateRepository.remove(templateId).catch((error) => {
+        ztoolkit.log("Failed to delete Note template", error);
+        session.editor?.setTemplates(templateRepository.list());
+      });
+    },
     onError(message) {
       toast(message);
     },
-    onPickItem(requestId, nodeId, kind) {
-      void handlePickItem(session, requestId, nodeId, kind);
+    onPickAcademicSource(requestId, nodeId, kind) {
+      void handlePickAcademicSource(session, requestId, nodeId, kind);
     },
     onOpenItem(payload) {
       openZoteroItem(payload);
     },
-    onDropItems(requestId, nodeId, raw) {
-      void handleDropItems(session, requestId, nodeId, raw);
+    resolveNativeAcademicDrop(dataTransfer) {
+      return resolveNativeAcademicDrop(dataTransfer);
+    },
+    onNativeAcademicDropRejected(requestId, code, diagnostic) {
+      reportAcademicRequestFailure({
+        operation: "drop",
+        requestId,
+        code,
+        diagnostic,
+      });
+    },
+    onDropAcademicSources(requestId, nodeId, sources) {
+      void handleDropAcademicSources(session, requestId, nodeId, sources);
+    },
+    onResolveAcademicSources(_requestId, generation, priority, sources) {
+      const scheduler = session.sourceScheduler;
+      if (!scheduler) return;
+      if (
+        session.sourceGeneration !== undefined &&
+        generation < session.sourceGeneration
+      ) {
+        return;
+      }
+      if (session.sourceGeneration !== generation) {
+        if (session.sourceGeneration !== undefined) {
+          scheduler.cancelGeneration(session.sourceGeneration);
+        }
+        session.sourceGeneration = generation;
+      }
+      for (const { nodeId, source, refresh } of sources) {
+        const cacheKey = sourceCacheKey(source);
+        if (refresh) scheduler.invalidate(cacheKey);
+        scheduler.promote(cacheKey, priority);
+        scheduler.enqueue({
+          nodeId,
+          generation,
+          priority,
+          descriptor: source,
+          cacheKey,
+        });
+      }
+    },
+    onRefreshZoteroNote(requestId, nodeId, source) {
+      void handleRefreshZoteroNote(session, requestId, nodeId, source);
+    },
+    onOpenAcademicSource(requestId, nodeId, source) {
+      void handleOpenAcademicSource(
+        session,
+        requestId,
+        nodeId,
+        source,
+        gateway,
+      );
+    },
+    onListLiteratureAnnotations(requestId, source) {
+      void handleListLiteratureAnnotations(session, requestId, source);
     },
     onExportFile(payload) {
       void handleExportFile(session, payload);
     },
+  });
+  session.unsubscribeTemplates = templateRepository.subscribe(() => {
+    session.editor?.setTemplates(templateRepository.list());
   });
   bindSessionTheme(win, session);
 }
@@ -907,6 +1269,10 @@ export async function closeWhiteboardSession(tabID: string): Promise<boolean> {
   }
   session.closing = true;
   session.unbindTheme?.();
+  session.unsubscribeTemplates?.();
+  session.unsubscribeTemplates = undefined;
+  session.sourceScheduler?.dispose();
+  session.sourceScheduler = undefined;
   session.editor?.destroy();
   whiteboardRegistry.unregister(tabID);
   return true;

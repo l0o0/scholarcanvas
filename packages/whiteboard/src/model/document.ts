@@ -99,20 +99,21 @@ export function demoCanvasDocument(): CanvasDocument {
         snapshot: { text: "Evidence" },
       },
       {
-        id: "claim-1",
-        kind: "claim",
+        id: "note-claim-1",
+        kind: "note",
         position: { x: 680, y: 0 },
         width: 260,
         height: 128,
+        badge: "Claim",
         content: "This evidence supports the claim.",
       },
     ],
     connections: [
       {
-        id: "quote-supports-claim",
+        id: "quote-supports-note",
         kind: "academic",
         source: "quote-1",
-        target: "claim-1",
+        target: "note-claim-1",
         relation: "supports",
       },
     ],
@@ -291,6 +292,7 @@ function parseNode(value: unknown): CanvasNode | undefined {
     }
     case "note": {
       if (typeof value.content !== "string") return undefined;
+      const badge = parseOptionalString(value, "badge");
       const source = has(value, "source")
         ? parseNoteSource(value.source)
         : undefined;
@@ -298,6 +300,7 @@ function parseNode(value: unknown): CanvasNode | undefined {
         ? parseNoteSourceSnapshot(value.sourceSnapshot)
         : undefined;
       if (
+        badge === INVALID ||
         (has(value, "source") && !source) ||
         (has(value, "sourceSnapshot") && !sourceSnapshot)
       ) {
@@ -307,15 +310,11 @@ function parseNode(value: unknown): CanvasNode | undefined {
         ...base,
         kind: "note",
         content: value.content,
+        ...(badge !== undefined ? { badge } : {}),
         ...(source ? { source } : {}),
         ...(sourceSnapshot ? { sourceSnapshot } : {}),
       };
     }
-    case "question":
-    case "claim":
-      return typeof value.content === "string"
-        ? { ...base, kind: value.kind, content: value.content }
-        : undefined;
     case "frame":
       return typeof value.title === "string"
         ? { ...base, kind: "frame", title: value.title }
@@ -508,13 +507,15 @@ function parseLineData(value: unknown): LineNodeData | undefined {
   return { ...data, ...(from ? { from } : {}), ...(to ? { to } : {}) };
 }
 
-function parseLiteratureSource(value: unknown): LiteratureSource | undefined {
+export function parseLiteratureSource(
+  value: unknown,
+): LiteratureSource | undefined {
   if (!isRecord(value) || !isNonEmptyString(value.itemKey)) return undefined;
   const library = parseLibrary(value.library);
   return library ? { library, itemKey: value.itemKey } : undefined;
 }
 
-function parseQuoteSource(value: unknown): QuoteSource | undefined {
+export function parseQuoteSource(value: unknown): QuoteSource | undefined {
   const source = parseLiteratureSource(value);
   if (
     !source ||
@@ -531,7 +532,7 @@ function parseQuoteSource(value: unknown): QuoteSource | undefined {
   };
 }
 
-function parseNoteSource(value: unknown): NoteSource | undefined {
+export function parseNoteSource(value: unknown): NoteSource | undefined {
   if (!isRecord(value) || !isNonEmptyString(value.noteKey)) return undefined;
   const library = parseLibrary(value.library);
   const itemKey = parseOptionalNonEmptyString(value, "itemKey");
@@ -544,15 +545,20 @@ function parseNoteSource(value: unknown): NoteSource | undefined {
 }
 
 function parseLibrary(value: unknown): ZoteroLibraryRef | undefined {
-  if (!isRecord(value)) return undefined;
+  if (!isRecord(value) || !has(value, "type")) return undefined;
   if (value.type === "user") return { type: "user" };
-  if (value.type === "group" && isFiniteNumber(value.groupID)) {
-    return { type: "group", groupID: value.groupID };
+  if (
+    value.type === "group" &&
+    has(value, "groupID") &&
+    Number.isSafeInteger(value.groupID) &&
+    (value.groupID as number) > 0
+  ) {
+    return { type: "group", groupID: value.groupID as number };
   }
   return undefined;
 }
 
-function parseLiteratureSnapshot(
+export function parseLiteratureSnapshot(
   value: unknown,
 ): LiteratureSnapshot | undefined {
   if (!isRecord(value) || typeof value.title !== "string") return undefined;
@@ -566,7 +572,9 @@ function parseLiteratureSnapshot(
     year === INVALID ||
     publicationTitle === INVALID ||
     tags === INVALID ||
-    annotationCount === INVALID
+    annotationCount === INVALID ||
+    (annotationCount !== undefined &&
+      (!Number.isSafeInteger(annotationCount) || annotationCount < 0))
   ) {
     return undefined;
   }
@@ -580,7 +588,7 @@ function parseLiteratureSnapshot(
   };
 }
 
-function parseQuoteSnapshot(value: unknown): QuoteSnapshot | undefined {
+export function parseQuoteSnapshot(value: unknown): QuoteSnapshot | undefined {
   if (!isRecord(value) || typeof value.text !== "string") return undefined;
   const comment = parseOptionalString(value, "comment");
   const citation = parseOptionalString(value, "citation");
@@ -603,7 +611,7 @@ function parseQuoteSnapshot(value: unknown): QuoteSnapshot | undefined {
   };
 }
 
-function parseNoteSourceSnapshot(
+export function parseNoteSourceSnapshot(
   value: unknown,
 ): NoteSourceSnapshot | undefined {
   if (!isRecord(value)) return undefined;

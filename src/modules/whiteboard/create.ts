@@ -1,11 +1,12 @@
 import {
+  ACADEMIC_SOURCE_CARD_SIZE,
   createAcademicNode,
-  createBasicNode,
   emptyCanvasDocument,
   type CanvasDocument,
 } from "./snapshot";
 import { serializeCanvasDocument } from "../../../packages/whiteboard/src/model/canvas-file";
 import { defaultCanvasFilename } from "./detect";
+import { createZoteroSourceGateway } from "./source-gateway";
 
 function decodeHtmlEntities(value: string): string {
   const named: Record<string, string> = {
@@ -257,22 +258,11 @@ export async function createWhiteboardForSelection(): Promise<void> {
   }
 }
 
-function creatorsText(item: Zotero.Item): string {
-  const creators = item.getCreators?.() || [];
-  return creators
-    .map((creator: any) =>
-      creator.lastName
-        ? `${creator.firstName ? creator.firstName + " " : ""}${creator.lastName}`
-        : creator.name || "",
-    )
-    .filter(Boolean)
-    .join(", ");
-}
-
 export function buildCollectionCanvas(
   collection: Zotero.Collection,
 ): CanvasDocument {
   const document = emptyCanvasDocument();
+  const gateway = createZoteroSourceGateway();
   const items = collection.getChildItems();
   let y = 80;
   let seq = 0;
@@ -280,63 +270,38 @@ export function buildCollectionCanvas(
     if (!item.isRegularItem() || item.parentItem) continue;
     if (seq >= 50) break;
     const itemId = `col-item-${seq}`;
-    const date = item.getField?.("date");
-    const itemNode = createBasicNode("item", { x: 80, y }, itemId);
-    document.nodes.push({
-      ...itemNode,
-      data: {
-        title:
-          (item as any).getDisplayTitle?.() ||
-          item.getField?.("title") ||
-          "Untitled",
-        subtitle: [creatorsText(item), date].filter(Boolean).join(" · "),
-        itemID: item.id,
-      },
-    });
-
-    const pdf = item
-      .getAttachments()
-      .map((id) => Zotero.Items.get(id))
-      .find(
-        (child): child is Zotero.Item =>
-          !!child &&
-          child.isAttachment() &&
-          (child.attachmentContentType === "application/pdf" ||
-            /\.pdf$/i.test(child.attachmentFilename || "")),
-      );
-    if (pdf) {
-      const pdfId = `${itemId}-pdf`;
-      const pdfNode = createBasicNode("pdf", { x: 360, y }, pdfId);
-      document.nodes.push({
-        ...pdfNode,
-        data: {
-          title: pdf.attachmentFilename || "PDF",
-          subtitle: "PDF",
-          attachmentID: pdf.id,
-        },
-      });
-      document.connections.push({
-        id: `${itemId}-e-pdf`,
-        kind: "basic",
-        source: itemId,
-        target: pdfId,
-      });
-    }
+    const acquisition = gateway.acquireItem(item);
+    if (acquisition.kind !== "literature") continue;
+    document.nodes.push(
+      createAcademicNode("literature", { x: 80, y }, itemId, {
+        source: acquisition.source,
+        snapshot: acquisition.snapshot,
+      }),
+    );
 
     const note = item
       .getNotes()
       .map((id) => Zotero.Items.get(id))
       .find((child): child is Zotero.Item => !!child && child.isNote?.());
     if (note) {
+      const acquisition = gateway.acquireItem(note);
+      if (acquisition.kind !== "note") continue;
       const noteId = `${itemId}-note`;
       const noteNode = createAcademicNode(
         "note",
-        { x: 80, y: y + 180 },
+        {
+          x: 80,
+          y: y + ACADEMIC_SOURCE_CARD_SIZE.literature.height + 40,
+        },
         noteId,
       );
       document.nodes.push({
         ...noteNode,
-        content: zoteroNotePlainText(note) || "Empty note",
+        source: acquisition.source,
+        ...(acquisition.sourceSnapshot
+          ? { sourceSnapshot: acquisition.sourceSnapshot }
+          : {}),
+        content: acquisition.content,
       });
       document.connections.push({
         id: `${itemId}-e-note`,
@@ -346,7 +311,7 @@ export function buildCollectionCanvas(
       });
     }
 
-    y += 360;
+    y += 440;
     seq += 1;
   }
   return document;

@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type ReactElement,
 } from "react";
 import {
@@ -30,8 +29,11 @@ import "./board.css";
 import {
   createAcademicNode,
   effectiveCanvasNodeUiTextStyle,
+  quoteSourceIdentity,
   type CanvasNode,
   type CanvasNodeKind,
+  type LiteratureSource,
+  type NoteSource,
 } from "../model/academic";
 import { createBasicNode } from "../model/basic";
 import {
@@ -39,9 +41,41 @@ import {
   parseCanvasDocument,
   type CanvasDocument,
 } from "../model/document";
-import type { WhiteboardLabels, WhiteboardTheme } from "../model/protocol";
+import {
+  BUILTIN_NOTE_TEMPLATE_IDS,
+  BUILTIN_NOTE_TEMPLATES,
+  applyNoteTemplate,
+  createBuiltinNoteTemplates,
+  createCustomNoteTemplate,
+  materializeNoteTemplate,
+  parseNoteTemplateRegistry,
+  type NoteTemplate,
+} from "../model/note-template";
+import type {
+  AcademicAcquisition,
+  AcademicAcquisitionFailure,
+  AcademicDropFailureCode,
+  AcademicDropSourceRef,
+  AcademicRequestFailureCode,
+  AcademicSourceDescriptor,
+  AcademicSourceActionFailure,
+  AnnotationCandidate,
+  AnnotationListFailure,
+  CanvasFailureCode,
+  CanvasNotice,
+  IndexedAcademicAcquisition,
+  SourceResolutionPriority,
+  SourceResolutionResult,
+  WhiteboardLabels,
+  WhiteboardTheme,
+} from "../model/protocol";
 import { canvasNodeTypes, type CanvasFlowNode } from "../nodes";
 import { PropertiesPanel } from "../chrome/PropertiesPanel";
+import {
+  AnnotationBrowser,
+  existingAnnotationKeys,
+  toggleAnnotationSelection,
+} from "../chrome/AnnotationBrowser";
 import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
 import { TextStyleBar } from "../chrome/TextStyleBar";
@@ -53,9 +87,9 @@ import {
   isDrawTool,
   isLibraryKind,
   isStampTool,
+  noteTemplateShortcut,
   shouldEditOnCreate,
   toolAfterDraw,
-  toolShortcut,
   type DrawFrame,
   type DrawKind,
 } from "../chrome/draw";
@@ -68,6 +102,14 @@ import {
 } from "./layout";
 import { buildCanvasMarkdown, buildCanvasSvg, svgToPngDataUrl } from "./export";
 import {
+  acceptAnnotationListFailure,
+  acceptAnnotationListResult,
+  closeAnnotationBrowserSession,
+  openAnnotationBrowserSession,
+  replaceDocumentAnnotationBrowserSession,
+  type AnnotationBrowserSession,
+} from "./annotationBrowserState";
+import {
   beginNodeEditing,
   canvasDocumentToFlow,
   flowNodeText,
@@ -75,8 +117,6 @@ import {
   labelTextStyle,
   mergeEditingStyle,
   toggleEditingBold,
-  mergePickerData,
-  parsePickerNodeData,
   type CanvasFlowEdge,
   updateFlowNodeModel,
   verticalAlignmentStyle,
@@ -93,11 +133,36 @@ import {
   updateFrameDragState,
   type FrameDragState,
 } from "./frame";
-import { captureCanvasArrowKey } from "./keyboard";
-import { useCanvasDocumentRuntime } from "./runtime";
+import {
+  captureCanvasArrowKey,
+  handleGlobalCanvasKeyDown,
+  isEditableTarget,
+} from "./keyboard";
+import {
+  createAcademicAcquisitionRuntime,
+  omitAcademicPlaceholders,
+  useCanvasDocumentRuntime,
+  type AcademicAcquisitionRuntime,
+} from "./runtime";
+import {
+  createQuoteBatchRuntime,
+  createSourceActionCorrelation,
+  createSourceRefreshRuntime,
+  createSourceResolutionStates,
+  prioritizedSourceRequests,
+  sourceDescriptor,
+  updateSourceResolutionStates,
+  type SourceRefreshRuntime,
+  type SourceResolutionRequest,
+} from "./sourceState";
+import {
+  createNoteRefreshRuntime,
+  type NoteRefreshRuntime,
+} from "./noteRefresh";
 
 const DEFAULT_LABELS: WhiteboardLabels = {
   canvas: "Canvas",
+  selection: "Selection",
   select: "Select (V)",
   hand: "Hand (H)",
   addItem: "Item",
@@ -115,11 +180,62 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   kindLiterature: "Literature",
   kindQuote: "Quote",
   kindNote: "Note",
-  kindQuestion: "Question",
-  kindClaim: "Claim",
+  emptyNote: "Empty note",
+  badge: "Badge",
+  applyTemplate: "Apply template",
+  chooseTemplate: "Choose a template",
+  saveAsTemplate: "Save as template",
+  templateName: "Template name",
+  includeTemplateContent: "Include current content",
+  customTemplates: "Custom templates",
+  noCustomTemplates: "No custom templates",
+  renameTemplate: "Rename template",
+  duplicateTemplate: "Duplicate template",
+  deleteTemplate: "Delete template",
   kindFrame: "Frame",
   annotationColor: "Annotation color",
   annotations: { one: "annotation", other: "annotations" },
+  sourceStatus: "Source status",
+  sourceIdle: "Not checked",
+  sourceAvailable: "Available",
+  sourceLoading: "Checking…",
+  sourceMissing: "Source unavailable",
+  acquisitionSummary:
+    "Added {successCount} source(s); {failureCount} could not be added.",
+  dropMalformed: "The Zotero drop could not be read.",
+  dropUnsupported: "This Zotero drag type cannot be added to the canvas.",
+  acquisitionFailed: "The Zotero source could not be added.",
+  sourceOpenFailed: "The Zotero source could not be opened.",
+  sourceRefreshFailed: "The Zotero source could not be refreshed.",
+  noteRefreshFailed: "The Zotero Note could not be refreshed.",
+  failureLibraryMissing: "The Zotero library is unavailable.",
+  failureItemMissing: "The Zotero item no longer exists.",
+  failureWrongKind: "The Zotero item type no longer matches this source.",
+  failureParentMismatch: "The Zotero item's parent has changed.",
+  failureAttachmentUnavailable: "The Zotero attachment is unavailable.",
+  failureAnnotationUnavailable: "The Zotero annotation is unavailable.",
+  failureResolutionFailed: "Zotero could not resolve the current source.",
+  failureOpenFailed: "Zotero could not open the current source.",
+  failureListFailed: "Zotero could not list annotations for this source.",
+  openSource: "Open source",
+  refreshSource: "Refresh source",
+  refreshNote: "Refresh from Zotero",
+  viewAnnotations: "View annotations",
+  annotationBrowserTitle: "Annotations",
+  searchAnnotations: "Search annotations",
+  annotationsLoading: "Loading annotations…",
+  annotationsEmpty: "No supported annotations",
+  annotationsUnavailable: "Annotations unavailable",
+  annotationsPartialFailure: "Some annotations could not be loaded",
+  annotationAlreadyAdded: "Already added",
+  focusExistingAnnotation: "Focus existing",
+  addSelectedAnnotations: "Add selected",
+  annotationPage: "Page",
+  noteOverwriteTitle: "Replace local Note?",
+  noteOverwriteBody:
+    "Zotero's current Note will replace local content. Local changes will be lost.",
+  confirm: "Replace",
+  cancel: "Cancel",
   eraser: "Eraser",
   undo: "Undo",
   redo: "Redo",
@@ -194,24 +310,46 @@ export interface WhiteboardAppProps {
   theme: WhiteboardTheme;
   labels?: WhiteboardLabels;
   initialSnapshot?: CanvasDocument;
+  templates?: NoteTemplate[];
   onReady: (api: WhiteboardRuntime) => void;
   onChange: (rev: number) => void;
-  onError: (message: string) => void;
   onSave: () => void;
-  onPickItem: (
+  onSaveNoteTemplate?: (template: NoteTemplate) => void;
+  onDeleteNoteTemplate?: (templateId: string) => void;
+  onPickAcademicSource: (
     requestId: string,
     nodeId: string,
-    kind: "item" | "pdf" | "attachment",
+    kind: "literature",
   ) => void;
   onOpenItem: (payload: {
     itemID?: number;
     attachmentID?: number;
     pdfPage?: number;
   }) => void;
-  onDropItems: (
+  onDropAcademicSources: (
     requestId: string,
     nodeId: string,
-    raw: Record<string, string>,
+    sources: AcademicDropSourceRef[],
+  ) => void;
+  onResolveAcademicSources?: (
+    requestId: string,
+    generation: number,
+    priority: SourceResolutionPriority,
+    sources: SourceResolutionRequest[],
+  ) => void;
+  onOpenAcademicSource?: (
+    requestId: string,
+    nodeId: string,
+    source: AcademicSourceDescriptor,
+  ) => void;
+  onRefreshZoteroNote: (
+    requestId: string,
+    nodeId: string,
+    source: NoteSource,
+  ) => void;
+  onListLiteratureAnnotations?: (
+    requestId: string,
+    source: LiteratureSource,
   ) => void;
   onExportFile: (payload: {
     requestId: string;
@@ -225,17 +363,182 @@ export interface WhiteboardAppProps {
 export interface WhiteboardRuntime {
   setTheme: (theme: WhiteboardTheme) => void;
   setLabels: (labels: WhiteboardLabels) => void;
+  setTemplates: (templates: NoteTemplate[]) => void;
   loadSnapshot: (snapshot: CanvasDocument) => void;
   getSnapshot: () => CanvasDocument;
   undo: () => void;
   redo: () => void;
-  resolvePick: (requestId: string, nodeId: string, data: unknown) => void;
-  rejectPick: (requestId: string, message: string) => void;
+  beginAcademicDrop: (
+    requestId: string,
+    nodeId: string,
+    position: { x: number; y: number },
+    sources: AcademicDropSourceRef[],
+  ) => void;
+  rejectAcademicDrop: (code: AcademicDropFailureCode) => void;
+  resolveAcademicAcquisitionBatch: (
+    requestId: string,
+    nodeId: string,
+    successes: IndexedAcademicAcquisition[],
+    failures: AcademicAcquisitionFailure[],
+  ) => void;
+  rejectAcademicRequest: (
+    requestId: string,
+    nodeId: string,
+    code: AcademicRequestFailureCode,
+  ) => void;
+  rejectSourceAction: (
+    requestId: string,
+    nodeId: string,
+    source: AcademicSourceDescriptor,
+    failure: AcademicSourceActionFailure,
+  ) => void;
+  acceptSourceAction: (
+    requestId: string,
+    nodeId: string,
+    action: "open",
+    source: AcademicSourceDescriptor,
+  ) => void;
+  applySourceResolutionBatch: (
+    generation: number,
+    results: SourceResolutionResult[],
+  ) => void;
+  applyNoteRefresh: (
+    requestId: string,
+    nodeId: string,
+    acquisition: Extract<AcademicAcquisition, { kind: "note" }>,
+  ) => void;
+  applyAnnotationCandidates: (
+    requestId: string,
+    source: LiteratureSource,
+    candidates: AnnotationCandidate[],
+    failures: AnnotationListFailure[],
+  ) => void;
+  rejectAnnotationList: (
+    requestId: string,
+    source: LiteratureSource,
+    failure: AnnotationListFailure,
+  ) => void;
   setSaveState: (state: "saved" | "saving" | "error") => void;
 }
 
 function newId(kind: string) {
   return `${kind}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 6)}`;
+}
+
+const SOURCE_PRIORITY_ORDER: Record<SourceResolutionPriority, number> = {
+  selected: 0,
+  visible: 1,
+  idle: 2,
+};
+
+export function canvasNoticeText(
+  labels: WhiteboardLabels,
+  notice: CanvasNotice,
+): string {
+  const withFailures = (
+    message: string,
+    codes: readonly CanvasFailureCode[],
+  ) => {
+    const reasons = [...new Set(codes)]
+      .map((code) => canvasFailureText(labels, code))
+      .filter((reason): reason is string => Boolean(reason));
+    return reasons.length ? `${message} ${reasons.join(" ")}` : message;
+  };
+  switch (notice.code) {
+    case "acquisition-summary":
+      return labels.acquisitionSummary
+        .replace("{successCount}", String(notice.context.successCount))
+        .replace("{failureCount}", String(notice.context.failureCount));
+    case "drop-malformed":
+      return labels.dropMalformed;
+    case "drop-unsupported":
+      return labels.dropUnsupported;
+    case "acquisition-failed":
+      return labels.acquisitionFailed;
+    case "source-open-failed":
+      return withFailures(labels.sourceOpenFailed, [notice.failureCode]);
+    case "source-refresh-failed":
+      return withFailures(labels.sourceRefreshFailed, [notice.failureCode]);
+    case "note-refresh-failed":
+      return withFailures(labels.noteRefreshFailed, [notice.failureCode]);
+    case "annotations-unavailable":
+      return withFailures(labels.annotationsUnavailable, [notice.failureCode]);
+    case "annotations-partial-failure":
+      return withFailures(
+        labels.annotationsPartialFailure,
+        notice.failureCodes,
+      );
+  }
+}
+
+export function canvasFailureText(
+  labels: WhiteboardLabels,
+  code: CanvasFailureCode,
+): string | null {
+  switch (code) {
+    case "library-missing":
+      return labels.failureLibraryMissing;
+    case "item-missing":
+      return labels.failureItemMissing;
+    case "wrong-kind":
+      return labels.failureWrongKind;
+    case "parent-mismatch":
+      return labels.failureParentMismatch;
+    case "attachment-unavailable":
+      return labels.failureAttachmentUnavailable;
+    case "annotation-unavailable":
+      return labels.failureAnnotationUnavailable;
+    case "resolution-failed":
+      return labels.failureResolutionFailed;
+    case "open-failed":
+      return labels.failureOpenFailed;
+    case "list-failed":
+      return labels.failureListFailed;
+    default:
+      return null;
+  }
+}
+
+const NOTICE_AUTO_DISMISS_MS = 8000;
+
+export function CanvasNoticeRegion(props: {
+  labels: WhiteboardLabels;
+  notice: CanvasNotice | null;
+  onDismiss: () => void;
+  autoDismissMs?: number;
+}): ReactElement | null {
+  const { labels, notice, onDismiss } = props;
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(
+      onDismiss,
+      props.autoDismissMs ?? NOTICE_AUTO_DISMISS_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [notice, onDismiss, props.autoDismissMs]);
+  if (!notice) return null;
+  return (
+    <div
+      className="zmd-board-notice"
+      data-tone={notice.code === "acquisition-summary" ? "info" : "error"}
+    >
+      <span role="status" aria-live="polite" aria-atomic="true">
+        {canvasNoticeText(labels, notice)}
+      </span>
+      <button
+        type="button"
+        aria-label={labels.close}
+        onClick={onDismiss}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          onDismiss();
+        }}
+      >
+        <span aria-hidden="true">×</span>
+      </button>
+    </div>
+  );
 }
 
 interface ContextMenuState {
@@ -294,10 +597,15 @@ function createCanvasNode(
   kind: CanvasNodeKind,
   position: { x: number; y: number },
   id: string,
+  noteTemplate?: NoteTemplate,
 ): CanvasNode {
-  if (kind === "note") return createAcademicNode("note", position, id);
-  if (kind === "question") return createAcademicNode("question", position, id);
-  if (kind === "claim") return createAcademicNode("claim", position, id);
+  if (kind === "note") {
+    return materializeNoteTemplate(
+      noteTemplate ?? BUILTIN_NOTE_TEMPLATES[0]!,
+      position,
+      id,
+    );
+  }
   if (kind === "frame") return createAcademicNode("frame", position, id);
   if (kind === "literature" || kind === "quote") {
     throw new Error(`${kind} nodes require a Zotero source and snapshot.`);
@@ -307,6 +615,7 @@ function createCanvasNode(
 
 function hasOpenTarget(node: CanvasFlowNode): boolean {
   const model = node.data.model;
+  if (sourceDescriptor(model)) return true;
   if (!("data" in model)) return false;
   return (
     ("itemID" in model.data && Boolean(model.data.itemID)) ||
@@ -325,12 +634,47 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     CanvasFlowNode,
     CanvasFlowEdge
   > | null>(null);
+  const sourceGenerationRef = useRef(1);
+  const sourceGenerationAnnouncedRef = useRef(0);
+  const sourcePrioritiesRef = useRef(
+    new Map<string, SourceResolutionPriority>(),
+  );
+  const sourceStatesRef = useRef(createSourceResolutionStates(initial.nodes));
+  const [, renderSourceState] = useState(0);
+  const cancelIdleResolutionRef = useRef<(() => void) | null>(null);
+  const [sourceCycle, setSourceCycle] = useState(1);
   const propsRef = useRef(props);
   propsRef.current = props;
+  const [canvasNotice, setCanvasNotice] = useState<CanvasNotice | null>(null);
+  const clearCanvasNotice = useCallback(() => setCanvasNotice(null), []);
+  const showCanvasNotice = useCallback(
+    (notice: CanvasNotice) => setCanvasNotice(notice),
+    [],
+  );
+  const clearMatchingNotice = useCallback(
+    (matches: (notice: CanvasNotice) => boolean) => {
+      setCanvasNotice((current) => {
+        if (!current || !matches(current)) return current;
+        return null;
+      });
+    },
+    [],
+  );
+  const openSourceRequestsRef = useRef(createSourceActionCorrelation());
+  const academicAcquisitionRef = useRef<AcademicAcquisitionRuntime | null>(
+    null,
+  );
+  const noteRefreshRuntimeRef = useRef<NoteRefreshRuntime | null>(null);
+  const sourceRefreshRuntimeRef = useRef<SourceRefreshRuntime | null>(null);
   const documentRuntime = useCanvasDocumentRuntime(
     initial,
     (revision) => propsRef.current.onChange(revision),
     (viewport) => flowRef.current?.setViewport(viewport),
+    (document) =>
+      omitAcademicPlaceholders(
+        document,
+        academicAcquisitionRef.current?.pendingNodeIds() ?? [],
+      ),
   );
   const {
     nodes,
@@ -345,16 +689,80 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     changed: bump,
     pushHistory,
     applyDocument,
-    loadSnapshot,
+    loadSnapshot: loadDocumentSnapshot,
+    applySourceResolutionBatch: applyDocumentSourceResolutionBatch,
+    applyLiteratureAnnotationCount,
+    getRawSnapshot: workingSnapshot,
     getSnapshot: snapshotNow,
     undo,
     redo,
   } = documentRuntime;
+  if (!academicAcquisitionRef.current) {
+    academicAcquisitionRef.current = createAcademicAcquisitionRuntime({
+      getNodes: () => nodesRef.current,
+      setNodes,
+      getEdges: () => edgesRef.current,
+      setEdges,
+      pushHistory,
+      changed: bump,
+      onNotice: showCanvasNotice,
+      createNodeId: () => newId("academic"),
+      onPickAcademicSource: (requestId, nodeId, kind) =>
+        propsRef.current.onPickAcademicSource(requestId, nodeId, kind),
+      onDropAcademicSources: (requestId, nodeId, sources) =>
+        propsRef.current.onDropAcademicSources(requestId, nodeId, sources),
+    });
+  }
+  const academicAcquisition = academicAcquisitionRef.current;
   const [theme, setTheme] = useState<WhiteboardTheme>(props.theme);
   const [labels, setLabels] = useState<WhiteboardLabels>(
     props.labels ?? DEFAULT_LABELS,
   );
+  const [customTemplates, setCustomTemplates] = useState<NoteTemplate[]>(() =>
+    parseNoteTemplateRegistry(props.templates ?? []),
+  );
+  const noteTemplates = useMemo(
+    () => [
+      ...createBuiltinNoteTemplates({
+        note: labels.addNote,
+        question: labels.addQuestion,
+        claim: labels.addClaim,
+      }),
+      ...customTemplates,
+    ],
+    [customTemplates, labels.addClaim, labels.addNote, labels.addQuestion],
+  );
+  if (!noteRefreshRuntimeRef.current) {
+    noteRefreshRuntimeRef.current = createNoteRefreshRuntime({
+      getWorkingDocument: workingSnapshot,
+      getHistoryDocument: snapshotNow,
+      applyDocument,
+      commitHistory: (document) => documentHistory.commit(document),
+      confirm: (warning) => window.confirm(warning),
+      request: (requestId, nodeId, source) =>
+        propsRef.current.onRefreshZoteroNote(requestId, nodeId, source),
+      onError: (_message, nodeId) =>
+        showCanvasNotice({
+          code: "note-refresh-failed",
+          nodeId,
+          failureCode: "note-refresh-failed",
+        }),
+      createRequestId: () => newId("note-refresh"),
+    });
+  }
+  const noteRefreshRuntime = noteRefreshRuntimeRef.current;
+  if (!sourceRefreshRuntimeRef.current) {
+    sourceRefreshRuntimeRef.current = createSourceRefreshRuntime({
+      getNodes: () => nodesRef.current,
+      applyResolutionBatch: applyDocumentSourceResolutionBatch,
+      changed: bump,
+    });
+  }
+  const sourceRefreshRuntime = sourceRefreshRuntimeRef.current;
   const [activeTool, setActiveTool] = useState<CanvasTool>("select");
+  const [activeNoteTemplateId, setActiveNoteTemplateId] = useState<string>(
+    BUILTIN_NOTE_TEMPLATE_IDS.note,
+  );
   const eraser = activeTool === "eraser";
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">(
     "saved",
@@ -366,20 +774,367 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [styleTarget, setStyleTarget] = useState<string | null>(null);
+  const [annotationBrowser, setAnnotationBrowser] =
+    useState<AnnotationBrowserSession | null>(null);
+  const annotationBrowserRef = useRef<AnnotationBrowserSession | null>(null);
+  annotationBrowserRef.current = annotationBrowser;
+  const annotationBrowserOriginNodeIdRef = useRef<string | null>(null);
+  const viewAnnotationsRef = useRef<HTMLButtonElement | null>(null);
+  const canvasHostRef = useRef<HTMLDivElement | null>(null);
   const holdEditFocusRef = useRef(false);
 
-  const pendingPicksRef = useRef(new Map<string, string>());
   const runtimeRef = useRef<WhiteboardRuntime | null>(null);
   const drawRef = useRef<DrawSession | null>(null);
-  const preDrawRef = useRef<CanvasDocument | null>(null);
+  const preDrawRef = useRef<{
+    working: CanvasDocument;
+    history: CanvasDocument;
+  } | null>(null);
   const frameDragRef = useRef<FrameDragState | null>(null);
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
 
+  const cancelIdleResolution = useCallback(() => {
+    cancelIdleResolutionRef.current?.();
+    cancelIdleResolutionRef.current = null;
+  }, []);
+
+  const requestSources = useCallback(
+    (
+      priority: SourceResolutionPriority,
+      sources: readonly SourceResolutionRequest[],
+      generation = sourceGenerationRef.current,
+    ) => {
+      if (generation !== sourceGenerationRef.current) return;
+      const requested = sources.filter(({ nodeId, refresh }) => {
+        const previous = sourcePrioritiesRef.current.get(nodeId);
+        if (
+          !refresh &&
+          previous &&
+          SOURCE_PRIORITY_ORDER[previous] <= SOURCE_PRIORITY_ORDER[priority]
+        ) {
+          return false;
+        }
+        sourcePrioritiesRef.current.set(nodeId, priority);
+        return true;
+      });
+      const generationWasAnnounced =
+        sourceGenerationAnnouncedRef.current === generation;
+      if (!requested.length && generationWasAnnounced) return;
+      sourceStatesRef.current = updateSourceResolutionStates(
+        sourceStatesRef.current,
+        requested.map(({ nodeId }) => ({ nodeId, status: "loading" })),
+      );
+      if (requested.length) renderSourceState((revision) => revision + 1);
+      sourceGenerationAnnouncedRef.current = generation;
+      propsRef.current.onResolveAcademicSources?.(
+        newId("source-resolution"),
+        generation,
+        priority,
+        requested,
+      );
+    },
+    [],
+  );
+
+  const currentSourceRequests = useCallback(
+    () =>
+      prioritizedSourceRequests(nodesRef.current, viewportRef.current, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      }),
+    [nodesRef, viewportRef],
+  );
+
+  const scheduleSourceResolution = useCallback(() => {
+    cancelIdleResolution();
+    const generation = sourceGenerationRef.current;
+    const requests = currentSourceRequests();
+    requestSources("selected", requests.selected, generation);
+    requestSources("visible", requests.visible, generation);
+
+    const runIdle = () => {
+      cancelIdleResolutionRef.current = null;
+      if (generation !== sourceGenerationRef.current) return;
+      requestSources("idle", currentSourceRequests().idle, generation);
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(runIdle);
+      cancelIdleResolutionRef.current = () => window.cancelIdleCallback(idleId);
+    } else {
+      const timeoutId = window.setTimeout(runIdle, 0);
+      cancelIdleResolutionRef.current = () => window.clearTimeout(timeoutId);
+    }
+  }, [cancelIdleResolution, currentSourceRequests, requestSources]);
+
+  const requestVisibleSources = useCallback(() => {
+    const requests = currentSourceRequests();
+    requestSources("selected", requests.selected);
+    requestSources("visible", requests.visible);
+  }, [currentSourceRequests, requestSources]);
+
+  const loadSnapshot = useCallback(
+    (value: CanvasDocument) => {
+      cancelIdleResolution();
+      annotationBrowserRef.current = replaceDocumentAnnotationBrowserSession(
+        annotationBrowserRef.current,
+      );
+      setAnnotationBrowser(annotationBrowserRef.current);
+      noteRefreshRuntimeRef.current?.clear();
+      sourceRefreshRuntimeRef.current?.clear();
+      academicAcquisitionRef.current?.clear();
+      openSourceRequestsRef.current.clear();
+      clearCanvasNotice();
+      annotationBrowserOriginNodeIdRef.current = null;
+      sourceGenerationRef.current += 1;
+      sourcePrioritiesRef.current.clear();
+      sourceStatesRef.current = createSourceResolutionStates(value.nodes);
+      loadDocumentSnapshot(value);
+      setSourceCycle(sourceGenerationRef.current);
+    },
+    [cancelIdleResolution, clearCanvasNotice, loadDocumentSnapshot],
+  );
+
+  const applySourceResolutionBatch = useCallback(
+    (generation: number, results: SourceResolutionResult[]) => {
+      if (generation !== sourceGenerationRef.current) return;
+      const current = results.filter(
+        (result) => result.generation === generation,
+      );
+      if (!current.length) return;
+      sourceStatesRef.current = updateSourceResolutionStates(
+        sourceStatesRef.current,
+        current.map((result) =>
+          result.status === "resolved"
+            ? { nodeId: result.nodeId, status: "resolved" as const }
+            : {
+                nodeId: result.nodeId,
+                status: "unavailable" as const,
+                message: result.message,
+              },
+        ),
+      );
+      renderSourceState((revision) => revision + 1);
+      const explicitResults = sourceRefreshRuntime.apply(generation, current);
+      for (const result of explicitResults) {
+        if (result.status !== "resolved") continue;
+        clearMatchingNotice(
+          (notice) =>
+            notice.code === "source-refresh-failed" &&
+            notice.nodeId === result.nodeId,
+        );
+      }
+      const failedRefresh = explicitResults.find(
+        (result) => result.status === "unavailable",
+      );
+      if (failedRefresh?.status === "unavailable") {
+        showCanvasNotice({
+          code: "source-refresh-failed",
+          nodeId: failedRefresh.nodeId,
+          failureCode: failedRefresh.code,
+        });
+      }
+    },
+    [clearMatchingNotice, showCanvasNotice, sourceRefreshRuntime],
+  );
+
+  const refreshNoteSource = useCallback(
+    (node: CanvasFlowNode) => {
+      noteRefreshRuntime.request(node, labels);
+    },
+    [labels, noteRefreshRuntime],
+  );
+
+  const refreshAcademicSource = useCallback(
+    (node: CanvasFlowNode) => {
+      const request = sourceRefreshRuntime.request(node);
+      if (!request) return;
+      requestSources("selected", [{ ...request, refresh: true }]);
+    },
+    [requestSources, sourceRefreshRuntime],
+  );
+
+  const refreshNodeSource = useCallback(
+    (node: CanvasFlowNode) => {
+      if (node.data.model.kind === "note") refreshNoteSource(node);
+      else refreshAcademicSource(node);
+    },
+    [refreshAcademicSource, refreshNoteSource],
+  );
+
+  const applyNoteRefresh = useCallback(
+    (
+      requestId: string,
+      nodeId: string,
+      acquisition: Extract<AcademicAcquisition, { kind: "note" }>,
+    ) => {
+      if (noteRefreshRuntime.resolve(requestId, nodeId, acquisition)) {
+        clearMatchingNotice(
+          (notice) =>
+            notice.code === "note-refresh-failed" && notice.nodeId === nodeId,
+        );
+        sourceStatesRef.current = updateSourceResolutionStates(
+          sourceStatesRef.current,
+          [{ nodeId, status: "resolved" }],
+        );
+        renderSourceState((revision) => revision + 1);
+      }
+    },
+    [clearMatchingNotice, noteRefreshRuntime],
+  );
+
+  const openAnnotationBrowser = useCallback((node: CanvasFlowNode) => {
+    const model = node.data.model;
+    if (model.kind !== "literature" || annotationBrowserRef.current) return;
+    const requestId = newId("annotations");
+    const session = openAnnotationBrowserSession(requestId, model.source);
+    annotationBrowserOriginNodeIdRef.current = node.id;
+    annotationBrowserRef.current = session;
+    setAnnotationBrowser(session);
+    propsRef.current.onListLiteratureAnnotations?.(requestId, model.source);
+  }, []);
+
+  const applyAnnotationCandidates = useCallback(
+    (
+      requestId: string,
+      source: LiteratureSource,
+      candidates: AnnotationCandidate[],
+      failures: AnnotationListFailure[],
+    ) => {
+      const current = annotationBrowserRef.current;
+      const next = acceptAnnotationListResult(current, requestId, source, {
+        candidates,
+        failures,
+      });
+      if (next === current) return;
+      const originNodeId = annotationBrowserOriginNodeIdRef.current;
+      if (originNodeId) {
+        applyLiteratureAnnotationCount(originNodeId, source, candidates.length);
+      }
+      annotationBrowserRef.current = next;
+      setAnnotationBrowser(next);
+      if (failures.length) {
+        showCanvasNotice({
+          code: "annotations-partial-failure",
+          requestId,
+          failureCodes: failures.map((failure) => failure.code),
+        });
+      } else {
+        clearMatchingNotice(
+          (notice) =>
+            notice.code === "annotations-unavailable" ||
+            notice.code === "annotations-partial-failure",
+        );
+      }
+    },
+    [applyLiteratureAnnotationCount, clearMatchingNotice, showCanvasNotice],
+  );
+
+  const rejectAnnotationList = useCallback(
+    (
+      requestId: string,
+      source: LiteratureSource,
+      failure: AnnotationListFailure,
+    ) => {
+      const current = annotationBrowserRef.current;
+      const next = acceptAnnotationListFailure(
+        current,
+        requestId,
+        source,
+        failure,
+      );
+      if (next === current) return;
+      annotationBrowserRef.current = next;
+      setAnnotationBrowser(next);
+      showCanvasNotice({
+        code: "annotations-unavailable",
+        requestId,
+        failureCode: failure.code,
+      });
+    },
+    [showCanvasNotice],
+  );
+
+  const closeAnnotationBrowser = useCallback(() => {
+    annotationBrowserRef.current = closeAnnotationBrowserSession(
+      annotationBrowserRef.current,
+    );
+    setAnnotationBrowser(annotationBrowserRef.current);
+    annotationBrowserOriginNodeIdRef.current = null;
+  }, []);
+
+  const addSelectedAnnotations = useCallback(() => {
+    const session = annotationBrowserRef.current;
+    const literatureNodeId = annotationBrowserOriginNodeIdRef.current;
+    if (!session || !literatureNodeId || session.state.status !== "ready") {
+      closeAnnotationBrowser();
+      return;
+    }
+    const addedNodeIds = createQuoteBatchRuntime({
+      getWorkingDocument: workingSnapshot,
+      getHistoryDocument: snapshotNow,
+      applyDocument,
+      commitHistory: (document) => documentHistory.commit(document),
+      createNodeId: () => newId("quote"),
+    }).add(literatureNodeId, session.state.candidates, session.selectedKeys);
+    if (addedNodeIds.length) {
+      setNodes((current) =>
+        current.map((node) => ({
+          ...node,
+          selected: node.id === literatureNodeId,
+        })),
+      );
+      sourceStatesRef.current = updateSourceResolutionStates(
+        sourceStatesRef.current,
+        addedNodeIds.map((nodeId) => ({ nodeId, status: "idle" })),
+      );
+      renderSourceState((revision) => revision + 1);
+      setSourceCycle((cycle) => cycle + 1);
+    }
+    closeAnnotationBrowser();
+  }, [
+    applyDocument,
+    closeAnnotationBrowser,
+    documentHistory,
+    setNodes,
+    snapshotNow,
+    workingSnapshot,
+  ]);
+
+  const focusExistingAnnotation = useCallback(
+    (annotationIdentity: string) => {
+      const existing = nodesRef.current.find(
+        (node) =>
+          node.data.model.kind === "quote" &&
+          quoteSourceIdentity(node.data.model.source) === annotationIdentity,
+      );
+      if (!existing) return;
+      closeAnnotationBrowser();
+      setNodes((current) =>
+        current.map((node) => ({
+          ...node,
+          selected: node.id === existing.id,
+        })),
+      );
+      void flowRef.current?.fitView({
+        nodes: [{ id: existing.id }],
+        padding: 0.4,
+        duration: 200,
+      });
+      window.requestAnimationFrame(() => {
+        const canvasHost = canvasHostRef.current;
+        const existingElement = Array.from(
+          canvasHost?.querySelectorAll<HTMLElement>(".react-flow__node") ?? [],
+        ).find((element) => element.dataset.id === existing.id);
+        (existingElement ?? canvasHost)?.focus();
+      });
+    },
+    [closeAnnotationBrowser, nodesRef, setNodes],
+  );
+
   const applyNodePositions = useCallback(
     (positioned: readonly CanvasFlowNode[]) => {
       const document = moveNodesInDocument(
-        snapshotNow(),
+        workingSnapshot(),
         positioned.map((node) => ({ id: node.id, position: node.position })),
       );
       const models = new Map(document.nodes.map((node) => [node.id, node]));
@@ -396,7 +1151,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         }),
       );
     },
-    [setNodes, snapshotNow],
+    [setNodes, workingSnapshot],
   );
 
   const deleteCanvasElements = useCallback(
@@ -405,7 +1160,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       const edgeIdSet = new Set(edgeIds);
       if (!nodeIdSet.size && !edgeIdSet.size) return;
 
-      let document = snapshotNow();
+      let document = workingSnapshot();
       const existingNodeIds = new Set(document.nodes.map((node) => node.id));
       const existingEdgeIds = new Set(
         document.connections.map((connection) => connection.id),
@@ -436,7 +1191,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       applyDocument(document);
       bump();
     },
-    [applyDocument, bump, pushHistory, snapshotNow],
+    [applyDocument, bump, pushHistory, workingSnapshot],
   );
 
   const onNodesChange = useCallback(
@@ -532,11 +1287,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       pushHistory();
       frameDragRef.current =
         beginFrameDragState(
-          snapshotNow(),
+          workingSnapshot(),
           draggedNodes.map((dragged) => dragged.id),
         ) ?? null;
     },
-    [pushHistory, snapshotNow],
+    [pushHistory, workingSnapshot],
   );
 
   const endFrameDrag = useCallback(() => {
@@ -591,16 +1346,32 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
 
   const addNode = useCallback(
     (kind: CanvasNodeKind, position?: { x: number; y: number }) => {
-      pushHistory();
       const center = position ??
         flowRef.current?.screenToFlowPosition({
           x: window.innerWidth / 2,
           y: window.innerHeight / 2,
         }) ?? { x: 120, y: 120 };
       const nodeId = newId(kind);
+      if (kind === "literature") {
+        const requestId = `pick-${nodeId}-${Date.now().toString(36)}`;
+        academicAcquisition.placeLiterature(requestId, nodeId, center);
+        return;
+      }
+      pushHistory();
       const created = canvasDocumentToFlow({
         version: 2,
-        nodes: [createCanvasNode(kind, center, nodeId)],
+        nodes: [
+          createCanvasNode(
+            kind,
+            center,
+            nodeId,
+            kind === "note"
+              ? noteTemplates.find(
+                  (template) => template.id === activeNoteTemplateId,
+                )
+              : undefined,
+          ),
+        ],
         connections: [],
       }).nodes[0];
       const editOnCreate = isStampTool(kind) && shouldEditOnCreate(kind);
@@ -614,13 +1385,14 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       if (editOnCreate) {
         setEditing({ nodeId, value: flowNodeText(created) });
       }
-      if (isLibraryKind(kind)) {
-        const requestId = `pick-${nodeId}-${Date.now().toString(36)}`;
-        pendingPicksRef.current.set(requestId, nodeId);
-        propsRef.current.onPickItem(requestId, nodeId, kind);
-      }
     },
-    [bump, pushHistory],
+    [
+      academicAcquisition,
+      activeNoteTemplateId,
+      bump,
+      noteTemplates,
+      pushHistory,
+    ],
   );
 
   const flowPoint = useCallback((clientX: number, clientY: number) => {
@@ -638,7 +1410,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     drawRef.current = null;
     const previous = preDrawRef.current;
     preDrawRef.current = null;
-    if (previous) applyDocument(previous);
+    if (previous) applyDocument(previous.working);
     else {
       setNodes((current) =>
         current.filter((node) => node.id !== session.nodeId),
@@ -673,7 +1445,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const previous = preDrawRef.current;
     preDrawRef.current = null;
     if (previous) {
-      documentHistory.push(previous);
+      documentHistory.push(previous.history);
     }
     setNodes((current) =>
       current.map((node) => ({
@@ -701,7 +1473,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         kind,
         shift: event.shiftKey,
       });
-      preDrawRef.current = snapshotNow();
+      preDrawRef.current = {
+        working: workingSnapshot(),
+        history: snapshotNow(),
+      };
       const created = applyDrawFrame(
         canvasDocumentToFlow({
           version: 2,
@@ -719,7 +1494,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       };
       setNodes((current) => [...current, created]);
     },
-    [flowPoint, snapshotNow],
+    [flowPoint, snapshotNow, workingSnapshot],
   );
 
   const eraseNode = useCallback(
@@ -760,7 +1535,19 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const openNode = useCallback(
     (node: CanvasFlowNode) => {
       const model = node.data.model;
-      if (model.kind === "pdf" && model.data.attachmentID) {
+      const academicSource = sourceDescriptor(model);
+      if (academicSource) {
+        requestSources("selected", [
+          { nodeId: node.id, source: academicSource },
+        ]);
+        const requestId = newId("open-source");
+        openSourceRequestsRef.current.begin(requestId, node.id, academicSource);
+        propsRef.current.onOpenAcademicSource?.(
+          requestId,
+          node.id,
+          academicSource,
+        );
+      } else if (model.kind === "pdf" && model.data.attachmentID) {
         propsRef.current.onOpenItem({
           attachmentID: model.data.attachmentID,
           pdfPage: model.data.pdfPage,
@@ -775,7 +1562,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         startEdit(node.id);
       }
     },
-    [startEdit],
+    [requestSources, startEdit],
   );
 
   const commitEdit = useCallback(() => {
@@ -837,6 +1624,108 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       deleteCanvasElements([nodeId]);
     },
     [deleteCanvasElements],
+  );
+
+  const changeNoteBadge = useCallback(
+    (nodeId: string, badge: string) => {
+      updateNode(nodeId, (current) =>
+        updateFlowNodeModel(current, (model) => {
+          if (model.kind !== "note") return model;
+          const { badge: _badge, ...withoutBadge } = model;
+          return badge ? { ...withoutBadge, badge } : withoutBadge;
+        }),
+      );
+    },
+    [updateNode],
+  );
+
+  const applyTemplateToNote = useCallback(
+    (nodeId: string, templateId: string) => {
+      const template = noteTemplates.find((item) => item.id === templateId);
+      if (!template) return;
+      updateNode(nodeId, (current) => {
+        const model = current.data.model;
+        if (model.kind !== "note") return current;
+        const nextModel = applyNoteTemplate(model, template);
+        return {
+          ...updateFlowNodeModel(current, () => nextModel),
+          width: nextModel.width,
+          height: nextModel.height,
+          style: { width: nextModel.width, height: nextModel.height },
+        };
+      });
+    },
+    [noteTemplates, updateNode],
+  );
+
+  const persistTemplate = useCallback((template: NoteTemplate) => {
+    setCustomTemplates((current) => [
+      ...current.filter((item) => item.id !== template.id),
+      template,
+    ]);
+    propsRef.current.onSaveNoteTemplate?.(template);
+  }, []);
+
+  const saveNoteAsTemplate = useCallback(
+    (nodeId: string, name: string, includeContent: boolean) => {
+      const model = nodesRef.current.find((node) => node.id === nodeId)?.data
+        .model;
+      if (model?.kind !== "note") return;
+      persistTemplate(
+        createCustomNoteTemplate(model, {
+          id: newId("template"),
+          name,
+          includeContent,
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+    },
+    [nodesRef, persistTemplate],
+  );
+
+  const renameTemplate = useCallback(
+    (templateId: string, name: string) => {
+      const template = customTemplates.find((item) => item.id === templateId);
+      if (!template) return;
+      persistTemplate({
+        ...template,
+        name,
+        updatedAt: new Date().toISOString(),
+      });
+    },
+    [customTemplates, persistTemplate],
+  );
+
+  const duplicateTemplate = useCallback(
+    (templateId: string) => {
+      const template = customTemplates.find((item) => item.id === templateId);
+      if (!template) return;
+      persistTemplate({
+        ...template,
+        id: newId("template"),
+        name: `${template.name} ${labels.copy}`,
+        style: { ...template.style },
+        ...(template.defaultSize
+          ? { defaultSize: { ...template.defaultSize } }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      });
+    },
+    [customTemplates, labels.copy, persistTemplate],
+  );
+
+  const deleteTemplate = useCallback(
+    (templateId: string) => {
+      if (!window.confirm(labels.deleteTemplate)) return;
+      setCustomTemplates((current) =>
+        current.filter((item) => item.id !== templateId),
+      );
+      propsRef.current.onDeleteNoteTemplate?.(templateId);
+      if (activeNoteTemplateId === templateId) {
+        setActiveNoteTemplateId(BUILTIN_NOTE_TEMPLATE_IDS.note);
+      }
+    },
+    [activeNoteTemplateId, labels.deleteTemplate],
   );
 
   const alignSelected = useCallback(
@@ -1007,89 +1896,51 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     [snapshotNow],
   );
 
-  const handleDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      setActiveTool("select");
-      const position = flowRef.current?.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      }) ?? { x: 120, y: 120 };
-      const nodeId = newId("item");
-      pushHistory();
-      setNodes((current) => [
-        ...current,
-        canvasDocumentToFlow({
-          version: 2,
-          nodes: [createBasicNode("item", position, nodeId)],
-          connections: [],
-        }).nodes[0],
-      ]);
-      bump();
-      const raw: Record<string, string> = Object.create(null) as Record<
-        string,
-        string
-      >;
-      const types = Array.from(event.dataTransfer?.types || []);
-      for (const type of types) {
-        try {
-          raw[type] = event.dataTransfer.getData(type);
-        } catch {
-          // ignore
-        }
-      }
-      const requestId = `drop-${nodeId}-${Date.now().toString(36)}`;
-      pendingPicksRef.current.set(requestId, nodeId);
-      propsRef.current.onDropItems(requestId, nodeId, raw);
-    },
-    [bump, pushHistory],
-  );
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (editing) return;
-      if (event.key === "Escape") {
-        endFrameDrag();
-        if (drawRef.current) {
-          event.preventDefault();
-          cancelDraw();
-          return;
-        }
-        setMenu(null);
-        setHelpOpen(false);
-        setStyleTarget(null);
-        setActiveTool("select");
-        if (editing) cancelEdit();
-        return;
+      if (
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !editing &&
+        annotationBrowserRef.current === null &&
+        !isEditableTarget(event.target)
+      ) {
+        const templateId = noteTemplateShortcut(event.key);
+        if (templateId) setActiveNoteTemplateId(templateId);
       }
-      if (!event.metaKey && !event.ctrlKey && !event.altKey) {
-        const next = toolShortcut(event.key);
-        if (next) {
-          event.preventDefault();
-          setActiveTool(next);
-          return;
-        }
-      }
-      if (event.key === "Backspace" || event.key === "Delete") {
-        const selectedNodeIds = nodesRef.current
-          .filter((node) => node.selected)
-          .map((node) => node.id);
-        const selectedEdgeIds = edgesRef.current
-          .filter((edge) => edge.selected)
-          .map((edge) => edge.id);
-        if (!selectedNodeIds.length && !selectedEdgeIds.length) return;
-        event.preventDefault();
-        deleteCanvasElements(selectedNodeIds, selectedEdgeIds);
-        return;
-      }
-      captureCanvasArrowKey(event, Boolean(editing), nudgeSelected);
+      handleGlobalCanvasKeyDown(
+        event,
+        {
+          annotationBrowserOpen: annotationBrowserRef.current !== null,
+          editing: Boolean(editing),
+          drawing: drawRef.current !== null,
+          selectedNodeIds: nodesRef.current
+            .filter((node) => node.selected)
+            .map((node) => node.id),
+          selectedEdgeIds: edgesRef.current
+            .filter((edge) => edge.selected)
+            .map((edge) => edge.id),
+        },
+        {
+          endFrameDrag,
+          cancelDraw,
+          dismissTransientUi() {
+            setMenu(null);
+            setHelpOpen(false);
+            setStyleTarget(null);
+          },
+          setActiveTool,
+          deleteSelection: deleteCanvasElements,
+          nudgeSelected,
+        },
+      );
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     editing,
     cancelDraw,
-    cancelEdit,
     deleteCanvasElements,
     edgesRef,
     endFrameDrag,
@@ -1133,41 +1984,130 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const runtime: WhiteboardRuntime = {
       setTheme,
       setLabels,
+      setTemplates(templates) {
+        setCustomTemplates(parseNoteTemplateRegistry(templates));
+      },
       loadSnapshot,
       getSnapshot: snapshotNow,
       undo,
       redo,
-      resolvePick(requestId, nodeId, data) {
-        if (pendingPicksRef.current.get(requestId) !== nodeId) return;
-        pendingPicksRef.current.delete(requestId);
-        const picker = parsePickerNodeData(data);
-        if (!picker) {
-          propsRef.current.onError("Invalid Zotero picker payload.");
+      beginAcademicDrop(requestId, nodeId, screenPosition, sources) {
+        setActiveTool("select");
+        const position =
+          flowRef.current?.screenToFlowPosition(screenPosition) ??
+          screenPosition;
+        academicAcquisition.dropLiterature(
+          requestId,
+          nodeId,
+          position,
+          sources,
+        );
+      },
+      rejectAcademicDrop(code) {
+        showCanvasNotice({ code });
+      },
+      resolveAcademicAcquisitionBatch(requestId, nodeId, successes, failures) {
+        const addedNodeIds = academicAcquisition.resolveBatch(
+          requestId,
+          nodeId,
+          successes,
+          failures,
+        );
+        if (addedNodeIds.length) {
+          sourceStatesRef.current = updateSourceResolutionStates(
+            sourceStatesRef.current,
+            addedNodeIds.map((addedNodeId) => ({
+              nodeId: addedNodeId,
+              status: "idle",
+            })),
+          );
+          renderSourceState((revision) => revision + 1);
+          setSourceCycle((cycle) => cycle + 1);
+        }
+      },
+      rejectAcademicRequest(requestId, nodeId, code) {
+        if (
+          noteRefreshRuntime.reject(requestId, nodeId, labels.noteRefreshFailed)
+        ) {
+          showCanvasNotice({
+            code: "note-refresh-failed",
+            nodeId,
+            failureCode:
+              code === "library-missing" ||
+              code === "item-missing" ||
+              code === "wrong-kind" ||
+              code === "parent-mismatch"
+                ? code
+                : "note-refresh-failed",
+          });
           return;
         }
-        pushHistory();
-        setNodes((current) =>
-          current.map((node) =>
-            node.id === nodeId
-              ? updateFlowNodeModel(node, (model) =>
-                  mergePickerData(model, picker),
-                )
-              : node,
-          ),
+        academicAcquisition.reject(requestId, nodeId, code);
+      },
+      rejectSourceAction(requestId, nodeId, source, failure) {
+        if (!openSourceRequestsRef.current.accept(requestId, nodeId, source)) {
+          return;
+        }
+        showCanvasNotice({
+          code: "source-open-failed",
+          nodeId,
+          failureCode: failure.code,
+        });
+      },
+      acceptSourceAction(requestId, nodeId, action, source) {
+        if (action !== "open") return;
+        if (!openSourceRequestsRef.current.accept(requestId, nodeId, source)) {
+          return;
+        }
+        clearMatchingNotice(
+          (notice) =>
+            notice.code === "source-open-failed" && notice.nodeId === nodeId,
         );
-        bump();
       },
-      rejectPick(requestId, message) {
-        if (!pendingPicksRef.current.delete(requestId)) return;
-        propsRef.current.onError(message);
-      },
+      applySourceResolutionBatch,
+      applyNoteRefresh,
+      applyAnnotationCandidates,
+      rejectAnnotationList,
       setSaveState(state) {
         setSaveState(state);
       },
     };
     runtimeRef.current = runtime;
     propsRef.current.onReady(runtime);
-  }, [bump, loadSnapshot, pushHistory, redo, snapshotNow, undo]);
+  }, [
+    academicAcquisition,
+    applySourceResolutionBatch,
+    applyNoteRefresh,
+    applyAnnotationCandidates,
+    clearMatchingNotice,
+    labels.noteRefreshFailed,
+    loadSnapshot,
+    noteRefreshRuntime,
+    rejectAnnotationList,
+    redo,
+    snapshotNow,
+    showCanvasNotice,
+    undo,
+  ]);
+
+  useEffect(() => {
+    scheduleSourceResolution();
+    return cancelIdleResolution;
+  }, [cancelIdleResolution, scheduleSourceResolution, sourceCycle]);
+
+  useEffect(
+    () => () => {
+      openSourceRequestsRef.current.clear();
+      academicAcquisitionRef.current?.clear();
+      noteRefreshRuntimeRef.current?.clear();
+      sourceRefreshRuntimeRef.current?.clear();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    requestSources("selected", currentSourceRequests().selected);
+  }, [currentSourceRequests, nodes, requestSources]);
 
   useEffect(() => {
     setTheme(props.theme);
@@ -1199,12 +2139,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   return (
     <WhiteboardLabelsProvider value={labels}>
       <div
+        ref={canvasHostRef}
         className={`zmd-board-host${eraser ? " is-eraser" : ""}${activeTool === "hand" ? " is-hand" : ""}${isDrawTool(activeTool) ? " is-draw" : ""}`}
         data-theme={theme}
-        onDragOver={(event) => {
-          if (event.dataTransfer?.types?.length) event.preventDefault();
-        }}
-        onDrop={handleDrop}
+        tabIndex={-1}
         onPointerDown={(event) => {
           if (event.button !== 0 || editing) return;
           if (!isDrawTool(activeToolRef.current)) return;
@@ -1218,6 +2156,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           labels={labels}
           activeTool={activeTool}
           onSelectTool={setActiveTool}
+          noteTemplates={noteTemplates}
+          activeNoteTemplateId={activeNoteTemplateId}
+          onSelectNoteTemplate={setActiveNoteTemplateId}
           saveState={saveState}
           selectedNodeCount={selectedNodes.length}
           selectedEdgeCount={selectedEdges.length}
@@ -1239,19 +2180,86 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             selectedEdges[0] && toggleEdgeArrow(selectedEdges[0].id)
           }
         />
+        <CanvasNoticeRegion
+          labels={labels}
+          notice={canvasNotice}
+          onDismiss={clearCanvasNotice}
+        />
         <PropertiesPanel
           labels={labels}
           node={
             selectedNodes.length === 1 &&
-            isLibraryKind(selectedNodes[0].data.model.kind)
+            (isLibraryKind(selectedNodes[0].data.model.kind) ||
+              selectedNodes[0].data.model.kind === "literature" ||
+              selectedNodes[0].data.model.kind === "quote" ||
+              selectedNodes[0].data.model.kind === "note")
               ? selectedNodes[0]
               : null
           }
+          sourceState={
+            selectedNodes.length === 1
+              ? sourceStatesRef.current.get(selectedNodes[0].id)
+              : undefined
+          }
           onEdit={startEdit}
           onOpen={openNode}
+          onRefreshSource={refreshNodeSource}
+          onViewAnnotations={openAnnotationBrowser}
+          viewAnnotationsRef={viewAnnotationsRef}
           onCopy={copyNode}
           onDelete={deleteNode}
+          noteTemplates={noteTemplates}
+          onBadgeChange={changeNoteBadge}
+          onApplyTemplate={applyTemplateToNote}
+          onSaveTemplate={saveNoteAsTemplate}
+          onRenameTemplate={renameTemplate}
+          onDuplicateTemplate={duplicateTemplate}
+          onDeleteTemplate={deleteTemplate}
         />
+        {annotationBrowser ? (
+          <AnnotationBrowser
+            labels={{
+              title: labels.annotationBrowserTitle,
+              search: labels.searchAnnotations,
+              loading: labels.annotationsLoading,
+              empty: labels.annotationsEmpty,
+              unavailable: labels.annotationsUnavailable,
+              partialFailure: labels.annotationsPartialFailure,
+              alreadyAdded: labels.annotationAlreadyAdded,
+              focusExisting: labels.focusExistingAnnotation,
+              addSelected: labels.addSelectedAnnotations,
+              page: labels.annotationPage,
+              close: labels.close,
+            }}
+            state={annotationBrowser.state}
+            query={annotationBrowser.query}
+            selectedKeys={annotationBrowser.selectedKeys}
+            existingKeys={existingAnnotationKeys(workingSnapshot())}
+            returnFocusRef={viewAnnotationsRef}
+            onQueryChange={(query) =>
+              setAnnotationBrowser((current) =>
+                current ? { ...current, query } : current,
+              )
+            }
+            onToggle={(annotationKey, checked) =>
+              setAnnotationBrowser((current) =>
+                current
+                  ? {
+                      ...current,
+                      selectedKeys: toggleAnnotationSelection(
+                        current.selectedKeys,
+                        annotationKey,
+                        checked,
+                      ),
+                    }
+                  : current,
+              )
+            }
+            onClose={closeAnnotationBrowser}
+            onFocusExisting={focusExistingAnnotation}
+            onAddSelected={addSelectedAnnotations}
+          />
+        ) : null}
         <ReactFlow<CanvasFlowNode, CanvasFlowEdge>
           nodes={nodes}
           edges={edges}
@@ -1309,7 +2317,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 return;
               }
             }
-            if (isLibraryKind(kind)) {
+            if (
+              isLibraryKind(kind) ||
+              kind === "literature" ||
+              kind === "quote"
+            ) {
               openNode(node);
               return;
             }
@@ -1332,7 +2344,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               return;
             }
             if (isDrawTool(activeTool) || drawRef.current) return;
-            if (!isStampTool(activeTool)) return;
+            if (!isStampTool(activeTool) && activeTool !== "literature") return;
             const position = flowRef.current?.screenToFlowPosition({
               x: event.clientX,
               y: event.clientY,
@@ -1355,6 +2367,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               return;
             }
             viewportRef.current = viewport;
+            requestVisibleSources();
             bump();
           }}
           proOptions={{ hideAttribution: true }}
@@ -1447,7 +2460,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                     }}
                   >
                     <IconOpen />
-                    <span>{labels.openItem}</span>
+                    <span>
+                      {sourceDescriptor(menuNode.data.model)
+                        ? labels.openSource
+                        : labels.openItem}
+                    </span>
                   </button>
                 )}
                 <button

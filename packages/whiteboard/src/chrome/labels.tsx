@@ -52,10 +52,6 @@ export function nodeKindLabel(
       return labels.kindQuote;
     case "note":
       return labels.kindNote;
-    case "question":
-      return labels.kindQuestion;
-    case "claim":
-      return labels.kindClaim;
     case "frame":
       return labels.kindFrame;
   }

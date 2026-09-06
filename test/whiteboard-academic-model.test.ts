@@ -10,24 +10,25 @@ import {
 
 const user = { type: "user" } as const;
 
-test("creates the six academic object kinds with explicit defaults", () => {
+test("creates the editable academic object kinds with explicit defaults", () => {
   const note = createAcademicNode("note", { x: 10, y: 20 }, "note-1");
-  const question = createAcademicNode(
-    "question",
-    { x: 20, y: 30 },
-    "question-1",
-  );
-  const claim = createAcademicNode("claim", { x: 30, y: 40 }, "claim-1");
   const frame = createAcademicNode("frame", { x: 0, y: 0 }, "frame-1");
 
   assert.equal(note.kind, "note");
   assert.equal(note.content, "");
-  assert.equal(question.kind, "question");
-  assert.equal(question.content, "");
-  assert.equal(claim.kind, "claim");
-  assert.equal(claim.content, "");
   assert.equal(frame.kind, "frame");
   assert.equal(frame.title, "Frame");
+});
+
+test("creates one Note kind with optional content and badge", () => {
+  const note = createAcademicNode("note", { x: 10, y: 20 }, "note-1", {
+    badge: "问题",
+    content: "Why?",
+  });
+
+  assert.equal(note.kind, "note");
+  assert.equal(note.badge, "问题");
+  assert.equal(note.content, "Why?");
 });
 
 test("literature and quote factories require native Zotero keys and snapshots", () => {
@@ -63,14 +64,14 @@ test("academic relationships allow arbitrary existing endpoint kinds", () => {
   const edge = createAcademicConnection(
     "edge-1",
     "rect-1",
-    "question-1",
+    "note-1",
     "contradicts",
   );
   assert.deepEqual(edge, {
     id: "edge-1",
     kind: "academic",
     source: "rect-1",
-    target: "question-1",
+    target: "note-1",
     relation: "contradicts",
   });
 });

@@ -85,6 +85,7 @@ export function nodeContentAlignmentStyle(
 export function CardShell(props: {
   kind: CanvasNodeKind;
   kindLabel: string;
+  badge?: string;
   selected?: boolean;
   nodeStyle?: Partial<CanvasNodeStyle>;
   children: ReactNode;
@@ -101,6 +102,9 @@ export function CardShell(props: {
       <Handle type="target" position={Position.Top} />
       <Handle type="source" position={Position.Bottom} />
       <span className="zmd-board-card-kind">{props.kindLabel}</span>
+      {props.badge ? (
+        <span className="zmd-board-note-badge">{props.badge}</span>
+      ) : null}
       <div
         className="zmd-board-card-body"
         style={nodeContentAlignmentStyle(nodeStyle)}

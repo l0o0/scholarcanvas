@@ -41,3 +41,5 @@ export type {
   SourceGatewayDependencies,
   ZoteroSourceGateway,
 } from "./source-gateway";
+export { selectTutorialSample, TUTORIAL_CANDIDATE_LIMIT } from "./tutorial";
+export type { TutorialSampleDependencies } from "./tutorial";

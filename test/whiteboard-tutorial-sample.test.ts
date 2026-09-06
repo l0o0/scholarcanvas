@@ -79,10 +79,8 @@ function note(
 
 function gateway(
   options: {
-    annotations?: Record<
-      string,
-      Array<Extract<AcademicAcquisition, { kind: "quote" }>>
-    >;
+    acquisitions?: Record<string, unknown>;
+    annotations?: Record<string, unknown[]>;
     annotationFailures?: Set<string>;
     acquisitionFailures?: Set<string>;
     noteParents?: Record<string, string>;
@@ -94,6 +92,9 @@ function gateway(
       if (options.acquisitionFailures?.has(fake.key)) {
         throw new Error(`Cannot acquire ${fake.key}`);
       }
+      if (Object.hasOwn(options.acquisitions ?? {}, fake.key)) {
+        return options.acquisitions?.[fake.key] as AcademicAcquisition;
+      }
       const parentKey = options.noteParents?.[fake.key];
       return parentKey ? note(parentKey, fake.key) : literature(fake.key);
     },
@@ -104,7 +105,10 @@ function gateway(
       return {
         candidates: (options.annotations?.[source.itemKey] ?? []).map(
           (acquisition, index) => ({
-            acquisition,
+            acquisition: acquisition as Extract<
+              AcademicAcquisition,
+              { kind: "quote" }
+            >,
             attachmentTitle: `PDF ${index}`,
             sortIndex: String(index),
           }),
@@ -388,4 +392,148 @@ test("production discovery issues one parameterized bounded ID query", async () 
     "SELECT itemID FROM items WHERE libraryID = ? AND itemID NOT IN (SELECT itemID FROM deletedItems) ORDER BY dateModified DESC, itemID DESC LIMIT ?",
   );
   assert.deepEqual(calls[0].params, [USER_LIBRARY_ID, 50]);
+});
+
+test("rejects Literature acquisitions that do not match the selected Item", async () => {
+  const wrongKind = item("regular", { id: 59, key: "WRONGKIND" });
+  const wrongLibrary = item("regular", { id: 58, key: "WRONGLIB" });
+  const wrongKey = item("regular", { id: 57, key: "WRONGKEY" });
+  const valid = item("regular", { id: 53, key: "VALIDITEM" });
+  const result = await selectTutorialSample(
+    dependencies(
+      [wrongKind.id, wrongLibrary.id, wrongKey.id, valid.id],
+      [wrongKind, wrongLibrary, wrongKey, valid],
+      gateway({
+        acquisitions: {
+          [wrongKind.key]: note(wrongKind.key, "NOTELIT"),
+          [wrongLibrary.key]: {
+            ...literature(wrongLibrary.key),
+            source: {
+              library: { type: "group", groupID: 2 },
+              itemKey: wrongLibrary.key,
+            },
+          },
+          [wrongKey.key]: literature("ANOTHERITEM"),
+        },
+      }),
+    ),
+  );
+
+  assert.equal(result?.literature.source.itemKey, valid.key);
+});
+
+test("filters malformed and cross-source Quotes before applying the limit", async () => {
+  const source = item("regular", { id: 60, key: "SOURCEITEM" });
+  const validOne = quote(source.key, 7);
+  const validTwo = quote(source.key, 8);
+  const result = await selectTutorialSample(
+    dependencies(
+      [source.id],
+      [source],
+      gateway({
+        annotations: {
+          [source.key]: [
+            literature(source.key),
+            {
+              ...quote(source.key, 1),
+              source: {
+                ...quote(source.key, 1).source,
+                library: { type: "group", groupID: 2 },
+              },
+            },
+            quote("OTHERITEM", 2),
+            {
+              ...quote(source.key, 3),
+              source: { ...quote(source.key, 3).source, attachmentKey: "" },
+            },
+            {
+              ...quote(source.key, 4),
+              source: { ...quote(source.key, 4).source, annotationKey: "" },
+            },
+            { ...quote(source.key, 5), snapshot: { text: "  " } },
+            { kind: "quote" },
+            validOne,
+            validTwo,
+            quote(source.key, 9),
+          ],
+        },
+      }),
+    ),
+  );
+
+  assert.deepEqual(
+    result?.quotes.map((value) => value.source.annotationKey),
+    [validOne.source.annotationKey, validTwo.source.annotationKey],
+  );
+});
+
+test("accepts only a Note acquisition matching the resolved child Item", async () => {
+  const source = item("regular", {
+    id: 70,
+    key: "NOTESOURCE",
+    notes: [170, 171, 172, 173],
+  });
+  const wrongKind = item("note", { id: 170, key: "WRONGKINDNOTE" });
+  const wrongParent = item("note", { id: 171, key: "WRONGPARENTNOTE" });
+  const wrongKey = item("note", { id: 172, key: "WRONGKEYNOTE" });
+  const valid = item("note", { id: 173, key: "VALIDNOTE" });
+  const result = await selectTutorialSample(
+    dependencies(
+      [source.id],
+      [source, wrongKind, wrongParent, wrongKey, valid],
+      gateway({
+        acquisitions: {
+          [wrongKind.key]: literature(source.key),
+          [wrongParent.key]: note("OTHERITEM", wrongParent.key),
+          [wrongKey.key]: note(source.key, "ANOTHERNOTE"),
+          [valid.key]: note(source.key, valid.key),
+        },
+      }),
+    ),
+  );
+
+  assert.equal(result?.note?.source.noteKey, valid.key);
+});
+
+test("malformed discovery, Item metadata, and Note lists degrade safely", async () => {
+  const malformedDiscovery = dependencies([], [], gateway());
+  malformedDiscovery.recentItemIDs = async () => null as unknown as number[];
+  await assert.doesNotReject(() => selectTutorialSample(malformedDiscovery));
+  assert.equal(await selectTutorialSample(malformedDiscovery), undefined);
+
+  const invalidID = item("regular", { id: 80, key: "INVALIDID" });
+  const invalidDate = item("regular", { id: 81, key: "INVALIDDATE" });
+  const valid = item("regular", { id: 82, key: "VALIDMETA" });
+  (invalidID as unknown as { id: unknown }).id = Number.POSITIVE_INFINITY;
+  (invalidDate as unknown as { dateModified: unknown }).dateModified = null;
+  const lookedUp: number[] = [];
+  const metadataDeps = dependencies(
+    [NaN, 1.5, -1, 80, invalidDate.id, valid.id],
+    [invalidDate, valid],
+    gateway(),
+  );
+  const getItem = metadataDeps.getItem;
+  metadataDeps.getItem = (id) => {
+    lookedUp.push(id);
+    if (id === 80) return invalidID as unknown as Zotero.Item;
+    return getItem(id);
+  };
+  const metadataResult = await selectTutorialSample(metadataDeps);
+  assert.equal(metadataResult?.literature.source.itemKey, valid.key);
+  assert.deepEqual(lookedUp, [80, 81, 82]);
+
+  const malformedNotes = item("regular", { id: 90, key: "BADNOTES" });
+  malformedNotes.getNotes = () => null as unknown as number[];
+  const notesResult = await selectTutorialSample(
+    dependencies(
+      [malformedNotes.id],
+      [malformedNotes],
+      gateway({
+        annotations: { [malformedNotes.key]: [quote(malformedNotes.key, 1)] },
+      }),
+    ),
+  );
+  assert.equal(notesResult?.literature.source.itemKey, malformedNotes.key);
+  assert.equal(notesResult?.quotes.length, 1);
+  assert.equal(notesResult?.note, undefined);
 });

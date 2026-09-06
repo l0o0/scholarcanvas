@@ -25,30 +25,46 @@ export async function selectTutorialSample(
 ): Promise<TutorialCanvasSample | undefined> {
   let itemIDs: number[];
   try {
-    itemIDs = await deps.recentItemIDs(
+    const discovered: unknown = await deps.recentItemIDs(
       deps.userLibraryID,
       TUTORIAL_CANDIDATE_LIMIT,
     );
+    if (!Array.isArray(discovered)) return undefined;
+    itemIDs = discovered.slice(0, TUTORIAL_CANDIDATE_LIMIT).filter(isItemID);
   } catch {
     return undefined;
   }
 
   const ranked: RankedSample[] = [];
-  for (const itemID of itemIDs.slice(0, TUTORIAL_CANDIDATE_LIMIT)) {
+  for (const itemID of itemIDs) {
     try {
       const item = deps.getItem(itemID);
       if (
         !item ||
+        !isItemID(item.id) ||
+        typeof item.dateModified !== "string" ||
+        typeof item.key !== "string" ||
+        !item.key.length ||
         item.libraryID !== deps.userLibraryID ||
         !item.isRegularItem()
       ) {
         continue;
       }
       const literature = deps.gateway.acquireItem(item);
-      if (literature.kind !== "literature") continue;
+      if (
+        literature.kind !== "literature" ||
+        literature.source.library.type !== "user" ||
+        literature.source.itemKey !== item.key
+      ) {
+        continue;
+      }
 
-      const quotes = await tutorialQuotes(deps.gateway, literature.source);
-      const note = tutorialNote(deps, item, literature.source.itemKey);
+      const quotes = await tutorialQuotes(
+        deps.gateway,
+        literature.source,
+        item.key,
+      );
+      const note = tutorialNote(deps, item);
       ranked.push({
         sample: { literature, quotes, ...(note ? { note } : {}) },
         tier: (quotes.length ? 2 : 0) + (note ? 1 : 0),
@@ -72,45 +88,87 @@ export async function selectTutorialSample(
 async function tutorialQuotes(
   gateway: ZoteroSourceGateway,
   source: TutorialCanvasSample["literature"]["source"],
+  itemKey: string,
 ): Promise<TutorialCanvasSample["quotes"]> {
+  const quotes: TutorialCanvasSample["quotes"] = [];
   try {
     const result = await gateway.listAnnotations(source);
-    return result.candidates
-      .slice(0, 2)
-      .map((candidate) => candidate.acquisition);
+    if (!Array.isArray(result.candidates)) return quotes;
+    for (const candidate of result.candidates) {
+      try {
+        const acquisition = (
+          candidate as { acquisition?: TutorialCanvasSample["quotes"][number] }
+        )?.acquisition;
+        if (
+          acquisition?.kind !== "quote" ||
+          acquisition.source.library.type !== "user" ||
+          acquisition.source.itemKey !== itemKey ||
+          typeof acquisition.source.attachmentKey !== "string" ||
+          !acquisition.source.attachmentKey.length ||
+          typeof acquisition.source.annotationKey !== "string" ||
+          !acquisition.source.annotationKey.length ||
+          typeof acquisition.snapshot.text !== "string" ||
+          !acquisition.snapshot.text.trim()
+        ) {
+          continue;
+        }
+        quotes.push(acquisition);
+        if (quotes.length === 2) break;
+      } catch {
+        continue;
+      }
+    }
   } catch {
-    return [];
+    return quotes;
   }
+  return quotes;
 }
 
 function tutorialNote(
   deps: TutorialSampleDependencies,
   item: Zotero.Item,
-  itemKey: string,
 ): TutorialCanvasSample["note"] {
-  let noteIDs: number[];
   try {
-    noteIDs = item.getNotes();
+    const noteIDs: unknown = item.getNotes();
+    if (!Array.isArray(noteIDs)) return undefined;
+    for (const noteID of noteIDs) {
+      if (!isItemID(noteID)) continue;
+      try {
+        const note = deps.getItem(noteID);
+        if (
+          !note ||
+          note.libraryID !== deps.userLibraryID ||
+          typeof note.key !== "string" ||
+          !note.key.length
+        ) {
+          continue;
+        }
+        const acquisition = deps.gateway.acquireItem(note);
+        if (
+          acquisition.kind === "note" &&
+          acquisition.source.library.type === "user" &&
+          acquisition.source.itemKey === item.key &&
+          acquisition.source.noteKey === note.key
+        ) {
+          return acquisition;
+        }
+      } catch {
+        continue;
+      }
+    }
   } catch {
     return undefined;
   }
-  for (const noteID of noteIDs) {
-    try {
-      const note = deps.getItem(noteID);
-      if (!note || note.libraryID !== deps.userLibraryID) continue;
-      const acquisition = deps.gateway.acquireItem(note);
-      if (
-        acquisition.kind === "note" &&
-        acquisition.source.library.type === "user" &&
-        acquisition.source.itemKey === itemKey
-      ) {
-        return acquisition;
-      }
-    } catch {
-      continue;
-    }
-  }
   return undefined;
+}
+
+function isItemID(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value > 0
+  );
 }
 
 function productionDependencies(): TutorialSampleDependencies {

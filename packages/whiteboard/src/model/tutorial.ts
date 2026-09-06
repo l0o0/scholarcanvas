@@ -1,0 +1,338 @@
+import { createAcademicNode, type ZoteroLibraryRef } from "./academic";
+import { createBasicNode } from "./basic";
+import { createAcademicConnection } from "./connection";
+import { CANVAS_DOCUMENT_VERSION, type CanvasDocument } from "./document";
+import type { AcademicAcquisition } from "./protocol";
+
+export interface TutorialCanvasLabels {
+  title: string;
+  welcome: string;
+  welcomeBody: string;
+  sourceNotice: string;
+  addLiterature: string;
+  addLiteratureBody: string;
+  browseQuotes: string;
+  browseQuotesBody: string;
+  writeNote: string;
+  writeNoteBody: string;
+  questionBadge: string;
+  claimBadge: string;
+  organize: string;
+  organizeBody: string;
+  practice: string;
+  practiceBody: string;
+  supports: string;
+}
+
+export interface TutorialCanvasSample {
+  literature: Extract<AcademicAcquisition, { kind: "literature" }>;
+  quotes: Array<Extract<AcademicAcquisition, { kind: "quote" }>>;
+  note?: Extract<AcademicAcquisition, { kind: "note" }>;
+}
+
+const headingStyle = {
+  fontSize: 28,
+  fontWeight: "bold",
+  textAlign: "left",
+  verticalAlign: "middle",
+  textColor: "#0f172a",
+} as const;
+
+const guideStyle = {
+  fill: "#f8fafc",
+  stroke: "#94a3b8",
+  strokeWidth: 2,
+  radius: 12,
+  fontSize: 16,
+  fontWeight: "bold",
+  textAlign: "left",
+  verticalAlign: "top",
+  textColor: "#0f172a",
+} as const;
+
+const thoughtStyle = {
+  fill: "#fefce8",
+  stroke: "#eab308",
+  strokeWidth: 2,
+  radius: 12,
+  textColor: "#422006",
+} as const;
+
+const frameStyle = {
+  fill: "transparent",
+  stroke: "#64748b",
+  strokeWidth: 2,
+  radius: 12,
+  strokeStyle: "dashed",
+  textColor: "#334155",
+} as const;
+
+const sampleStyle = {
+  fill: "#eff6ff",
+  stroke: "#60a5fa",
+  strokeWidth: 2,
+  radius: 12,
+  textColor: "#172554",
+} as const;
+
+export function tutorialCanvasDocument(
+  labels: TutorialCanvasLabels,
+  sample?: TutorialCanvasSample,
+): CanvasDocument {
+  const title = createBasicNode("text", { x: 0, y: -140 }, "tutorial-title");
+  const welcome = createAcademicNode(
+    "note",
+    { x: 0, y: 0 },
+    "tutorial-welcome",
+    {
+      badge: labels.welcome,
+      content: labels.welcomeBody,
+      height: 200,
+      width: 280,
+      style: guideStyle,
+    },
+  );
+  const sourceNotice = createBasicNode(
+    "text",
+    { x: 360, y: 220 },
+    "tutorial-source-notice",
+  );
+  const addLiterature = guideNode(
+    "tutorial-add-literature",
+    360,
+    labels.addLiterature,
+    labels.addLiteratureBody,
+  );
+  const browseQuotes = guideNode(
+    "tutorial-browse-quotes",
+    720,
+    labels.browseQuotes,
+    labels.browseQuotesBody,
+  );
+  const writeNote = guideNode(
+    "tutorial-write-note",
+    1080,
+    labels.writeNote,
+    labels.writeNoteBody,
+  );
+  const question = createAcademicNode(
+    "note",
+    { x: 1080, y: 220 },
+    "tutorial-question",
+    {
+      badge: labels.questionBadge,
+      content: labels.questionBadge,
+      style: thoughtStyle,
+    },
+  );
+  const claim = createAcademicNode(
+    "note",
+    { x: 1080, y: 400 },
+    "tutorial-claim",
+    {
+      badge: labels.claimBadge,
+      content: labels.claimBadge,
+      style: thoughtStyle,
+    },
+  );
+  const organize = {
+    ...createAcademicNode("frame", { x: 1440, y: 0 }, "tutorial-organize"),
+    width: 320,
+    height: 620,
+    title: labels.organize,
+    style: { ...frameStyle },
+  };
+  const organizeBody = {
+    ...createAcademicNode(
+      "note",
+      { x: 1470, y: 70 },
+      "tutorial-organize-body",
+      { content: labels.organizeBody, style: guideStyle },
+    ),
+    frameId: organize.id,
+  };
+  const practice = {
+    ...createAcademicNode("frame", { x: 1820, y: 0 }, "tutorial-practice"),
+    width: 400,
+    height: 620,
+    title: labels.practice,
+    style: { ...frameStyle },
+  };
+  const practiceBody = {
+    ...createAcademicNode(
+      "note",
+      { x: 1850, y: 70 },
+      "tutorial-practice-body",
+      { content: labels.practiceBody, width: 340, style: guideStyle },
+    ),
+    frameId: practice.id,
+  };
+
+  const nodes: CanvasDocument["nodes"] = [
+    {
+      ...title,
+      width: 1060,
+      data: { title: labels.title },
+      style: { ...headingStyle },
+    },
+    welcome,
+    {
+      ...sourceNotice,
+      width: 640,
+      height: 64,
+      data: { title: labels.sourceNotice },
+      style: {
+        ...guideStyle,
+        fill: "transparent",
+        stroke: "transparent",
+        fontSize: 12,
+        fontWeight: "normal",
+      },
+    },
+    addLiterature,
+    browseQuotes,
+    writeNote,
+    question,
+    claim,
+    organize,
+    organizeBody,
+    practice,
+    practiceBody,
+  ];
+
+  const connections: CanvasDocument["connections"] = [
+    createAcademicConnection(
+      "tutorial-path-welcome-literature",
+      welcome.id,
+      addLiterature.id,
+    ),
+    createAcademicConnection(
+      "tutorial-path-literature-quotes",
+      addLiterature.id,
+      browseQuotes.id,
+    ),
+    createAcademicConnection(
+      "tutorial-path-quotes-note",
+      browseQuotes.id,
+      writeNote.id,
+    ),
+    createAcademicConnection(
+      "tutorial-path-note-organize",
+      writeNote.id,
+      organize.id,
+    ),
+    createAcademicConnection(
+      "tutorial-path-organize-practice",
+      organize.id,
+      practice.id,
+    ),
+    {
+      ...createAcademicConnection(
+        "tutorial-supports",
+        browseQuotes.id,
+        claim.id,
+        "supports",
+      ),
+      label: labels.supports,
+    },
+  ];
+
+  if (sample) {
+    const literature = {
+      ...createAcademicNode(
+        "literature",
+        { x: 360, y: 320 },
+        "tutorial-sample-literature",
+        {
+          source: copyLiteratureSource(sample.literature.source),
+          snapshot: {
+            ...sample.literature.snapshot,
+            ...(sample.literature.snapshot.tags
+              ? { tags: [...sample.literature.snapshot.tags] }
+              : {}),
+          },
+        },
+      ),
+      style: { ...sampleStyle },
+    };
+    const quotes = sample.quotes.slice(0, 2).map((quote, index) => ({
+      ...createAcademicNode(
+        "quote",
+        { x: 720, y: 320 + index * 220 },
+        `tutorial-sample-quote-${index + 1}`,
+        {
+          source: {
+            ...copyLiteratureSource(quote.source),
+            attachmentKey: quote.source.attachmentKey,
+            annotationKey: quote.source.annotationKey,
+          },
+          snapshot: { ...quote.snapshot },
+        },
+      ),
+      style: { ...sampleStyle },
+    }));
+    nodes.push(literature, ...quotes);
+
+    if (sample.note) {
+      const note = {
+        ...createAcademicNode(
+          "note",
+          { x: 1080, y: 580 },
+          "tutorial-sample-note",
+          { content: sample.note.content, style: sampleStyle },
+        ),
+        source: {
+          ...copyLibrarySource(sample.note.source),
+          noteKey: sample.note.source.noteKey,
+          ...(sample.note.source.itemKey
+            ? { itemKey: sample.note.source.itemKey }
+            : {}),
+        },
+        ...(sample.note.sourceSnapshot
+          ? { sourceSnapshot: { ...sample.note.sourceSnapshot } }
+          : {}),
+      };
+      nodes.push(note);
+      if (quotes[0]) {
+        connections.push({
+          ...createAcademicConnection(
+            "tutorial-sample-supports",
+            quotes[0].id,
+            note.id,
+            "supports",
+          ),
+          label: labels.supports,
+        });
+      }
+    }
+  }
+
+  return {
+    version: CANVAS_DOCUMENT_VERSION,
+    nodes,
+    connections,
+    viewport: { x: 40, y: 40, zoom: 0.85 },
+  };
+}
+
+function guideNode(id: string, x: number, title: string, body: string) {
+  const node = createBasicNode("rect", { x, y: 0 }, id);
+  return {
+    ...node,
+    width: 280,
+    height: 200,
+    data: { title: `${title}\n\n${body}` },
+    style: { ...guideStyle },
+  };
+}
+
+function copyLiteratureSource(source: {
+  library: ZoteroLibraryRef;
+  itemKey: string;
+}) {
+  return { ...copyLibrarySource(source), itemKey: source.itemKey };
+}
+
+function copyLibrarySource(source: { library: ZoteroLibraryRef }) {
+  return { library: { ...source.library } as ZoteroLibraryRef };
+}

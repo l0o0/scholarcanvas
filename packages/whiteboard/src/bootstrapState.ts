@@ -1,81 +1,24 @@
 import type {
-  AcademicAcquisition,
-  AcademicAcquisitionFailure,
-  AcademicDropFailureCode,
-  AcademicDropSourceRef,
-  AcademicRequestFailureCode,
-  AcademicSourceDescriptor,
-  AcademicSourceActionFailure,
-  AnnotationCandidate,
-  AnnotationListFailure,
   ParentToWhiteboardMessage,
-  IndexedAcademicAcquisition,
-  SourceResolutionResult,
   WhiteboardLabels,
 } from "./model/protocol";
-import type { LiteratureSource } from "./model/academic";
+import type { WhiteboardRuntime } from "./whiteboard/app";
 
-interface LabelsTarget {
-  setLabels: (labels: WhiteboardLabels) => void;
-}
+type LabelsTarget = Pick<WhiteboardRuntime, "setLabels">;
 
-interface AcademicMessageTarget {
-  beginAcademicDrop: (
-    requestId: string,
-    nodeId: string,
-    position: { x: number; y: number },
-    sources: AcademicDropSourceRef[],
-  ) => void;
-  rejectAcademicDrop: (code: AcademicDropFailureCode) => void;
-  resolveAcademicAcquisition: (
-    requestId: string,
-    nodeId: string,
-    acquisition: AcademicAcquisition,
-  ) => void;
-  resolveAcademicAcquisitionBatch: (
-    requestId: string,
-    nodeId: string,
-    successes: IndexedAcademicAcquisition[],
-    failures: AcademicAcquisitionFailure[],
-  ) => void;
-  rejectAcademicRequest: (
-    requestId: string,
-    nodeId: string,
-    code: AcademicRequestFailureCode,
-  ) => void;
-  rejectSourceAction: (
-    requestId: string,
-    nodeId: string,
-    source: AcademicSourceDescriptor,
-    failure: AcademicSourceActionFailure,
-  ) => void;
-  acceptSourceAction: (
-    requestId: string,
-    nodeId: string,
-    action: "open",
-    source: AcademicSourceDescriptor,
-  ) => void;
-  applySourceResolutionBatch: (
-    generation: number,
-    results: SourceResolutionResult[],
-  ) => void;
-  applyNoteRefresh: (
-    requestId: string,
-    nodeId: string,
-    acquisition: Extract<AcademicAcquisition, { kind: "note" }>,
-  ) => void;
-  applyAnnotationCandidates: (
-    requestId: string,
-    source: LiteratureSource,
-    candidates: AnnotationCandidate[],
-    failures: AnnotationListFailure[],
-  ) => void;
-  rejectAnnotationList: (
-    requestId: string,
-    source: LiteratureSource,
-    failure: AnnotationListFailure,
-  ) => void;
-}
+type AcademicMessageTarget = Pick<
+  WhiteboardRuntime,
+  | "beginAcademicDrop"
+  | "rejectAcademicDrop"
+  | "resolveAcademicAcquisitionBatch"
+  | "rejectAcademicRequest"
+  | "rejectSourceAction"
+  | "acceptSourceAction"
+  | "applySourceResolutionBatch"
+  | "applyNoteRefresh"
+  | "applyAnnotationCandidates"
+  | "rejectAnnotationList"
+>;
 
 export function forwardAcademicParentMessage(
   target: AcademicMessageTarget | null,
@@ -92,14 +35,6 @@ export function forwardAcademicParentMessage(
   }
   if (data.type === "academicDropRejected") {
     target?.rejectAcademicDrop(data.payload.code);
-    return true;
-  }
-  if (data.type === "academicSourceAcquired") {
-    target?.resolveAcademicAcquisition(
-      data.payload.requestId,
-      data.payload.nodeId,
-      data.payload.acquisition,
-    );
     return true;
   }
   if (data.type === "academicSourcesAcquired") {

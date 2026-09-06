@@ -2,6 +2,8 @@
 
 - 日期：2026-08-28
 - 状态：已确认
+- 修订：独立的 Question 与 Claim 节点类型已由
+  `2026-09-06-unified-note-templates-design.md` 中的统一 Note 与模板方案取代。
 - 范围：免费、local-first 的 Research Canvas
 - 不包含：商业化、账号、订阅、云端服务的具体设计
 

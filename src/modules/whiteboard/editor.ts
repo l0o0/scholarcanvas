@@ -25,23 +25,20 @@ import {
 } from "./protocol";
 import type { CanvasDocument } from "./snapshot";
 import type { LiteratureSource, NoteSource } from "./snapshot";
+import type { NoteTemplate } from "../../../packages/whiteboard/src/model/note-template";
 
 export interface WhiteboardHandle {
   ready: Promise<void>;
   focus: () => void;
   destroy: () => void;
   setTheme: (theme: WhiteboardTheme) => void;
+  setTemplates: (templates: NoteTemplate[]) => void;
   loadSnapshot: (snapshot: CanvasDocument) => void;
   requestSnapshot: () => Promise<{
     rev: number;
     snapshot: CanvasDocument;
   }>;
   command: (command: "undo" | "redo") => void;
-  resolveAcademicAcquisition: (
-    requestId: string,
-    nodeId: string,
-    acquisition: AcademicAcquisition,
-  ) => void;
   resolveAcademicAcquisitionBatch: (
     requestId: string,
     nodeId: string,
@@ -186,7 +183,6 @@ type PendingCommand = Extract<
       | "command"
       | "focus"
       | "destroy"
-      | "academicSourceAcquired"
       | "academicSourcesAcquired"
       | "academicDropStarted"
       | "academicDropRejected"
@@ -197,7 +193,8 @@ type PendingCommand = Extract<
       | "academicRequestFailed"
       | "sourceActionFailed"
       | "sourceActionSucceeded"
-      | "saveState";
+      | "saveState"
+      | "noteTemplatesChanged";
   }
 >;
 
@@ -208,8 +205,11 @@ export function createWhiteboardEditor(
     channel?: string;
     snapshot?: CanvasDocument | null;
     labels?: WhiteboardLabels;
+    templates?: NoteTemplate[];
     onChange?: (rev: number) => void;
     onSave?: () => void;
+    onSaveNoteTemplate?: (template: NoteTemplate) => void;
+    onDeleteNoteTemplate?: (templateId: string) => void;
     onError?: (message: string) => void;
     onPickAcademicSource?: (
       requestId: string,
@@ -367,6 +367,7 @@ export function createWhiteboardEditor(
             theme: resolveEditorTheme(ownerWin),
             snapshot: pendingSnapshot,
             ...(options.labels ? { labels: options.labels } : {}),
+            ...(options.templates ? { templates: options.templates } : {}),
           },
         });
         for (const cmd of pending.splice(0, pending.length)) post(cmd);
@@ -392,6 +393,12 @@ export function createWhiteboardEditor(
       }
       case "save":
         options.onSave?.();
+        break;
+      case "saveNoteTemplate":
+        options.onSaveNoteTemplate?.(data.payload.template);
+        break;
+      case "deleteNoteTemplate":
+        options.onDeleteNoteTemplate?.(data.payload.templateId);
         break;
       case "pickAcademicSource":
         options.onPickAcademicSource?.(
@@ -525,6 +532,13 @@ export function createWhiteboardEditor(
         payload: { theme },
       });
     },
+    setTemplates(templates) {
+      sendOrQueue({
+        source: WHITEBOARD_MESSAGE_SOURCE,
+        type: "noteTemplatesChanged",
+        payload: { templates },
+      });
+    },
     loadSnapshot(snapshot) {
       pendingSnapshot = snapshot;
       sendOrQueue({
@@ -563,13 +577,6 @@ export function createWhiteboardEditor(
         source: WHITEBOARD_MESSAGE_SOURCE,
         type: "command",
         payload: { command },
-      });
-    },
-    resolveAcademicAcquisition(requestId, nodeId, acquisition) {
-      sendOrQueue({
-        source: WHITEBOARD_MESSAGE_SOURCE,
-        type: "academicSourceAcquired",
-        payload: { requestId, nodeId, acquisition },
       });
     },
     resolveAcademicAcquisitionBatch(requestId, nodeId, successes, failures) {

@@ -13,7 +13,6 @@ createRoot(root).render(
       initialSnapshot={demoCanvasDocument()}
       onReady={() => undefined}
       onChange={() => undefined}
-      onError={(message) => console.error(message)}
       onSave={() => console.info("save")}
       onPickAcademicSource={(requestId, nodeId, kind) => {
         console.info("pickAcademicSource", { requestId, nodeId, kind });

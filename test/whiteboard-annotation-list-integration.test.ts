@@ -87,7 +87,6 @@ test("partial gateway results cross the host bridge into the correlated runtime"
   const source = { library: { type: "user" as const }, itemKey: "ITEM" };
   const runtimeCalls: unknown[] = [];
   const runtime = {
-    resolveAcademicAcquisition: () => undefined,
     rejectAcademicRequest: () => undefined,
     applySourceResolutionBatch: () => undefined,
     applyNoteRefresh: () => undefined,

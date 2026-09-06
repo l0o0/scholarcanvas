@@ -41,6 +41,16 @@ import {
   parseCanvasDocument,
   type CanvasDocument,
 } from "../model/document";
+import {
+  BUILTIN_NOTE_TEMPLATE_IDS,
+  BUILTIN_NOTE_TEMPLATES,
+  applyNoteTemplate,
+  createBuiltinNoteTemplates,
+  createCustomNoteTemplate,
+  materializeNoteTemplate,
+  parseNoteTemplateRegistry,
+  type NoteTemplate,
+} from "../model/note-template";
 import type {
   AcademicAcquisition,
   AcademicAcquisitionFailure,
@@ -77,6 +87,7 @@ import {
   isDrawTool,
   isLibraryKind,
   isStampTool,
+  noteTemplateShortcut,
   shouldEditOnCreate,
   toolAfterDraw,
   type DrawFrame,
@@ -122,7 +133,11 @@ import {
   updateFrameDragState,
   type FrameDragState,
 } from "./frame";
-import { captureCanvasArrowKey, handleGlobalCanvasKeyDown } from "./keyboard";
+import {
+  captureCanvasArrowKey,
+  handleGlobalCanvasKeyDown,
+  isEditableTarget,
+} from "./keyboard";
 import {
   createAcademicAcquisitionRuntime,
   omitAcademicPlaceholders,
@@ -166,8 +181,17 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   kindQuote: "Quote",
   kindNote: "Note",
   emptyNote: "Empty note",
-  kindQuestion: "Question",
-  kindClaim: "Claim",
+  badge: "Badge",
+  applyTemplate: "Apply template",
+  chooseTemplate: "Choose a template",
+  saveAsTemplate: "Save as template",
+  templateName: "Template name",
+  includeTemplateContent: "Include current content",
+  customTemplates: "Custom templates",
+  noCustomTemplates: "No custom templates",
+  renameTemplate: "Rename template",
+  duplicateTemplate: "Duplicate template",
+  deleteTemplate: "Delete template",
   kindFrame: "Frame",
   annotationColor: "Annotation color",
   annotations: { one: "annotation", other: "annotations" },
@@ -286,10 +310,12 @@ export interface WhiteboardAppProps {
   theme: WhiteboardTheme;
   labels?: WhiteboardLabels;
   initialSnapshot?: CanvasDocument;
+  templates?: NoteTemplate[];
   onReady: (api: WhiteboardRuntime) => void;
   onChange: (rev: number) => void;
-  onError: (message: string) => void;
   onSave: () => void;
+  onSaveNoteTemplate?: (template: NoteTemplate) => void;
+  onDeleteNoteTemplate?: (templateId: string) => void;
   onPickAcademicSource: (
     requestId: string,
     nodeId: string,
@@ -337,6 +363,7 @@ export interface WhiteboardAppProps {
 export interface WhiteboardRuntime {
   setTheme: (theme: WhiteboardTheme) => void;
   setLabels: (labels: WhiteboardLabels) => void;
+  setTemplates: (templates: NoteTemplate[]) => void;
   loadSnapshot: (snapshot: CanvasDocument) => void;
   getSnapshot: () => CanvasDocument;
   undo: () => void;
@@ -348,11 +375,6 @@ export interface WhiteboardRuntime {
     sources: AcademicDropSourceRef[],
   ) => void;
   rejectAcademicDrop: (code: AcademicDropFailureCode) => void;
-  resolveAcademicAcquisition: (
-    requestId: string,
-    nodeId: string,
-    acquisition: AcademicAcquisition,
-  ) => void;
   resolveAcademicAcquisitionBatch: (
     requestId: string,
     nodeId: string,
@@ -575,10 +597,15 @@ function createCanvasNode(
   kind: CanvasNodeKind,
   position: { x: number; y: number },
   id: string,
+  noteTemplate?: NoteTemplate,
 ): CanvasNode {
-  if (kind === "note") return createAcademicNode("note", position, id);
-  if (kind === "question") return createAcademicNode("question", position, id);
-  if (kind === "claim") return createAcademicNode("claim", position, id);
+  if (kind === "note") {
+    return materializeNoteTemplate(
+      noteTemplate ?? BUILTIN_NOTE_TEMPLATES[0]!,
+      position,
+      id,
+    );
+  }
   if (kind === "frame") return createAcademicNode("frame", position, id);
   if (kind === "literature" || kind === "quote") {
     throw new Error(`${kind} nodes require a Zotero source and snapshot.`);
@@ -678,7 +705,6 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       setEdges,
       pushHistory,
       changed: bump,
-      onError: (message) => propsRef.current.onError(message),
       onNotice: showCanvasNotice,
       createNodeId: () => newId("academic"),
       onPickAcademicSource: (requestId, nodeId, kind) =>
@@ -691,6 +717,20 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const [theme, setTheme] = useState<WhiteboardTheme>(props.theme);
   const [labels, setLabels] = useState<WhiteboardLabels>(
     props.labels ?? DEFAULT_LABELS,
+  );
+  const [customTemplates, setCustomTemplates] = useState<NoteTemplate[]>(() =>
+    parseNoteTemplateRegistry(props.templates ?? []),
+  );
+  const noteTemplates = useMemo(
+    () => [
+      ...createBuiltinNoteTemplates({
+        note: labels.addNote,
+        question: labels.addQuestion,
+        claim: labels.addClaim,
+      }),
+      ...customTemplates,
+    ],
+    [customTemplates, labels.addClaim, labels.addNote, labels.addQuestion],
   );
   if (!noteRefreshRuntimeRef.current) {
     noteRefreshRuntimeRef.current = createNoteRefreshRuntime({
@@ -720,6 +760,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   }
   const sourceRefreshRuntime = sourceRefreshRuntimeRef.current;
   const [activeTool, setActiveTool] = useState<CanvasTool>("select");
+  const [activeNoteTemplateId, setActiveNoteTemplateId] = useState<string>(
+    BUILTIN_NOTE_TEMPLATE_IDS.note,
+  );
   const eraser = activeTool === "eraser";
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">(
     "saved",
@@ -1317,7 +1360,18 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       pushHistory();
       const created = canvasDocumentToFlow({
         version: 2,
-        nodes: [createCanvasNode(kind, center, nodeId)],
+        nodes: [
+          createCanvasNode(
+            kind,
+            center,
+            nodeId,
+            kind === "note"
+              ? noteTemplates.find(
+                  (template) => template.id === activeNoteTemplateId,
+                )
+              : undefined,
+          ),
+        ],
         connections: [],
       }).nodes[0];
       const editOnCreate = isStampTool(kind) && shouldEditOnCreate(kind);
@@ -1332,7 +1386,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         setEditing({ nodeId, value: flowNodeText(created) });
       }
     },
-    [academicAcquisition, bump, pushHistory],
+    [
+      academicAcquisition,
+      activeNoteTemplateId,
+      bump,
+      noteTemplates,
+      pushHistory,
+    ],
   );
 
   const flowPoint = useCallback((clientX: number, clientY: number) => {
@@ -1566,6 +1626,108 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     [deleteCanvasElements],
   );
 
+  const changeNoteBadge = useCallback(
+    (nodeId: string, badge: string) => {
+      updateNode(nodeId, (current) =>
+        updateFlowNodeModel(current, (model) => {
+          if (model.kind !== "note") return model;
+          const { badge: _badge, ...withoutBadge } = model;
+          return badge ? { ...withoutBadge, badge } : withoutBadge;
+        }),
+      );
+    },
+    [updateNode],
+  );
+
+  const applyTemplateToNote = useCallback(
+    (nodeId: string, templateId: string) => {
+      const template = noteTemplates.find((item) => item.id === templateId);
+      if (!template) return;
+      updateNode(nodeId, (current) => {
+        const model = current.data.model;
+        if (model.kind !== "note") return current;
+        const nextModel = applyNoteTemplate(model, template);
+        return {
+          ...updateFlowNodeModel(current, () => nextModel),
+          width: nextModel.width,
+          height: nextModel.height,
+          style: { width: nextModel.width, height: nextModel.height },
+        };
+      });
+    },
+    [noteTemplates, updateNode],
+  );
+
+  const persistTemplate = useCallback((template: NoteTemplate) => {
+    setCustomTemplates((current) => [
+      ...current.filter((item) => item.id !== template.id),
+      template,
+    ]);
+    propsRef.current.onSaveNoteTemplate?.(template);
+  }, []);
+
+  const saveNoteAsTemplate = useCallback(
+    (nodeId: string, name: string, includeContent: boolean) => {
+      const model = nodesRef.current.find((node) => node.id === nodeId)?.data
+        .model;
+      if (model?.kind !== "note") return;
+      persistTemplate(
+        createCustomNoteTemplate(model, {
+          id: newId("template"),
+          name,
+          includeContent,
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+    },
+    [nodesRef, persistTemplate],
+  );
+
+  const renameTemplate = useCallback(
+    (templateId: string, name: string) => {
+      const template = customTemplates.find((item) => item.id === templateId);
+      if (!template) return;
+      persistTemplate({
+        ...template,
+        name,
+        updatedAt: new Date().toISOString(),
+      });
+    },
+    [customTemplates, persistTemplate],
+  );
+
+  const duplicateTemplate = useCallback(
+    (templateId: string) => {
+      const template = customTemplates.find((item) => item.id === templateId);
+      if (!template) return;
+      persistTemplate({
+        ...template,
+        id: newId("template"),
+        name: `${template.name} ${labels.copy}`,
+        style: { ...template.style },
+        ...(template.defaultSize
+          ? { defaultSize: { ...template.defaultSize } }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      });
+    },
+    [customTemplates, labels.copy, persistTemplate],
+  );
+
+  const deleteTemplate = useCallback(
+    (templateId: string) => {
+      if (!window.confirm(labels.deleteTemplate)) return;
+      setCustomTemplates((current) =>
+        current.filter((item) => item.id !== templateId),
+      );
+      propsRef.current.onDeleteNoteTemplate?.(templateId);
+      if (activeNoteTemplateId === templateId) {
+        setActiveNoteTemplateId(BUILTIN_NOTE_TEMPLATE_IDS.note);
+      }
+    },
+    [activeNoteTemplateId, labels.deleteTemplate],
+  );
+
   const alignSelected = useCallback(
     (mode: AlignMode) => {
       const selected = nodesRef.current.filter((node) => node.selected);
@@ -1736,6 +1898,17 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !editing &&
+        annotationBrowserRef.current === null &&
+        !isEditableTarget(event.target)
+      ) {
+        const templateId = noteTemplateShortcut(event.key);
+        if (templateId) setActiveNoteTemplateId(templateId);
+      }
       handleGlobalCanvasKeyDown(
         event,
         {
@@ -1811,6 +1984,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const runtime: WhiteboardRuntime = {
       setTheme,
       setLabels,
+      setTemplates(templates) {
+        setCustomTemplates(parseNoteTemplateRegistry(templates));
+      },
       loadSnapshot,
       getSnapshot: snapshotNow,
       undo,
@@ -1829,9 +2005,6 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       },
       rejectAcademicDrop(code) {
         showCanvasNotice({ code });
-      },
-      resolveAcademicAcquisition(requestId, nodeId, acquisition) {
-        academicAcquisition.resolve(requestId, nodeId, acquisition);
       },
       resolveAcademicAcquisitionBatch(requestId, nodeId, successes, failures) {
         const addedNodeIds = academicAcquisition.resolveBatch(
@@ -1983,6 +2156,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           labels={labels}
           activeTool={activeTool}
           onSelectTool={setActiveTool}
+          noteTemplates={noteTemplates}
+          activeNoteTemplateId={activeNoteTemplateId}
+          onSelectNoteTemplate={setActiveNoteTemplateId}
           saveState={saveState}
           selectedNodeCount={selectedNodes.length}
           selectedEdgeCount={selectedEdges.length}
@@ -2032,6 +2208,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           viewAnnotationsRef={viewAnnotationsRef}
           onCopy={copyNode}
           onDelete={deleteNode}
+          noteTemplates={noteTemplates}
+          onBadgeChange={changeNoteBadge}
+          onApplyTemplate={applyTemplateToNote}
+          onSaveTemplate={saveNoteAsTemplate}
+          onRenameTemplate={renameTemplate}
+          onDuplicateTemplate={duplicateTemplate}
+          onDeleteTemplate={deleteTemplate}
         />
         {annotationBrowser ? (
           <AnnotationBrowser

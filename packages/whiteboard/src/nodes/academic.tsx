@@ -90,24 +90,15 @@ export function QuoteNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   );
 }
 
-function AcademicTextNode({
-  data,
-  selected,
-  kind,
-}: NodeProps<CanvasFlowNode> & { kind: "note" | "question" | "claim" }) {
+function AcademicTextNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   const labels = useWhiteboardLabels();
   const model = data.model;
-  if (model.kind !== kind) return null;
-  const kindLabel =
-    kind === "note"
-      ? labels.kindNote
-      : kind === "question"
-        ? labels.kindQuestion
-        : labels.kindClaim;
+  if (model.kind !== "note") return null;
   return (
     <CardShell
-      kind={kind}
-      kindLabel={kindLabel}
+      kind="note"
+      kindLabel={labels.kindNote}
+      badge={model.badge}
       selected={selected}
       nodeStyle={model.style}
     >
@@ -118,24 +109,14 @@ function AcademicTextNode({
           whiteSpace: "pre-wrap",
         }}
       >
-        {kind === "note" && model.content === ""
-          ? labels.emptyNote
-          : model.content}
+        {model.content === "" ? labels.emptyNote : model.content}
       </p>
     </CardShell>
   );
 }
 
 export function NoteNode(props: NodeProps<CanvasFlowNode>) {
-  return <AcademicTextNode {...props} kind="note" />;
-}
-
-export function QuestionNode(props: NodeProps<CanvasFlowNode>) {
-  return <AcademicTextNode {...props} kind="question" />;
-}
-
-export function ClaimNode(props: NodeProps<CanvasFlowNode>) {
-  return <AcademicTextNode {...props} kind="claim" />;
+  return <AcademicTextNode {...props} />;
 }
 
 export function FrameNode({ data, selected }: NodeProps<CanvasFlowNode>) {

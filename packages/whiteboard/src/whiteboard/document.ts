@@ -271,11 +271,7 @@ export function beginNodeEditing(
 
 export function flowNodeText(node: CanvasFlowNode): string {
   const model = node.data.model;
-  if (
-    model.kind === "note" ||
-    model.kind === "question" ||
-    model.kind === "claim"
-  ) {
+  if (model.kind === "note") {
     return model.content;
   }
   if (model.kind === "frame") return model.title;
@@ -421,8 +417,6 @@ function omitUndefinedRecordFields<T>(
 function updateCanvasNodeText(model: CanvasNode, text: string): CanvasNode {
   switch (model.kind) {
     case "note":
-    case "question":
-    case "claim":
       return { ...model, content: text };
     case "frame":
       return { ...model, title: text };

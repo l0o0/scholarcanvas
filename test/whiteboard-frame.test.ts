@@ -28,13 +28,14 @@ const fixture = () =>
         extensions: { retained: "frame" },
       },
       {
-        id: "claim-1",
-        kind: "claim",
+        id: "note-claim-1",
+        kind: "note",
         position: { x: 40, y: 60 },
         width: 240,
         height: 120,
         frameId: "frame-1",
         content: "Claim",
+        badge: "Claim",
         extensions: { retained: "member" },
       },
       {
@@ -54,13 +55,14 @@ const fixture = () =>
         title: "Other topic",
       },
       {
-        id: "question-1",
-        kind: "question",
+        id: "note-question-1",
+        kind: "note",
         position: { x: 640, y: 40 },
         width: 240,
         height: 120,
         frameId: "frame-2",
         content: "Question",
+        badge: "Question",
       },
     ],
     connections: [],
@@ -80,7 +82,7 @@ test("moving a frame applies the same absolute delta to direct members", () => {
     { x: 80, y: 90 },
   );
   assert.deepEqual(
-    moved.nodes.find((node) => node.id === "question-1")?.position,
+    moved.nodes.find((node) => node.id === "note-question-1")?.position,
     { x: 640, y: 40 },
   );
   assert.deepEqual(original, before);
@@ -97,11 +99,11 @@ test("batch movement handles multiple frames and absolute node targets once", ()
   ]);
 
   assert.deepEqual(
-    moved.nodes.find((node) => node.id === "claim-1")?.position,
+    moved.nodes.find((node) => node.id === "note-claim-1")?.position,
     { x: 140, y: 140 },
   );
   assert.deepEqual(
-    moved.nodes.find((node) => node.id === "question-1")?.position,
+    moved.nodes.find((node) => node.id === "note-question-1")?.position,
     { x: 700, y: 90 },
   );
   assert.deepEqual(
@@ -112,17 +114,24 @@ test("batch movement handles multiple frames and absolute node targets once", ()
   const next = moveNodesInDocument(moved, [
     { id: "frame-1", position: { x: 120, y: 100 } },
   ]);
-  assert.deepEqual(next.nodes.find((node) => node.id === "claim-1")?.position, {
-    x: 160,
-    y: 160,
-  });
+  assert.deepEqual(
+    next.nodes.find((node) => node.id === "note-claim-1")?.position,
+    {
+      x: 160,
+      y: 160,
+    },
+  );
   assert.deepEqual(original.metadata, next.metadata);
   assert.deepEqual(original.extensions, next.extensions);
 });
 
 test("a multi-selection Frame drag advances every Frame incrementally", () => {
   const document = fixture();
-  const session = beginFrameDrag(document, ["claim-1", "frame-1", "frame-2"]);
+  const session = beginFrameDrag(document, [
+    "note-claim-1",
+    "frame-1",
+    "frame-2",
+  ]);
   assert.deepEqual(session, {
     previousPositions: {
       "frame-1": { x: 0, y: 0 },
@@ -133,29 +142,31 @@ test("a multi-selection Frame drag advances every Frame incrementally", () => {
 
   const first = updateFrameDrag(document, session, [
     { id: "frame-1", position: { x: 100, y: 80 } },
-    { id: "claim-1", position: { x: 140, y: 140 } },
+    { id: "note-claim-1", position: { x: 140, y: 140 } },
     { id: "frame-2", position: { x: 660, y: 50 } },
   ]);
   assert.deepEqual(
-    first.document.nodes.find((node) => node.id === "claim-1")?.position,
+    first.document.nodes.find((node) => node.id === "note-claim-1")?.position,
     { x: 140, y: 140 },
   );
   assert.deepEqual(
-    first.document.nodes.find((node) => node.id === "question-1")?.position,
+    first.document.nodes.find((node) => node.id === "note-question-1")
+      ?.position,
     { x: 700, y: 90 },
   );
 
   const second = updateFrameDrag(first.document, first.session, [
     { id: "frame-1", position: { x: 120, y: 100 } },
-    { id: "claim-1", position: { x: 160, y: 160 } },
+    { id: "note-claim-1", position: { x: 160, y: 160 } },
     { id: "frame-2", position: { x: 700, y: 70 } },
   ]);
   assert.deepEqual(
-    second.document.nodes.find((node) => node.id === "claim-1")?.position,
+    second.document.nodes.find((node) => node.id === "note-claim-1")?.position,
     { x: 160, y: 160 },
   );
   assert.deepEqual(
-    second.document.nodes.find((node) => node.id === "question-1")?.position,
+    second.document.nodes.find((node) => node.id === "note-question-1")
+      ?.position,
     { x: 740, y: 110 },
   );
   assert.deepEqual(second.session.previousPositions, {
@@ -166,7 +177,7 @@ test("a multi-selection Frame drag advances every Frame incrementally", () => {
 
 test("dragging only ordinary nodes does not create a Frame drag session", () => {
   assert.equal(
-    beginFrameDrag(fixture(), ["claim-1", "note-overlap"]),
+    beginFrameDrag(fixture(), ["note-claim-1", "note-overlap"]),
     undefined,
   );
 });
@@ -245,15 +256,17 @@ test("assignment rejects missing IDs, non-Frame targets, and a Frame member", ()
   const document = fixture();
 
   assert.throws(() => assignNodeToFrame(document, "missing", "frame-1"));
-  assert.throws(() => assignNodeToFrame(document, "claim-1", "missing"));
-  assert.throws(() => assignNodeToFrame(document, "claim-1", "question-1"));
+  assert.throws(() => assignNodeToFrame(document, "note-claim-1", "missing"));
+  assert.throws(() =>
+    assignNodeToFrame(document, "note-claim-1", "note-question-1"),
+  );
   assert.throws(() => assignNodeToFrame(document, "frame-1", "frame-2"));
 });
 
 test("deleting a frame detaches and preserves members", () => {
   const original = fixture();
   const deleted = deleteNodeFromDocument(original, "frame-1");
-  const member = deleted.nodes.find((node) => node.id === "claim-1");
+  const member = deleted.nodes.find((node) => node.id === "note-claim-1");
 
   assert.equal(deleted.nodes.length, original.nodes.length - 1);
   assert.equal(member?.frameId, undefined);
@@ -269,7 +282,7 @@ test("deleting a node removes every incident connection", () => {
     {
       id: "edge-1",
       kind: "academic",
-      source: "claim-1",
+      source: "note-claim-1",
       target: "frame-1",
       relation: "related",
     },
@@ -277,23 +290,23 @@ test("deleting a node removes every incident connection", () => {
       id: "edge-2",
       kind: "basic",
       source: "note-overlap",
-      target: "claim-1",
+      target: "note-claim-1",
     },
     {
       id: "edge-3",
       kind: "basic",
       source: "note-overlap",
-      target: "question-1",
+      target: "note-question-1",
     },
   );
 
-  const deleted = deleteNodeFromDocument(document, "claim-1");
+  const deleted = deleteNodeFromDocument(document, "note-claim-1");
   assert.deepEqual(
     deleted.connections.map((connection) => connection.id),
     ["edge-3"],
   );
   assert.equal(
-    deleted.nodes.some((node) => node.id === "claim-1"),
+    deleted.nodes.some((node) => node.id === "note-claim-1"),
     false,
   );
 });
@@ -303,7 +316,7 @@ test("deleting a frame also removes its incident connections", () => {
   document.connections.push({
     id: "edge-1",
     kind: "academic",
-    source: "claim-1",
+    source: "note-claim-1",
     target: "frame-1",
     relation: "related",
   });

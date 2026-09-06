@@ -15,7 +15,17 @@ import type {
   QuoteSnapshot,
   QuoteSource,
 } from "./academic";
-import { parseCanvasDocument, type CanvasDocument } from "./document";
+import {
+  parseCanvasDocument,
+  parseLiteratureSource,
+  parseNoteSource,
+  parseQuoteSource,
+  parseLiteratureSnapshot,
+  parseQuoteSnapshot,
+  parseNoteSourceSnapshot,
+  type CanvasDocument,
+} from "./document";
+import { parseNoteTemplate, type NoteTemplate } from "./note-template";
 
 export const WHITEBOARD_MESSAGE_SOURCE = "zotero-markdown-whiteboard" as const;
 export const WHITEBOARD_PROTOCOL_VERSION = 2;
@@ -51,8 +61,17 @@ export interface WhiteboardLabels {
   kindQuote: string;
   kindNote: string;
   emptyNote: string;
-  kindQuestion: string;
-  kindClaim: string;
+  badge: string;
+  applyTemplate: string;
+  chooseTemplate: string;
+  saveAsTemplate: string;
+  templateName: string;
+  includeTemplateContent: string;
+  customTemplates: string;
+  noCustomTemplates: string;
+  renameTemplate: string;
+  duplicateTemplate: string;
+  deleteTemplate: string;
   kindFrame: string;
   annotationColor: string;
   annotations: { one: string; other: string };
@@ -169,6 +188,7 @@ export interface WhiteboardInitPayload {
   theme: WhiteboardTheme;
   snapshot?: CanvasDocument | null;
   labels?: WhiteboardLabels;
+  templates?: NoteTemplate[];
 }
 
 export type AcademicSourceDescriptor =
@@ -198,10 +218,7 @@ export interface IndexedAcademicAcquisition {
 }
 
 /** Ordered, persistence-safe identity used after the host resolves a Zotero drag. */
-export interface AcademicDropSourceRef {
-  library: LiteratureSource["library"];
-  itemKey: string;
-}
+export type AcademicDropSourceRef = LiteratureSource;
 
 export type AcademicDropFailureCode = "drop-malformed" | "drop-unsupported";
 
@@ -340,14 +357,6 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
     | { type: "focus" }
     | { type: "destroy" }
     | {
-        type: "academicSourceAcquired";
-        payload: {
-          requestId: string;
-          nodeId: string;
-          acquisition: AcademicAcquisition;
-        };
-      }
-    | {
         type: "academicSourcesAcquired";
         payload: {
           requestId: string;
@@ -433,86 +442,94 @@ export type ParentToWhiteboardMessage = WhiteboardProtocolMessage &
         type: "saveState";
         payload: { state: "saved" | "saving" | "error" };
       }
+    | {
+        type: "noteTemplatesChanged";
+        payload: { templates: NoteTemplate[] };
+      }
   );
 
 export type WhiteboardToParentMessage = WhiteboardProtocolMessage &
-  (
-    | { type: "ready" }
-    | { type: "change"; payload: { rev: number } }
-    | {
-        type: "snapshot";
-        payload: {
-          requestId: string;
-          rev: number;
-          snapshot: CanvasDocument;
-        };
-      }
-    | { type: "save" }
-    | { type: "error"; payload: { message: string } }
-    | {
-        type: "openItem";
-        payload: {
-          itemID?: number;
-          attachmentID?: number;
-          pdfPage?: number;
-        };
-      }
-    | {
-        type: "pickAcademicSource";
-        payload: {
-          requestId: string;
-          nodeId: string;
-          kind: "literature";
-        };
-      }
-    | {
-        type: "dropAcademicSources";
-        payload: {
-          requestId: string;
-          nodeId: string;
-          sources: AcademicDropSourceRef[];
-        };
-      }
-    | {
-        type: "resolveAcademicSources";
-        payload: {
-          requestId: string;
-          generation: number;
-          priority: SourceResolutionPriority;
-          sources: Array<{
-            nodeId: string;
-            source: AcademicSourceDescriptor;
-            refresh?: boolean;
-          }>;
-        };
-      }
-    | {
-        type: "listLiteratureAnnotations";
-        payload: { requestId: string; source: LiteratureSource };
-      }
-    | {
-        type: "refreshZoteroNote";
-        payload: { requestId: string; nodeId: string; source: NoteSource };
-      }
-    | {
-        type: "openAcademicSource";
-        payload: {
-          requestId: string;
+  WhiteboardToParentBody;
+
+/** The sender supplies only the body; the bridge owns the envelope. */
+export type WhiteboardToParentBody =
+  | { type: "ready" }
+  | { type: "change"; payload: { rev: number } }
+  | {
+      type: "snapshot";
+      payload: {
+        requestId: string;
+        rev: number;
+        snapshot: CanvasDocument;
+      };
+    }
+  | { type: "save" }
+  | { type: "error"; payload: { message: string } }
+  | {
+      type: "openItem";
+      payload: {
+        itemID?: number;
+        attachmentID?: number;
+        pdfPage?: number;
+      };
+    }
+  | {
+      type: "pickAcademicSource";
+      payload: {
+        requestId: string;
+        nodeId: string;
+        kind: "literature";
+      };
+    }
+  | {
+      type: "dropAcademicSources";
+      payload: {
+        requestId: string;
+        nodeId: string;
+        sources: AcademicDropSourceRef[];
+      };
+    }
+  | {
+      type: "resolveAcademicSources";
+      payload: {
+        requestId: string;
+        generation: number;
+        priority: SourceResolutionPriority;
+        sources: Array<{
           nodeId: string;
           source: AcademicSourceDescriptor;
-        };
-      }
-    | {
-        type: "exportFile";
-        payload: {
-          requestId: string;
-          format: "png" | "svg" | "md";
-          mimeType: string;
-          dataUrl?: string;
-          text?: string;
-        };
-      }
-  );
+          refresh?: boolean;
+        }>;
+      };
+    }
+  | {
+      type: "listLiteratureAnnotations";
+      payload: { requestId: string; source: LiteratureSource };
+    }
+  | {
+      type: "refreshZoteroNote";
+      payload: { requestId: string; nodeId: string; source: NoteSource };
+    }
+  | {
+      type: "openAcademicSource";
+      payload: {
+        requestId: string;
+        nodeId: string;
+        source: AcademicSourceDescriptor;
+      };
+    }
+  | {
+      type: "exportFile";
+      payload: {
+        requestId: string;
+        format: "png" | "svg" | "md";
+        mimeType: string;
+        dataUrl?: string;
+        text?: string;
+      };
+    }
+  | { type: "saveNoteTemplate"; payload: { template: NoteTemplate } }
+  | { type: "deleteNoteTemplate"; payload: { templateId: string } };
 
 type ActiveWhiteboardToParentType = WhiteboardToParentMessage["type"];
 type ActiveParentToWhiteboardType = ParentToWhiteboardMessage["type"];
@@ -533,6 +550,8 @@ const activeWhiteboardToParentTypes = {
   refreshZoteroNote: true,
   openAcademicSource: true,
   exportFile: true,
+  saveNoteTemplate: true,
+  deleteNoteTemplate: true,
 } satisfies Record<ActiveWhiteboardToParentType, true>;
 
 const activeParentToWhiteboardTypes = {
@@ -543,7 +562,6 @@ const activeParentToWhiteboardTypes = {
   command: true,
   focus: true,
   destroy: true,
-  academicSourceAcquired: true,
   academicSourcesAcquired: true,
   academicDropStarted: true,
   academicDropRejected: true,
@@ -555,6 +573,7 @@ const activeParentToWhiteboardTypes = {
   sourceActionFailed: true,
   sourceActionSucceeded: true,
   saveState: true,
+  noteTemplatesChanged: true,
 } satisfies Record<ActiveParentToWhiteboardType, true>;
 
 export function isWhiteboardProtocolMessage(
@@ -720,10 +739,6 @@ function isOptionalOwnPositiveInteger(
     : !(key in value);
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return isArrayOf(value, isString);
-}
-
 const whiteboardLabelStringKeys: Record<
   Exclude<keyof WhiteboardLabels, "annotations">,
   true
@@ -748,8 +763,17 @@ const whiteboardLabelStringKeys: Record<
   kindQuote: true,
   kindNote: true,
   emptyNote: true,
-  kindQuestion: true,
-  kindClaim: true,
+  badge: true,
+  applyTemplate: true,
+  chooseTemplate: true,
+  saveAsTemplate: true,
+  templateName: true,
+  includeTemplateContent: true,
+  customTemplates: true,
+  noCustomTemplates: true,
+  renameTemplate: true,
+  duplicateTemplate: true,
+  deleteTemplate: true,
   kindFrame: true,
   annotationColor: true,
   sourceStatus: true,
@@ -874,54 +898,38 @@ function isWhiteboardLabels(value: unknown): value is WhiteboardLabels {
   );
 }
 
-function isLibraryRef(value: unknown): boolean {
-  if (!isPlainRecord(value)) return false;
-  if (value.type === "user") return hasExactKeys(value, ["type"]);
-  return (
-    hasExactKeys(value, ["type", "groupID"]) &&
-    value.type === "group" &&
-    Number.isSafeInteger(value.groupID) &&
-    (value.groupID as number) > 0
-  );
+/**
+ * File parsing owns the Academic field rules. The wire additionally requires
+ * plain own data and rejects anything the parser would normalize or discard.
+ * Optional wire fields may explicitly be undefined; JSON omits those fields.
+ */
+function matchesParsedAcademicFields(
+  value: unknown,
+  parse: (value: unknown) => unknown,
+  optional: readonly string[] = [],
+): boolean {
+  // Validate the data shape before parsing so accessors or sparse arrays
+  // cannot execute code while a parser reads fields or copies an array.
+  if (!isPlainRecord(value) || !hasSameDataShape(value, value)) return false;
+  const input = Object.assign(Object.create(null), value) as ProtocolRecord;
+  for (const key of optional) {
+    if (!hasOwn(value, key) && key in value) return false;
+    if (input[key] === undefined) delete input[key];
+  }
+  const parsed = parse(input);
+  return parsed !== undefined && hasSameDataShape(input, parsed);
 }
 
 function isLiteratureSource(value: unknown): boolean {
-  return (
-    isPlainRecord(value) &&
-    hasExactKeys(value, ["library", "itemKey"]) &&
-    hasLiteratureSourceFields(value)
-  );
-}
-
-function hasLiteratureSourceFields(value: ProtocolRecord): boolean {
-  return isLibraryRef(value.library) && isNonEmptyString(value.itemKey);
+  return matchesParsedAcademicFields(value, parseLiteratureSource);
 }
 
 function isNoteSource(value: unknown): boolean {
-  return (
-    isPlainRecord(value) &&
-    hasExactKeys(value, ["library", "noteKey"], ["itemKey"]) &&
-    isLibraryRef(value.library) &&
-    isNonEmptyString(value.noteKey) &&
-    (hasOwn(value, "itemKey")
-      ? value.itemKey === undefined || isNonEmptyString(value.itemKey)
-      : !("itemKey" in value))
-  );
+  return matchesParsedAcademicFields(value, parseNoteSource, ["itemKey"]);
 }
 
 function isQuoteSource(value: unknown): boolean {
-  if (!isPlainRecord(value)) return false;
-  return (
-    hasExactKeys(value, [
-      "library",
-      "itemKey",
-      "attachmentKey",
-      "annotationKey",
-    ]) &&
-    hasLiteratureSourceFields(value) &&
-    isNonEmptyString(value.attachmentKey) &&
-    isNonEmptyString(value.annotationKey)
-  );
+  return matchesParsedAcademicFields(value, parseQuoteSource);
 }
 
 function isAcademicSourceDescriptor(value: unknown): boolean {
@@ -934,42 +942,22 @@ function isAcademicSourceDescriptor(value: unknown): boolean {
 }
 
 function isLiteratureSnapshot(value: unknown): boolean {
-  return (
-    isPlainRecord(value) &&
-    hasExactKeys(
-      value,
-      ["title"],
-      ["creators", "year", "publicationTitle", "tags", "annotationCount"],
-    ) &&
-    isString(value.title) &&
-    isOptionalOwnString(value, "creators") &&
-    isOptionalOwnString(value, "year") &&
-    isOptionalOwnString(value, "publicationTitle") &&
-    (hasOwn(value, "tags")
-      ? value.tags === undefined || isStringArray(value.tags)
-      : !("tags" in value)) &&
-    (hasOwn(value, "annotationCount")
-      ? value.annotationCount === undefined ||
-        (Number.isSafeInteger(value.annotationCount) &&
-          (value.annotationCount as number) >= 0)
-      : !("annotationCount" in value))
-  );
+  return matchesParsedAcademicFields(value, parseLiteratureSnapshot, [
+    "creators",
+    "year",
+    "publicationTitle",
+    "tags",
+    "annotationCount",
+  ]);
 }
 
 function isQuoteSnapshot(value: unknown): boolean {
-  return (
-    isPlainRecord(value) &&
-    hasExactKeys(
-      value,
-      ["text"],
-      ["comment", "citation", "pageLabel", "color"],
-    ) &&
-    isString(value.text) &&
-    isOptionalOwnString(value, "comment") &&
-    isOptionalOwnString(value, "citation") &&
-    isOptionalOwnString(value, "pageLabel") &&
-    isOptionalOwnString(value, "color")
-  );
+  return matchesParsedAcademicFields(value, parseQuoteSnapshot, [
+    "comment",
+    "citation",
+    "pageLabel",
+    "color",
+  ]);
 }
 
 function isAcademicAcquisition(value: unknown): boolean {
@@ -995,9 +983,11 @@ function isAcademicAcquisition(value: unknown): boolean {
     isString(value.content) &&
     (hasOwn(value, "sourceSnapshot")
       ? value.sourceSnapshot === undefined ||
-        (isPlainRecord(value.sourceSnapshot) &&
-          hasExactKeys(value.sourceSnapshot, [], ["title"]) &&
-          isOptionalOwnString(value.sourceSnapshot, "title"))
+        matchesParsedAcademicFields(
+          value.sourceSnapshot,
+          parseNoteSourceSnapshot,
+          ["title"],
+        )
       : !("sourceSnapshot" in value))
   );
 }
@@ -1063,15 +1053,6 @@ function hasSameDataShapeUnchecked(left: unknown, right: unknown): boolean {
         hasOwn(right, key) &&
         hasSameDataShape(left[key], right[key]),
     )
-  );
-}
-
-function isAcademicDropSource(value: unknown): boolean {
-  return (
-    isPlainRecord(value) &&
-    hasExactKeys(value, ["library", "itemKey"]) &&
-    isLibraryRef(value.library) &&
-    isNonEmptyString(value.itemKey)
   );
 }
 
@@ -1226,6 +1207,12 @@ function isAnnotationCandidate(value: unknown): boolean {
   );
 }
 
+function isNoteTemplate(value: unknown): value is NoteTemplate {
+  if (!isPlainRecord(value)) return false;
+  const parsed = parseNoteTemplate(value);
+  return Boolean(parsed && hasSameDataShape(value, parsed));
+}
+
 function hasRequestAndNode(payload: ProtocolRecord): boolean {
   return (
     isNonEmptyString(payload.requestId) && isNonEmptyString(payload.nodeId)
@@ -1309,7 +1296,7 @@ function validateWhiteboardToParentMessageForChannel(
         isPlainRecord(payload) &&
         hasExactKeys(payload, ["requestId", "nodeId", "sources"]) &&
         hasRequestAndNode(payload) &&
-        isArrayOf(payload.sources, isAcademicDropSource)
+        isArrayOf(payload.sources, isLiteratureSource)
       );
     case "resolveAcademicSources":
       return (
@@ -1370,6 +1357,20 @@ function validateWhiteboardToParentMessageForChannel(
         isOptionalOwnString(payload, "dataUrl") &&
         isOptionalOwnString(payload, "text")
       );
+    case "saveNoteTemplate":
+      return (
+        hasOwn(data, "payload") &&
+        isPlainRecord(payload) &&
+        hasExactKeys(payload, ["template"]) &&
+        isNoteTemplate(payload.template)
+      );
+    case "deleteNoteTemplate":
+      return (
+        hasOwn(data, "payload") &&
+        isPlainRecord(payload) &&
+        hasExactKeys(payload, ["templateId"]) &&
+        isNonEmptyString(payload.templateId)
+      );
     default:
       return rejectUnhandledProtocolType(type);
   }
@@ -1401,7 +1402,7 @@ function validateParentToWhiteboardMessageForChannel(
       return (
         hasOwn(data, "payload") &&
         isPlainRecord(payload) &&
-        hasExactKeys(payload, ["theme"], ["snapshot", "labels"]) &&
+        hasExactKeys(payload, ["theme"], ["snapshot", "labels", "templates"]) &&
         (payload.theme === "light" || payload.theme === "dark") &&
         (hasOwn(payload, "snapshot")
           ? payload.snapshot === undefined ||
@@ -1410,7 +1411,11 @@ function validateParentToWhiteboardMessageForChannel(
           : !("snapshot" in payload)) &&
         (hasOwn(payload, "labels")
           ? payload.labels === undefined || isWhiteboardLabels(payload.labels)
-          : !("labels" in payload))
+          : !("labels" in payload)) &&
+        (hasOwn(payload, "templates")
+          ? payload.templates === undefined ||
+            isArrayOf(payload.templates, isNoteTemplate)
+          : !("templates" in payload))
       );
     case "setTheme":
       return (
@@ -1449,6 +1454,13 @@ function validateParentToWhiteboardMessageForChannel(
           payload.state === "saving" ||
           payload.state === "error")
       );
+    case "noteTemplatesChanged":
+      return (
+        hasOwn(data, "payload") &&
+        isPlainRecord(payload) &&
+        hasExactKeys(payload, ["templates"]) &&
+        isArrayOf(payload.templates, isNoteTemplate)
+      );
     case "academicDropStarted":
       return (
         hasOwn(data, "payload") &&
@@ -1459,7 +1471,7 @@ function validateParentToWhiteboardMessageForChannel(
         hasExactKeys(payload.position, ["x", "y"]) &&
         isFiniteNumber(payload.position.x) &&
         isFiniteNumber(payload.position.y) &&
-        isArrayOf(payload.sources, isAcademicDropSource)
+        isArrayOf(payload.sources, isLiteratureSource)
       );
     case "academicDropRejected":
       return (
@@ -1468,14 +1480,6 @@ function validateParentToWhiteboardMessageForChannel(
         hasExactKeys(payload, ["code"]) &&
         (payload.code === "drop-malformed" ||
           payload.code === "drop-unsupported")
-      );
-    case "academicSourceAcquired":
-      return (
-        hasOwn(data, "payload") &&
-        isPlainRecord(payload) &&
-        hasExactKeys(payload, ["requestId", "nodeId", "acquisition"]) &&
-        hasRequestAndNode(payload) &&
-        isAcademicAcquisition(payload.acquisition)
       );
     case "academicSourcesAcquired":
       return (
@@ -1682,22 +1686,6 @@ function isExpectedPeerSource(
   // The exact per-tab channel and closed schema are validated before this
   // narrow null exception. Non-null sources must retain object identity.
   return peer !== null && (source === null || source === peer);
-}
-
-export function isWhiteboardToParentMessageEvent(
-  event: WhiteboardMessageEvent,
-  peer: MessageEventSource | null,
-  channel: string,
-): boolean {
-  return readWhiteboardToParentMessageEvent(event, peer, channel) !== undefined;
-}
-
-export function isParentToWhiteboardMessageEvent(
-  event: WhiteboardMessageEvent,
-  peer: MessageEventSource | null,
-  channel: string,
-): boolean {
-  return readParentToWhiteboardMessageEvent(event, peer, channel) !== undefined;
 }
 
 export function readWhiteboardToParentMessageEvent(

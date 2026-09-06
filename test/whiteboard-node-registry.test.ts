@@ -36,8 +36,6 @@ const labels = new Proxy(
     kindQuote: "Localized excerpt",
     kindNote: "Localized note",
     emptyNote: "Localized empty note",
-    kindQuestion: "Localized question",
-    kindClaim: "Localized claim",
     kindFrame: "Localized frame",
     annotationColor: "Localized annotation color",
     annotations: {
@@ -136,14 +134,7 @@ test("registers all academic and retained basic node kinds", () => {
     assert.ok(kinds.includes(kind));
     assert.ok(canvasNodeTypes[kind]);
   }
-  for (const kind of [
-    "literature",
-    "quote",
-    "note",
-    "question",
-    "claim",
-    "frame",
-  ] as const) {
+  for (const kind of ["literature", "quote", "note", "frame"] as const) {
     assert.equal(getNodeSpec(kind).group, "academic");
     assert.ok(canvasNodeTypes[kind]);
   }
@@ -372,22 +363,17 @@ test("academic card layout prevents fractional lines and wraps provenance", () =
 });
 
 test("renders local academic text as plain pre-wrapped content", () => {
-  for (const kind of ["note", "question", "claim"] as const) {
-    const model = {
-      ...createAcademicNode(kind, { x: 0, y: 0 }, `${kind}-1`),
-      content: "**plain research**\nsecond line",
-    };
-    const markup = renderNode(model);
-    const labelKey = `kind${kind[0].toUpperCase()}${kind.slice(1)}`;
-    assert.match(
-      markup,
-      new RegExp(`>${labels[labelKey as keyof WhiteboardLabels]}`),
-    );
-    assert.match(markup, /\*\*plain research\*\*/);
-    assert.match(markup, /second line/);
-    assert.match(markup, /white-space:pre-wrap/);
-    assert.doesNotMatch(markup, /<strong>/);
-  }
+  const model = createAcademicNode("note", { x: 0, y: 0 }, "note-1", {
+    badge: "Question",
+    content: "**plain research**\nsecond line",
+  });
+  const markup = renderNode(model);
+  assert.match(markup, new RegExp(`>${labels.kindNote}`));
+  assert.match(markup, />Question</);
+  assert.match(markup, /\*\*plain research\*\*/);
+  assert.match(markup, /second line/);
+  assert.match(markup, /white-space:pre-wrap/);
+  assert.doesNotMatch(markup, /<strong>/);
 });
 
 test("an empty Academic Note renders localized display copy without changing content", () => {

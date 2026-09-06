@@ -1,12 +1,5 @@
 export type { CanvasFlowData, CanvasFlowNode, NodeGroup } from "./types";
-export {
-  ClaimNode,
-  FrameNode,
-  LiteratureNode,
-  NoteNode,
-  QuestionNode,
-  QuoteNode,
-} from "./academic";
+export { FrameNode, LiteratureNode, NoteNode, QuoteNode } from "./academic";
 export {
   canvasNodeTypes,
   getNodeSpec,

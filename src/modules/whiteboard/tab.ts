@@ -34,6 +34,7 @@ import {
 } from "./source-gateway";
 import { ProgressiveSourceScheduler } from "./source-scheduler";
 import { sourceCacheKey } from "../../../packages/whiteboard/src/whiteboard/sourceState";
+import { getZoteroNoteTemplateRepository } from "./template-repository";
 
 const AUTOSAVE_MS = 800;
 
@@ -808,6 +809,9 @@ function mountWhiteboardUI(
 
   session.view = { root, host };
   const gateway = createZoteroSourceGateway();
+  const templateRepository = getZoteroNoteTemplateRepository(
+    getString("whiteboard-template-conflict-copy"),
+  );
   let resolutionBatchSequence = 0;
   session.sourceScheduler = new ProgressiveSourceScheduler({
     run: (job) => gateway.resolve(job.nodeId, job.generation, job.descriptor),
@@ -865,6 +869,7 @@ function mountWhiteboardUI(
     win,
     channel: whiteboardChannel(session.tabID, session.canvasId),
     snapshot: initialSnapshot,
+    templates: templateRepository.list(),
     labels: {
       canvas: getString("whiteboard-canvas"),
       selection: getString("whiteboard-selection"),
@@ -886,8 +891,17 @@ function mountWhiteboardUI(
       kindQuote: getString("whiteboard-kind-quote"),
       kindNote: getString("whiteboard-kind-note"),
       emptyNote: getString("whiteboard-note-empty"),
-      kindQuestion: getString("whiteboard-kind-question"),
-      kindClaim: getString("whiteboard-kind-claim"),
+      badge: getString("whiteboard-badge"),
+      applyTemplate: getString("whiteboard-apply-template"),
+      chooseTemplate: getString("whiteboard-choose-template"),
+      saveAsTemplate: getString("whiteboard-save-as-template"),
+      templateName: getString("whiteboard-template-name"),
+      includeTemplateContent: getString("whiteboard-include-template-content"),
+      customTemplates: getString("whiteboard-custom-templates"),
+      noCustomTemplates: getString("whiteboard-no-custom-templates"),
+      renameTemplate: getString("whiteboard-rename-template"),
+      duplicateTemplate: getString("whiteboard-duplicate-template"),
+      deleteTemplate: getString("whiteboard-delete-template"),
       kindFrame: getString("whiteboard-kind-frame"),
       annotationColor: getString("whiteboard-annotation-color"),
       annotations: {
@@ -1025,6 +1039,18 @@ function mountWhiteboardUI(
     onSave() {
       void saveSession(session);
     },
+    onSaveNoteTemplate(template) {
+      void templateRepository.save(template).catch((error) => {
+        ztoolkit.log("Failed to save Note template", error);
+        session.editor?.setTemplates(templateRepository.list());
+      });
+    },
+    onDeleteNoteTemplate(templateId) {
+      void templateRepository.remove(templateId).catch((error) => {
+        ztoolkit.log("Failed to delete Note template", error);
+        session.editor?.setTemplates(templateRepository.list());
+      });
+    },
     onError(message) {
       toast(message);
     },
@@ -1094,6 +1120,9 @@ function mountWhiteboardUI(
     onExportFile(payload) {
       void handleExportFile(session, payload);
     },
+  });
+  session.unsubscribeTemplates = templateRepository.subscribe(() => {
+    session.editor?.setTemplates(templateRepository.list());
   });
   bindSessionTheme(win, session);
 }
@@ -1240,6 +1269,8 @@ export async function closeWhiteboardSession(tabID: string): Promise<boolean> {
   }
   session.closing = true;
   session.unbindTheme?.();
+  session.unsubscribeTemplates?.();
+  session.unsubscribeTemplates = undefined;
   session.sourceScheduler?.dispose();
   session.sourceScheduler = undefined;
   session.editor?.destroy();

@@ -5,6 +5,8 @@ import { flowNodeText } from "../whiteboard/document";
 import { IconCopy, IconEdit, IconOpen, IconTrash } from "../whiteboard/icons";
 import type { SourceResolutionState } from "../whiteboard/sourceState";
 import type { Ref } from "react";
+import type { NoteTemplate } from "../model/note-template";
+import { NoteTemplateControls } from "./NoteTemplateControls";
 
 export function PropertiesPanel(props: {
   labels: WhiteboardLabels;
@@ -17,6 +19,17 @@ export function PropertiesPanel(props: {
   viewAnnotationsRef?: Ref<HTMLButtonElement>;
   onCopy: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
+  noteTemplates?: NoteTemplate[];
+  onBadgeChange?: (nodeId: string, badge: string) => void;
+  onApplyTemplate?: (nodeId: string, templateId: string) => void;
+  onSaveTemplate?: (
+    nodeId: string,
+    name: string,
+    includeContent: boolean,
+  ) => void;
+  onRenameTemplate?: (templateId: string, name: string) => void;
+  onDuplicateTemplate?: (templateId: string) => void;
+  onDeleteTemplate?: (templateId: string) => void;
 }) {
   const { node, labels } = props;
   if (!node) return null;
@@ -62,6 +75,23 @@ export function PropertiesPanel(props: {
           </p>
         ) : null}
       </header>
+      {model.kind === "note" && props.noteTemplates ? (
+        <NoteTemplateControls
+          labels={labels}
+          note={model}
+          templates={props.noteTemplates}
+          onBadgeChange={(badge) => props.onBadgeChange?.(node.id, badge)}
+          onApply={(templateId) => props.onApplyTemplate?.(node.id, templateId)}
+          onSave={(name, includeContent) =>
+            props.onSaveTemplate?.(node.id, name, includeContent)
+          }
+          onRename={(templateId, name) =>
+            props.onRenameTemplate?.(templateId, name)
+          }
+          onDuplicate={(templateId) => props.onDuplicateTemplate?.(templateId)}
+          onDelete={(templateId) => props.onDeleteTemplate?.(templateId)}
+        />
+      ) : null}
       <div className="zmd-board-properties-actions">
         <button type="button" onClick={() => props.onEdit(node.id)}>
           <IconEdit />

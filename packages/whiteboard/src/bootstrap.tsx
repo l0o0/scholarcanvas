@@ -10,9 +10,11 @@ import {
   WHITEBOARD_PROTOCOL_VERSION,
   dispatchWhiteboardParentMessageEvent,
   type ParentToWhiteboardMessage,
+  type WhiteboardToParentBody,
   type WhiteboardTheme,
 } from "./model/protocol";
 import { emptyCanvasDocument, type CanvasDocument } from "./model/document";
+import type { NoteTemplate } from "./model/note-template";
 import {
   createDeferredLabels,
   forwardAcademicParentMessage,
@@ -22,6 +24,7 @@ const channel = new URL(window.location.href).searchParams.get("channel") || "";
 
 let theme: WhiteboardTheme = "light";
 let pendingSnapshot: CanvasDocument | null = null;
+let pendingTemplates: NoteTemplate[] = [];
 const deferredLabels = createDeferredLabels();
 let runtime: WhiteboardRuntime | null = null;
 let reactRoot: Root | null = null;
@@ -47,23 +50,7 @@ function onWindowKeyDown(event: KeyboardEvent) {
   }
 }
 
-function postToParent(message: {
-  type:
-    | "ready"
-    | "change"
-    | "snapshot"
-    | "save"
-    | "error"
-    | "pickAcademicSource"
-    | "resolveAcademicSources"
-    | "openAcademicSource"
-    | "openItem"
-    | "dropAcademicSources"
-    | "listLiteratureAnnotations"
-    | "refreshZoteroNote"
-    | "exportFile";
-  payload?: unknown;
-}) {
+function postToParent(message: WhiteboardToParentBody) {
   window.parent?.postMessage(
     {
       source: WHITEBOARD_MESSAGE_SOURCE,
@@ -87,8 +74,10 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
     case "init":
       applyDocumentTheme(data.payload.theme);
       pendingSnapshot = data.payload.snapshot ?? null;
+      pendingTemplates = data.payload.templates ?? [];
       deferredLabels.receive(data.payload.labels);
       runtime?.setTheme(data.payload.theme);
+      runtime?.setTemplates(pendingTemplates);
       if (data.payload.snapshot) runtime?.loadSnapshot(data.payload.snapshot);
       break;
     case "setTheme":
@@ -116,6 +105,10 @@ function handleParentMessage(data: ParentToWhiteboardMessage) {
       break;
     case "saveState":
       runtime?.setSaveState(data.payload.state);
+      break;
+    case "noteTemplatesChanged":
+      pendingTemplates = data.payload.templates;
+      runtime?.setTemplates(pendingTemplates);
       break;
     case "focus":
       window.focus();
@@ -175,15 +168,19 @@ function boot() {
         deferredLabels.attach(next);
         if (pendingSnapshot) next.loadSnapshot(pendingSnapshot);
         next.setTheme(theme);
+        next.setTemplates(pendingTemplates);
       }}
       onChange={(nextRev) => {
         rev = nextRev;
         postToParent({ type: "change", payload: { rev } });
       }}
-      onError={(message) =>
-        postToParent({ type: "error", payload: { message } })
-      }
       onSave={() => postToParent({ type: "save" })}
+      onSaveNoteTemplate={(template) =>
+        postToParent({ type: "saveNoteTemplate", payload: { template } })
+      }
+      onDeleteNoteTemplate={(templateId) =>
+        postToParent({ type: "deleteNoteTemplate", payload: { templateId } })
+      }
       onPickAcademicSource={(requestId, nodeId, kind) =>
         postToParent({
           type: "pickAcademicSource",

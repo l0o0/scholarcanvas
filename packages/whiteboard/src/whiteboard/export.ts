@@ -192,8 +192,6 @@ export function canvasNodeText(node: CanvasNode): string {
     case "quote":
       return node.snapshot.text;
     case "note":
-    case "question":
-    case "claim":
       return node.content;
     case "frame":
       return node.title;
@@ -338,21 +336,12 @@ ${shapes}
 </svg>`;
 }
 
-const ACADEMIC_KIND_ORDER = [
-  "literature",
-  "quote",
-  "note",
-  "question",
-  "claim",
-  "frame",
-] as const;
+const ACADEMIC_KIND_ORDER = ["literature", "quote", "note", "frame"] as const;
 
 const ACADEMIC_KIND_LABELS = {
   literature: "Literature",
   quote: "Quote",
   note: "Note",
-  question: "Question",
-  claim: "Claim",
   frame: "Frame",
 } as const;
 
@@ -412,12 +401,7 @@ export function buildCanvasMarkdown(doc: CanvasDocument): string {
           ...node.snapshot.text.split(/\r?\n/).map((line) => `> ${line}`),
           "",
         );
-      } else if (
-        (node.kind === "note" ||
-          node.kind === "question" ||
-          node.kind === "claim") &&
-        /\r?\n/.test(node.content)
-      ) {
+      } else if (node.kind === "note" && /\r?\n/.test(node.content)) {
         lines.push(node.content, "");
       }
     }

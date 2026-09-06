@@ -3,6 +3,7 @@ import type {
   CanvasDocument as PackageCanvasDocument,
   CanvasNode as PackageCanvasNode,
 } from "../packages/whiteboard/src/index";
+import type { WhiteboardToParentBody } from "../packages/whiteboard/src/model/protocol";
 import {
   createAcademicConnection as createPackageAcademicConnection,
   createAcademicNode as createPackageAcademicNode,
@@ -20,6 +21,17 @@ import {
 } from "../src/modules/whiteboard/index";
 
 type Assert<T extends true> = T;
+export type SenderRejectsMissingPayload = Assert<
+  { type: "change" } extends WhiteboardToParentBody ? false : true
+>;
+export type SenderRejectsMismatchedPayload = Assert<
+  {
+    type: "change";
+    payload: { message: string };
+  } extends WhiteboardToParentBody
+    ? false
+    : true
+>;
 type SameType<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <
     Value,

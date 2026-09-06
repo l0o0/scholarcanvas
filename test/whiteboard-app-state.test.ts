@@ -110,7 +110,7 @@ test("multi-source acquisition preserves order, duplicates, grid placement, and 
     nodes: [
       {
         id: "keep",
-        kind: "claim",
+        kind: "note",
         position: { x: 0, y: 0 },
         width: 260,
         height: 128,
@@ -146,7 +146,6 @@ test("multi-source acquisition preserves order, duplicates, grid placement, and 
     changed: () => {
       changes += 1;
     },
-    onError: () => assert.fail("partial success uses the batch summary"),
     onNotice: (message) => notices.push(message),
     createNodeId: (_requestId, sourceIndex) => `placed-${sourceIndex}`,
     onPickAcademicSource: () => assert.fail("unexpected picker"),
@@ -220,7 +219,7 @@ test("multi-source acquisition preserves order, duplicates, grid placement, and 
   });
   assert.deepEqual(
     saved.nodes.map((node) => node.kind),
-    ["claim", "literature", "literature", "note", "note"],
+    ["note", "literature", "literature", "note", "note"],
   );
   assert.deepEqual(
     saved.nodes.slice(1).map((node) => node.position),
@@ -241,7 +240,7 @@ test("multi-source acquisition preserves order, duplicates, grid placement, and 
     saved.nodes.filter((node) => node.kind === "literature").length,
     2,
   );
-  assert.equal(saved.nodes.filter((node) => node.kind === "note").length, 2);
+  assert.equal(saved.nodes.filter((node) => node.kind === "note").length, 3);
   assert.equal(
     saved.nodes.some((node) => node.kind === "attachment"),
     false,
@@ -266,7 +265,7 @@ test("multi-source acquisition preserves order, duplicates, grid placement, and 
   assert.equal(saved.nodes[1].kind, "literature");
   assert.equal(pushes, 1);
   assert.equal(changes, 1);
-  assert.deepEqual(historyKinds, [["claim"]]);
+  assert.deepEqual(historyKinds, [["note"]]);
   assert.deepEqual(notices, [
     {
       code: "acquisition-summary",
@@ -300,7 +299,6 @@ test("a zero-success source batch removes loading state without history and igno
     changed: () => {
       changes += 1;
     },
-    onError: () => assert.fail("batch failures use the localized summary"),
     onNotice: (message) => notices.push(message),
     onPickAcademicSource: () => undefined,
     onDropAcademicSources: () => undefined,
@@ -401,7 +399,7 @@ function academicDocument(): CanvasDocument {
       },
       {
         id: "claim-1",
-        kind: "claim",
+        kind: "note",
         position: { x: 360, y: 52 },
         width: 260,
         height: 128,
@@ -455,21 +453,6 @@ test("runtime load and replace methods accept canonical documents", () => {
 });
 
 test("a Literature acquisition replaces its placeholder with native keys", () => {
-  const replace = (
-    runtimeModule as unknown as {
-      resolveAcademicPlaceholder?: (
-        nodes: ReturnType<typeof canvasDocumentToFlow>["nodes"],
-        nodeId: string,
-        acquisition: {
-          kind: "literature";
-          source: { library: { type: "user" }; itemKey: string };
-          snapshot: { title: string };
-        },
-      ) => ReturnType<typeof canvasDocumentToFlow>["nodes"];
-    }
-  ).resolveAcademicPlaceholder;
-  assert.equal(typeof replace, "function");
-
   const placeholder = canvasDocumentToFlow({
     ...EMPTY,
     nodes: [
@@ -483,11 +466,15 @@ test("a Literature acquisition replaces its placeholder with native keys", () =>
       },
     ],
   }).nodes;
-  const resolved = replace!(placeholder, "literature-pending", {
-    kind: "literature",
-    source: { library: { type: "user" }, itemKey: "ABCD2345" },
-    snapshot: { title: "A source-key paper" },
-  });
+  const resolved = runtimeModule.resolveAcademicPlaceholder(
+    placeholder,
+    "literature-pending",
+    {
+      kind: "literature",
+      source: { library: { type: "user" }, itemKey: "ABCD2345" },
+      snapshot: { title: "A source-key paper" },
+    },
+  );
   const saved = flowToCanvasDocument(resolved, [], {
     x: 0,
     y: 0,
@@ -1812,7 +1799,6 @@ test("Note refresh preserves a pending acquisition until its later reply resolve
     },
     pushHistory: () => history.push(canonicalDocument()),
     changed: () => history.changed(),
-    onError: () => assert.fail("unexpected acquisition error"),
     onPickAcademicSource: () => assert.fail("unexpected picker"),
     onDropAcademicSources: () => undefined,
   });
@@ -1849,11 +1835,21 @@ test("Note refresh preserves a pending acquisition until its later reply resolve
     true,
   );
 
-  acquisition.resolve("drop-1", "literature-pending", {
-    kind: "literature",
-    source: { library: { type: "user" }, itemKey: "ITEM1234" },
-    snapshot: { title: "Later Literature" },
-  });
+  acquisition.resolveBatch(
+    "drop-1",
+    "literature-pending",
+    [
+      {
+        index: 0,
+        acquisition: {
+          kind: "literature",
+          source: { library: { type: "user" }, itemKey: "ITEM1234" },
+          snapshot: { title: "Later Literature" },
+        },
+      },
+    ],
+    [],
+  );
   assert.equal(
     nodes.find((node) => node.id === "literature-pending")?.data.model.kind,
     "literature",
@@ -2219,7 +2215,6 @@ test("Literature placement requests the academic picker and commits once", () =>
       changes += 1;
       history.changed();
     },
-    onError: () => assert.fail("unexpected acquisition error"),
     onPickAcademicSource: (...args: unknown[]) => picks.push(args),
     onDropAcademicSources: () => assert.fail("unexpected drop"),
   });
@@ -2243,16 +2238,36 @@ test("Literature placement requests the academic picker and commits once", () =>
         )
       : node,
   );
-  acquisitionRuntime.resolve("wrong-request", "literature-pending", {
-    kind: "literature",
-    source: { library: { type: "user" }, itemKey: "IGNORED12" },
-    snapshot: { title: "Ignored" },
-  });
-  acquisitionRuntime.resolve("pick-1", "literature-pending", {
-    kind: "literature",
-    source: { library: { type: "user" }, itemKey: "ABCD2345" },
-    snapshot: { title: "A source-key paper" },
-  });
+  acquisitionRuntime.resolveBatch(
+    "wrong-request",
+    "literature-pending",
+    [
+      {
+        index: 0,
+        acquisition: {
+          kind: "literature",
+          source: { library: { type: "user" }, itemKey: "IGNORED12" },
+          snapshot: { title: "Ignored" },
+        },
+      },
+    ],
+    [],
+  );
+  acquisitionRuntime.resolveBatch(
+    "pick-1",
+    "literature-pending",
+    [
+      {
+        index: 0,
+        acquisition: {
+          kind: "literature",
+          source: { library: { type: "user" }, itemKey: "ABCD2345" },
+          snapshot: { title: "A source-key paper" },
+        },
+      },
+    ],
+    [],
+  );
 
   const saved = flowToCanvasDocument(nodes, edges, { x: 0, y: 0, zoom: 1 });
   assert.deepEqual(
@@ -2273,11 +2288,21 @@ test("Literature placement requests the academic picker and commits once", () =>
   );
   assert.equal(history.undo(previous!), undefined);
 
-  acquisitionRuntime.resolve("pick-1", "literature-pending", {
-    kind: "literature",
-    source: { library: { type: "user" }, itemKey: "DUPLICATE" },
-    snapshot: { title: "Duplicate" },
-  });
+  acquisitionRuntime.resolveBatch(
+    "pick-1",
+    "literature-pending",
+    [
+      {
+        index: 0,
+        acquisition: {
+          kind: "literature",
+          source: { library: { type: "user" }, itemKey: "DUPLICATE" },
+          snapshot: { title: "Duplicate" },
+        },
+      },
+    ],
+    [],
+  );
   assert.equal(pushes, 1);
 });
 
@@ -2309,7 +2334,7 @@ test("correlated Literature rejection removes its placeholder and incident edges
     },
     pushHistory: () => assert.fail("rejection must not push history"),
     changed: () => assert.fail("rejection must not mark a canonical change"),
-    onError: (message: string) => errors.push(message),
+    onNotice: (notice) => errors.push(notice.code),
     onPickAcademicSource: () => undefined,
     onDropAcademicSources: () => undefined,
   });
@@ -2390,7 +2415,7 @@ test("academic creation and later edits share the visible editing state", () => 
     nodes: [
       {
         id: "question-1",
-        kind: "question",
+        kind: "note",
         position: { x: 0, y: 0 },
         width: 260,
         height: 128,
@@ -2493,7 +2518,7 @@ test("runtime snapshots are atomic before React commits loaded state", () => {
     nodes: [
       {
         id: "initial",
-        kind: "claim",
+        kind: "note",
         position: { x: 10, y: 20 },
         width: 260,
         height: 128,
@@ -2510,7 +2535,7 @@ test("runtime snapshots are atomic before React commits loaded state", () => {
     nodes: [
       {
         id: "loaded",
-        kind: "question",
+        kind: "note",
         position: { x: 30, y: 40 },
         width: 260,
         height: 128,
@@ -2562,7 +2587,7 @@ test("runtime supports immediate consecutive undo and redo before React commits"
     nodes: [
       {
         id: "second",
-        kind: "claim",
+        kind: "note",
         position: { x: 100, y: 120 },
         width: 260,
         height: 128,
@@ -2839,7 +2864,7 @@ test("style transition commits Academic content and style in one node update", (
     nodes: [
       {
         id: "claim-1",
-        kind: "claim",
+        kind: "note",
         position: { x: 10, y: 20 },
         width: 260,
         height: 128,
@@ -2851,9 +2876,9 @@ test("style transition commits Academic content and style in one node update", (
   }).nodes;
 
   const next = mergeEditingStyle(node, "Typed claim", { fontSize: 24 });
-  assert.equal(next.data.model.kind, "claim");
+  assert.equal(next.data.model.kind, "note");
   assert.equal(
-    next.data.model.kind === "claim" && next.data.model.content,
+    next.data.model.kind === "note" && next.data.model.content,
     "Typed claim",
   );
   assert.equal(next.data.model.style?.fontSize, 24);
@@ -2917,7 +2942,7 @@ test("Academic edits reopen with the same canonical style and export it", () => 
     nodes: [
       {
         id: "claim-styled",
-        kind: "claim",
+        kind: "note",
         position: { x: 10, y: 20 },
         width: 260,
         height: 128,

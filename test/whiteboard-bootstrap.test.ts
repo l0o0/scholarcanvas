@@ -50,8 +50,7 @@ test("protocol-v2 academic acquisition is forwarded across both bridge sides", (
   assert.match(bootstrap, /type: "pickAcademicSource"/);
   assert.match(bootstrap, /type: "dropAcademicSources"/);
 
-  assert.match(editor, /resolveAcademicAcquisition\(/);
-  assert.match(editor, /type: "academicSourceAcquired"/);
+  assert.match(editor, /resolveAcademicAcquisitionBatch\(/);
   assert.match(editor, /type: "academicSourcesAcquired"/);
   assert.match(editor, /rejectAcademicRequest\(/);
   assert.match(editor, /type: "academicRequestFailed"/);
@@ -88,8 +87,6 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
   };
   const calls: unknown[] = [];
   const runtime = {
-    resolveAcademicAcquisition: (...args: unknown[]) =>
-      calls.push(["resolve", ...args]),
     resolveAcademicAcquisitionBatch: (...args: unknown[]) =>
       calls.push(["resolve-batch", ...args]),
     rejectAcademicRequest: (...args: unknown[]) =>
@@ -111,8 +108,13 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
     source: WHITEBOARD_MESSAGE_SOURCE,
     channel: "canvas-1",
     v: WHITEBOARD_PROTOCOL_VERSION,
-    type: "academicSourceAcquired",
-    payload: { requestId: "pick-1", nodeId: "node-1", acquisition },
+    type: "academicSourcesAcquired",
+    payload: {
+      requestId: "pick-1",
+      nodeId: "node-1",
+      successes: [{ index: 0, acquisition }],
+      failures: [],
+    },
   };
   const rejected: ParentToWhiteboardMessage = {
     source: WHITEBOARD_MESSAGE_SOURCE,
@@ -255,7 +257,7 @@ test("academic bridge dispatch invokes the correlated runtime methods", () => {
     true,
   );
   assert.deepEqual(calls, [
-    ["resolve", "pick-1", "node-1", acquisition],
+    ["resolve-batch", "pick-1", "node-1", acquired.payload.successes, []],
     [
       "resolve-batch",
       "drop-1",
@@ -722,9 +724,20 @@ test("production editor accepts strictly validated null-source Zotero messages",
   window.document.body.append(parent);
   const resolved: string[] = [];
   const opened: unknown[] = [];
+  const savedTemplates: unknown[] = [];
+  const deletedTemplates: string[] = [];
+  const template = {
+    id: "custom-template",
+    name: "Review",
+    style: { fill: "#fff7d6" },
+    updatedAt: "2026-09-06T01:00:00.000Z",
+  };
   const handle = createWhiteboardEditor(parent as unknown as HTMLElement, {
     win: window as unknown as globalThis.Window,
     channel: "tab-1:canvas-1",
+    templates: [template],
+    onSaveNoteTemplate: (value) => savedTemplates.push(value),
+    onDeleteNoteTemplate: (templateId) => deletedTemplates.push(templateId),
     onResolveAcademicSources: (requestId) => resolved.push(requestId),
     onOpenItem: (payload) => opened.push(payload),
   });
@@ -785,6 +798,38 @@ test("production editor accepts strictly validated null-source Zotero messages",
     false,
     "optional undefined init fields must not cross the protocol boundary",
   );
+  assert.deepEqual(
+    (posted[0] as { payload: { templates: unknown[] } }).payload.templates,
+    [template],
+  );
+  handle.setTemplates([]);
+  assert.equal(
+    (posted.at(-1) as { type: string }).type,
+    "noteTemplatesChanged",
+  );
+
+  dispatch(
+    {
+      source: WHITEBOARD_MESSAGE_SOURCE,
+      channel: "tab-1:canvas-1",
+      v: WHITEBOARD_PROTOCOL_VERSION,
+      type: "saveNoteTemplate",
+      payload: { template },
+    },
+    null,
+  );
+  dispatch(
+    {
+      source: WHITEBOARD_MESSAGE_SOURCE,
+      channel: "tab-1:canvas-1",
+      v: WHITEBOARD_PROTOCOL_VERSION,
+      type: "deleteNoteTemplate",
+      payload: { templateId: template.id },
+    },
+    null,
+  );
+  assert.deepEqual(savedTemplates, [template]);
+  assert.deepEqual(deletedTemplates, [template.id]);
   dispatch(crossRealmResolve, null);
   assert.deepEqual(resolved, ["resolve-null"]);
 
@@ -880,16 +925,16 @@ test("flow snapshots with ordinary unlabeled edges resolve host snapshot request
     version: 2,
     nodes: [
       {
-        id: "claim-1",
-        kind: "claim",
+        id: "note-1",
+        kind: "note",
         position: { x: 0, y: 0 },
         width: 240,
         height: 120,
         content: "Claim one",
       },
       {
-        id: "claim-2",
-        kind: "claim",
+        id: "note-2",
+        kind: "note",
         position: { x: 320, y: 0 },
         width: 240,
         height: 120,
@@ -900,8 +945,8 @@ test("flow snapshots with ordinary unlabeled edges resolve host snapshot request
       {
         id: "edge-1",
         kind: "basic",
-        source: "claim-1",
-        target: "claim-2",
+        source: "note-1",
+        target: "note-2",
       },
     ],
     viewport: { x: 0, y: 0, zoom: 1 },

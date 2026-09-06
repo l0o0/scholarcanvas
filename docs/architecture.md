@@ -56,6 +56,13 @@ or replaced session cannot mutate the active canvas. Protocol payloads contain
 validated library references, native keys, and snapshots rather than open-ended
 Zotero object bags.
 
+Academic field rules are owned by `packages/whiteboard/src/model/document.ts`.
+The protocol reuses those parsers but rejects non-own data, unexpected fields,
+and any other normalization at the message boundary. File parsing can still
+recover valid nodes from a partially malformed document. The iframe sender
+uses the protocol's discriminated message body type; only the bridge adds the
+channel/version envelope.
+
 ## Academic source workflow
 
 Regular Zotero Items become Literature nodes. Standalone and child Zotero Notes
@@ -63,6 +70,11 @@ are imported as source-backed Note nodes; a child Note additionally records its
 parent Item key. Supported non-empty PDF highlights and underlines are listed
 on demand from a Literature node and batch-added as Quote nodes. Attachments are
 not accepted as new academic nodes.
+
+Picker and drop acquisitions share one batch response (`academicSourcesAcquired`),
+including a picker result containing just one item. The runtime correlates that
+batch with its pending placeholder and commits successful nodes as one undoable
+edit. Failed or cancelled requests do not create history entries.
 
 Opening a canvas parses and renders every persisted snapshot before scheduling
 Zotero lookups. Selected and visible sources take priority over idle sources,
@@ -83,6 +95,23 @@ connections. Background snapshot and availability updates add no undo entry
 and do not independently dirty the document; explicit source refreshes persist
 changed snapshots without altering graph geometry or semantic relationships.
 Saving serializes only the canonical schema-v2 canvas.
+
+## Note templates
+
+Note is the only persisted user-authored academic thought kind. Question and
+Claim are built-in Note templates that copy a badge, typed canvas style, and
+default size into an ordinary Note. Custom templates use the same closed model
+and may optionally provide starter content for newly created Notes.
+
+The iframe owns selection and editing UI, while a host repository stores custom
+templates in the current Zotero user library through `SyncedSettings`. Template
+messages cross the validated version-2 protocol. Open sessions subscribe to the
+shared repository and release that subscription when closed.
+
+Canvas nodes never reference the registry at render time: creation and Apply
+template both materialize final values into canvas JSON. Applying a template is
+undoable and preserves existing content, Zotero source identity, position,
+frame membership, connections, and extensions.
 
 **Open source** resolves the complete key chain in the host. Literature selects
 its Zotero Item, while Quote navigation asks the Zotero Reader for the exact PDF

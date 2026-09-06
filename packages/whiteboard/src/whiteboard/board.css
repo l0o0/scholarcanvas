@@ -506,6 +506,22 @@
   box-shadow: 0 0 0 3px var(--zmd-board-accent-soft, rgba(37, 99, 235, 0.12));
 }
 
+.zmd-board-template-picker {
+  width: 88px;
+  height: 30px;
+  border: 1px solid var(--zmd-board-border, #e5e7eb);
+  border-radius: 7px;
+  background: var(--zmd-board-surface, #fff);
+  color: var(--zmd-board-text, #111827);
+  font: inherit;
+  font-size: 11px;
+}
+
+.zmd-board-template-picker:focus-visible {
+  outline: 2px solid var(--zmd-board-accent, #2563eb);
+  outline-offset: 1px;
+}
+
 .zmd-board-card-kind {
   display: inline-block;
   flex: 0 0 auto;
@@ -516,6 +532,97 @@
   line-height: 1.2;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.zmd-board-note-badge {
+  align-self: flex-start;
+  max-width: 100%;
+  margin: -2px 0 8px;
+  overflow: hidden;
+  padding: 2px 6px;
+  border: 1px solid var(--zmd-board-border, #e5e7eb);
+  border-radius: 999px;
+  color: var(--zmd-board-muted, #6b7280);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zmd-board-note-template-controls {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-block: 1px solid var(--zmd-board-border, #e5e7eb);
+}
+
+.zmd-board-note-template-controls label,
+.zmd-board-template-save {
+  display: grid;
+  gap: 5px;
+  color: var(--zmd-board-muted, #6b7280);
+  font-size: 11px;
+}
+
+.zmd-board-note-template-controls input,
+.zmd-board-note-template-controls select {
+  box-sizing: border-box;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--zmd-board-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--zmd-board-surface, #fff);
+  color: var(--zmd-board-text, #111827);
+  font: inherit;
+}
+
+.zmd-board-template-check {
+  display: flex !important;
+  align-items: center;
+}
+
+.zmd-board-template-check input {
+  width: 16px;
+  height: 16px;
+}
+
+.zmd-board-template-manager {
+  display: grid;
+  gap: 8px;
+}
+
+.zmd-board-template-manager > summary {
+  cursor: pointer;
+  color: var(--zmd-board-muted, #6b7280);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.zmd-board-template-manager[open] > summary {
+  margin-bottom: 8px;
+}
+
+.zmd-board-custom-templates {
+  display: grid;
+  gap: 5px;
+}
+
+.zmd-board-custom-template-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  gap: 4px;
+}
+
+.zmd-board-custom-template-row button {
+  display: grid;
+  place-items: center;
+}
+
+.zmd-board-template-empty {
+  margin: 0;
+  color: var(--zmd-board-muted, #6b7280);
+  font-size: 11px;
 }
 
 .zmd-board-card-title {

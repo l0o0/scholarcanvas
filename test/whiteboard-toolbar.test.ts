@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { TopIsland } from "../packages/whiteboard/src/chrome/TopIsland.tsx";
 import { libraryTools } from "../packages/whiteboard/src/chrome/tools.ts";
 import type { WhiteboardLabels } from "../packages/whiteboard/src/model/protocol.ts";
+import { createBuiltinNoteTemplates } from "../packages/whiteboard/src/model/note-template.ts";
 
 const css = readFileSync(
   new URL("../packages/whiteboard/src/whiteboard/board.css", import.meta.url),
@@ -22,6 +23,13 @@ function renderToolbar(selectedNodeCount: number, selectedEdgeCount: number) {
       labels,
       activeTool: "select",
       onSelectTool: () => {},
+      noteTemplates: createBuiltinNoteTemplates({
+        note: "Note",
+        question: "Question",
+        claim: "Claim",
+      }),
+      activeNoteTemplateId: "bamboo.note",
+      onSelectNoteTemplate: () => {},
       saveState: "saved",
       selectedNodeCount,
       selectedEdgeCount,
@@ -96,9 +104,10 @@ test("toolbar exposes one local academic creation group only", () => {
   const markup = renderToolbar(0, 0);
   const academicGroup = commandGroup(markup, "addNote");
   assert.ok(academicGroup, "local academic tools need one toolbar group");
-  for (const title of ["addQuestion (Q)", "addClaim (C)", "addFrame (F)"]) {
-    assert.ok(academicGroup.includes(`title="${title}"`));
-  }
+  assert.ok(academicGroup.includes('title="addFrame (F)"'));
+  assert.doesNotMatch(academicGroup, /addQuestion \(Q\)|addClaim \(C\)/);
+  assert.match(academicGroup, />Question<\/option>/);
+  assert.match(academicGroup, />Claim<\/option>/);
   assert.doesNotMatch(markup, /kindLiterature|kindQuote/);
 });
 
@@ -119,6 +128,13 @@ test("toolbar exposes Literature as its only library acquisition tool", () => {
       },
       activeTool: "select",
       onSelectTool: () => {},
+      noteTemplates: createBuiltinNoteTemplates({
+        note: "Note",
+        question: "Question",
+        claim: "Claim",
+      }),
+      activeNoteTemplateId: "bamboo.note",
+      onSelectNoteTemplate: () => {},
       saveState: "saved",
       selectedNodeCount: 0,
       selectedEdgeCount: 0,

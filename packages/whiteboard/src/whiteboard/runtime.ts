@@ -10,7 +10,6 @@ import type { Viewport } from "@xyflow/react";
 import {
   ACADEMIC_SOURCE_CARD_SIZE,
   createAcademicNode,
-  type LiteratureNode,
   type LiteratureSource,
 } from "../model/academic";
 import { createBasicNode } from "../model/basic";
@@ -76,7 +75,6 @@ export interface AcademicAcquisitionRuntimeBindings {
   setEdges: (edges: CanvasFlowEdge[]) => void;
   pushHistory: () => void;
   changed: () => void;
-  onError: (message: string) => void;
   onNotice?: (notice: CanvasNotice) => void;
   createNodeId?: (requestId: string, sourceIndex: number) => string;
   onPickAcademicSource: (
@@ -102,11 +100,6 @@ export interface AcademicAcquisitionRuntime {
     nodeId: string,
     position: { x: number; y: number },
     sources: AcademicDropSourceRef[],
-  ) => void;
-  resolve: (
-    requestId: string,
-    nodeId: string,
-    acquisition: AcademicAcquisition,
   ) => void;
   resolveBatch: (
     requestId: string,
@@ -279,22 +272,6 @@ export function createAcademicAcquisitionRuntime(
       addPlaceholder(requestId, nodeId, position);
       bindings.onDropAcademicSources(requestId, nodeId, sources);
     },
-    resolve(requestId, nodeId, acquisition) {
-      if (pending.get(requestId) !== nodeId) return;
-      const resolved = resolveAcademicPlaceholder(
-        bindings.getNodes(),
-        nodeId,
-        acquisition,
-      );
-      if (!resolved) {
-        reject(requestId, nodeId, "acquisition-failed");
-        return;
-      }
-      bindings.pushHistory();
-      pending.delete(requestId);
-      bindings.setNodes(resolved);
-      bindings.changed();
-    },
     resolveBatch,
     reject,
     pendingNodeIds: () => Array.from(pending.values()),
@@ -307,7 +284,7 @@ export function createAcademicAcquisitionRuntime(
 export function resolveAcademicPlaceholder(
   nodes: CanvasFlowNode[],
   nodeId: string,
-  acquisition: AcademicAcquisition | LiteratureNode,
+  acquisition: AcademicAcquisition,
 ): CanvasFlowNode[] | undefined {
   if (acquisition.kind !== "literature" && acquisition.kind !== "note") {
     return undefined;
@@ -315,21 +292,19 @@ export function resolveAcademicPlaceholder(
   const placeholder = nodes.find((node) => node.id === nodeId);
   if (!placeholder) return undefined;
   const academic =
-    "id" in acquisition
-      ? acquisition
-      : acquisition.kind === "literature"
-        ? createAcademicNode("literature", placeholder.position, nodeId, {
-            source: acquisition.source,
-            snapshot: acquisition.snapshot,
-          })
-        : {
-            ...createAcademicNode("note", placeholder.position, nodeId),
-            source: acquisition.source,
-            ...(acquisition.sourceSnapshot
-              ? { sourceSnapshot: acquisition.sourceSnapshot }
-              : {}),
-            content: acquisition.content,
-          };
+    acquisition.kind === "literature"
+      ? createAcademicNode("literature", placeholder.position, nodeId, {
+          source: acquisition.source,
+          snapshot: acquisition.snapshot,
+        })
+      : {
+          ...createAcademicNode("note", placeholder.position, nodeId),
+          source: acquisition.source,
+          ...(acquisition.sourceSnapshot
+            ? { sourceSnapshot: acquisition.sourceSnapshot }
+            : {}),
+          content: acquisition.content,
+        };
   const replacement = canvasDocumentToFlow({
     version: 2,
     nodes: [academic],

@@ -23,11 +23,12 @@ function canonicalDocument(): CanvasDocument {
     nodes: [
       {
         id: "claim-1",
-        kind: "claim",
+        kind: "note",
         position: { x: 720, y: 40 },
         width: 260,
         height: 128,
         content: "The result generalizes",
+        badge: "Claim",
       },
       {
         id: "line-1",
@@ -109,11 +110,12 @@ function canonicalDocument(): CanvasDocument {
       },
       {
         id: "question-1",
-        kind: "question",
+        kind: "note",
         position: { x: 660, y: 280 },
         width: 260,
         height: 128,
         content: "Can **Markdown** stay raw?\nSecond line",
+        badge: "Question",
       },
       {
         id: "text-1",
@@ -215,7 +217,7 @@ test("Markdown groups Academic kinds, retains Basic objects, and describes relat
 
   assert.match(markdown, /## Literature: A paper/);
   assert.match(markdown, /> Evidence/);
-  assert.match(markdown, /Claim: The result generalizes/);
+  assert.match(markdown, /Note: The result generalizes/);
   assert.match(markdown, /supports: Evidence → The result generalizes/);
   assert.match(markdown, /## Other objects/);
   assert.match(markdown, /Arrow: arrow \[line-1\]/);
@@ -232,8 +234,6 @@ test("Markdown groups Academic kinds, retains Basic objects, and describes relat
     "## Literature:",
     "## Quote:",
     "## Note:",
-    "## Question:",
-    "## Claim:",
     "## Frame:",
     "## Other objects",
     "## Relationships",
@@ -479,7 +479,7 @@ test("SVG export matches canonical stroke precedence and Frame defaults", () => 
       },
       {
         id: "solid-claim",
-        kind: "claim",
+        kind: "note",
         position: { x: 40, y: 40 },
         width: 200,
         height: 96,
@@ -639,7 +639,7 @@ test("SVG export limits lines by node height and positions vertical alignment", 
       nodes: [
         {
           id: verticalAlign,
-          kind: "claim",
+          kind: "note",
           position: { x: 0, y: 100 },
           width: 180,
           height: 100,
@@ -665,7 +665,7 @@ test("SVG export limits lines by node height and positions vertical alignment", 
     nodes: [
       {
         id: "short",
-        kind: "question",
+        kind: "note",
         position: { x: 0, y: 0 },
         width: 180,
         height: 49,

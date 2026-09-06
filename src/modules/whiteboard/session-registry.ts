@@ -22,6 +22,7 @@ export interface WhiteboardSession {
   closing?: boolean;
   autosaveTimer?: number;
   unbindTheme?: () => void;
+  unsubscribeTemplates?: () => void;
 }
 
 export class WhiteboardSessionRegistry {
@@ -53,6 +54,7 @@ export class WhiteboardSessionRegistry {
     const session = this.byTab.get(tabID);
     if (!session) return;
     session.sourceScheduler?.dispose();
+    session.unsubscribeTemplates?.();
     this.byTab.delete(tabID);
     this.byItem.delete(session.itemID);
     this.byWindow.get(session.win)?.delete(tabID);

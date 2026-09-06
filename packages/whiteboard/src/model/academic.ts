@@ -2,8 +2,7 @@ import type { BasicNode, BasicNodeKind } from "./basic";
 import type { CanvasNodeBase, CanvasNodeStyle, CanvasPoint } from "./core";
 import type { WhiteboardTheme } from "./protocol";
 
-export type AcademicNodeKind =
-  "literature" | "quote" | "note" | "question" | "claim" | "frame";
+export type AcademicNodeKind = "literature" | "quote" | "note" | "frame";
 
 export const ACADEMIC_SOURCE_CARD_SIZE = {
   literature: { width: 280, height: 200 },
@@ -104,24 +103,16 @@ export interface QuoteNode extends CanvasNodeBase<"quote"> {
 
 export interface NoteNode extends CanvasNodeBase<"note"> {
   content: string;
+  badge?: string;
   source?: NoteSource;
   sourceSnapshot?: NoteSourceSnapshot;
-}
-
-export interface QuestionNode extends CanvasNodeBase<"question"> {
-  content: string;
-}
-
-export interface ClaimNode extends CanvasNodeBase<"claim"> {
-  content: string;
 }
 
 export interface FrameNode extends Omit<CanvasNodeBase<"frame">, "frameId"> {
   title: string;
 }
 
-export type AcademicNode =
-  LiteratureNode | QuoteNode | NoteNode | QuestionNode | ClaimNode | FrameNode;
+export type AcademicNode = LiteratureNode | QuoteNode | NoteNode | FrameNode;
 
 export type CanvasNode = BasicNode | AcademicNode;
 export type CanvasNodeKind = BasicNodeKind | AcademicNodeKind;
@@ -255,12 +246,7 @@ export function canvasNodeTextDefaults(
       verticalAlign: "top",
     };
   }
-  if (
-    kind === "quote" ||
-    kind === "note" ||
-    kind === "question" ||
-    kind === "claim"
-  ) {
+  if (kind === "quote" || kind === "note") {
     return {
       ...common,
       fontSize: 12,
@@ -322,6 +308,14 @@ export interface QuoteNodeOptions {
   snapshot: QuoteSnapshot;
 }
 
+export interface NoteNodeOptions {
+  content?: string;
+  badge?: string;
+  style?: CanvasNodeStyle;
+  width?: number;
+  height?: number;
+}
+
 export function createAcademicNode(
   kind: "literature",
   position: CanvasPoint,
@@ -338,17 +332,8 @@ export function createAcademicNode(
   kind: "note",
   position: CanvasPoint,
   id: string,
+  options?: NoteNodeOptions,
 ): NoteNode;
-export function createAcademicNode(
-  kind: "question",
-  position: CanvasPoint,
-  id: string,
-): QuestionNode;
-export function createAcademicNode(
-  kind: "claim",
-  position: CanvasPoint,
-  id: string,
-): ClaimNode;
 export function createAcademicNode(
   kind: "frame",
   position: CanvasPoint,
@@ -358,7 +343,7 @@ export function createAcademicNode(
   kind: AcademicNodeKind,
   position: CanvasPoint,
   id: string,
-  options?: LiteratureNodeOptions | QuoteNodeOptions,
+  options?: LiteratureNodeOptions | QuoteNodeOptions | NoteNodeOptions,
 ): AcademicNode {
   switch (kind) {
     case "literature":
@@ -380,10 +365,20 @@ export function createAcademicNode(
         snapshot: (options as QuoteNodeOptions).snapshot,
       };
     case "note":
-      return { id, kind, position, width: 260, height: 152, content: "" };
-    case "question":
-    case "claim":
-      return { id, kind, position, width: 260, height: 128, content: "" };
+      return {
+        id,
+        kind,
+        position,
+        width: (options as NoteNodeOptions | undefined)?.width ?? 260,
+        height: (options as NoteNodeOptions | undefined)?.height ?? 152,
+        content: (options as NoteNodeOptions | undefined)?.content ?? "",
+        ...((options as NoteNodeOptions | undefined)?.badge !== undefined
+          ? { badge: (options as NoteNodeOptions).badge }
+          : {}),
+        ...((options as NoteNodeOptions | undefined)?.style
+          ? { style: { ...(options as NoteNodeOptions).style } }
+          : {}),
+      };
     case "frame":
       return { id, kind, position, width: 480, height: 320, title: "Frame" };
   }

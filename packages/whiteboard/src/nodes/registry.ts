@@ -4,14 +4,7 @@ import {
   ACADEMIC_SOURCE_CARD_SIZE,
   type CanvasNodeKind,
 } from "../model/academic";
-import {
-  ClaimNode,
-  FrameNode,
-  LiteratureNode,
-  NoteNode,
-  QuestionNode,
-  QuoteNode,
-} from "./academic";
+import { FrameNode, LiteratureNode, NoteNode, QuoteNode } from "./academic";
 import { AttachmentNode, ItemNode, PdfNode } from "./library";
 import { ArrowNode, EllipseNode, LineNode, RectNode, TextNode } from "./shapes";
 import type { CanvasFlowNode, NodeGroup } from "./types";
@@ -70,20 +63,6 @@ const NODE_SPECS: WhiteboardNodeSpec[] = [
     defaultWidth: 260,
     defaultHeight: 152,
     Component: NoteNode,
-  },
-  {
-    kind: "question",
-    group: "academic",
-    defaultWidth: 260,
-    defaultHeight: 128,
-    Component: QuestionNode,
-  },
-  {
-    kind: "claim",
-    group: "academic",
-    defaultWidth: 260,
-    defaultHeight: 128,
-    Component: ClaimNode,
   },
   {
     kind: "frame",

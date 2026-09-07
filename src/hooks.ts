@@ -18,6 +18,7 @@ import {
 import {
   closeAllWhiteboards,
   closeWhiteboardsForWindow,
+  ensureTutorialWhiteboard,
   flushAllWhiteboards,
   injectWhiteboardStyles,
   registerWhiteboardFileOpenInterceptor,
@@ -57,6 +58,7 @@ async function onStartup() {
   );
 
   registerSidebarSection();
+  void ensureTutorialWhiteboard();
 
   addon.api = {
     version: 2,

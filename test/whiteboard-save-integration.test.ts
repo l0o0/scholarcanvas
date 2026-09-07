@@ -76,6 +76,32 @@ test("plugin shutdown flushes canvases before closing them", () => {
   );
 });
 
+test("plugin schedules tutorial onboarding after startup initialization", () => {
+  assert.match(
+    hooks,
+    /import\s*\{[\s\S]*ensureTutorialWhiteboard[\s\S]*\}\s*from "\.\/modules\/whiteboard"/,
+  );
+  assert.match(hooks, /void ensureTutorialWhiteboard\(\)/);
+  assert.doesNotMatch(hooks, /await ensureTutorialWhiteboard\(\)/);
+
+  const startup = hooks.slice(
+    hooks.indexOf("async function onStartup"),
+    hooks.indexOf("async function onMainWindowLoad"),
+  );
+  const tutorial = startup.indexOf("void ensureTutorialWhiteboard()");
+  for (const initialized of [
+    "initLocale()",
+    "registerMenus()",
+    "onMainWindowLoad(win)",
+    "registerSidebarSection()",
+  ]) {
+    assert.ok(
+      startup.indexOf(initialized) < tutorial,
+      `tutorial must follow ${initialized}`,
+    );
+  }
+});
+
 test("tab title hooks derive dirty state from the coordinator", () => {
   assert.match(tabHooks, /session\.saveCoordinator\?\.dirty/);
   assert.doesNotMatch(tabHooks, /session\.(currentRev|savedRev)/);

@@ -96,6 +96,19 @@ and do not independently dirty the document; explicit source refreshes persist
 changed snapshots without altering graph geometry or semantic relationships.
 Saving serializes only the canonical schema-v2 canvas.
 
+## First-run tutorial
+
+After locale, menus, windows, and the sidebar are initialized, startup
+schedules a one-time tutorial without waiting for it. The host inspects a
+bounded set of recent Regular Items from the user library, while the pure
+whiteboard model builds the canonical tutorial document from localized labels
+and an optional validated sample.
+
+The result is an ordinary standalone attachment in the user-library root. Its
+completion marker is written after attachment creation succeeds and before the
+attachment opens. The marker prevents recreation even if the user later
+deletes the tutorial, and sample discovery never mutates source Zotero Items.
+
 ## Note templates
 
 Note is the only persisted user-authored academic thought kind. Question and

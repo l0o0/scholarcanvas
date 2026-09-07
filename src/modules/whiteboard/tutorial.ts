@@ -4,7 +4,6 @@ import {
   type TutorialCanvasLabels,
   type TutorialCanvasSample,
 } from "../../../packages/whiteboard/src/model";
-import type { FluentMessageId } from "../../../typings/i10n";
 import { getString } from "../../utils/locale";
 import { getPref, setPref } from "../../utils/prefs";
 import { createWhiteboardAttachment } from "./create";
@@ -289,24 +288,23 @@ function productionOnboardingDependencies(): TutorialOnboardingDependencies {
 }
 
 function tutorialLabels(): TutorialCanvasLabels {
-  const string = (key: string) => getString(key as FluentMessageId);
   return {
-    title: string("whiteboard-tutorial-title"),
-    welcome: string("whiteboard-tutorial-welcome"),
-    welcomeBody: string("whiteboard-tutorial-welcome-body"),
-    sourceNotice: string("whiteboard-tutorial-source-notice"),
-    addLiterature: string("whiteboard-tutorial-add-literature"),
-    addLiteratureBody: string("whiteboard-tutorial-add-literature-body"),
-    browseQuotes: string("whiteboard-tutorial-browse-quotes"),
-    browseQuotesBody: string("whiteboard-tutorial-browse-quotes-body"),
-    writeNote: string("whiteboard-tutorial-write-note"),
-    writeNoteBody: string("whiteboard-tutorial-write-note-body"),
-    questionBadge: string("whiteboard-tutorial-question-badge"),
-    claimBadge: string("whiteboard-tutorial-claim-badge"),
-    organize: string("whiteboard-tutorial-organize"),
-    organizeBody: string("whiteboard-tutorial-organize-body"),
-    practice: string("whiteboard-tutorial-practice"),
-    practiceBody: string("whiteboard-tutorial-practice-body"),
-    supports: string("whiteboard-tutorial-supports"),
+    title: getString("whiteboard-tutorial-title"),
+    welcome: getString("whiteboard-tutorial-welcome"),
+    welcomeBody: getString("whiteboard-tutorial-welcome-body"),
+    sourceNotice: getString("whiteboard-tutorial-source-notice"),
+    addLiterature: getString("whiteboard-tutorial-add-literature"),
+    addLiteratureBody: getString("whiteboard-tutorial-add-literature-body"),
+    browseQuotes: getString("whiteboard-tutorial-browse-quotes"),
+    browseQuotesBody: getString("whiteboard-tutorial-browse-quotes-body"),
+    writeNote: getString("whiteboard-tutorial-write-note"),
+    writeNoteBody: getString("whiteboard-tutorial-write-note-body"),
+    questionBadge: getString("whiteboard-tutorial-question-badge"),
+    claimBadge: getString("whiteboard-tutorial-claim-badge"),
+    organize: getString("whiteboard-tutorial-organize"),
+    organizeBody: getString("whiteboard-tutorial-organize-body"),
+    practice: getString("whiteboard-tutorial-practice"),
+    practiceBody: getString("whiteboard-tutorial-practice-body"),
+    supports: getString("whiteboard-tutorial-supports"),
   };
 }

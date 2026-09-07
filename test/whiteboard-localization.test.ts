@@ -112,6 +112,26 @@ const hostKeys = [
   "whiteboard-shortcut-frame",
 ];
 
+const tutorialLabels = [
+  ["title", "whiteboard-tutorial-title"],
+  ["welcome", "whiteboard-tutorial-welcome"],
+  ["welcomeBody", "whiteboard-tutorial-welcome-body"],
+  ["sourceNotice", "whiteboard-tutorial-source-notice"],
+  ["addLiterature", "whiteboard-tutorial-add-literature"],
+  ["addLiteratureBody", "whiteboard-tutorial-add-literature-body"],
+  ["browseQuotes", "whiteboard-tutorial-browse-quotes"],
+  ["browseQuotesBody", "whiteboard-tutorial-browse-quotes-body"],
+  ["writeNote", "whiteboard-tutorial-write-note"],
+  ["writeNoteBody", "whiteboard-tutorial-write-note-body"],
+  ["questionBadge", "whiteboard-tutorial-question-badge"],
+  ["claimBadge", "whiteboard-tutorial-claim-badge"],
+  ["organize", "whiteboard-tutorial-organize"],
+  ["organizeBody", "whiteboard-tutorial-organize-body"],
+  ["practice", "whiteboard-tutorial-practice"],
+  ["practiceBody", "whiteboard-tutorial-practice-body"],
+  ["supports", "whiteboard-tutorial-supports"],
+] as const;
+
 test("both host locales define every whiteboard chrome label", () => {
   for (const locale of ["en-US", "zh-CN"]) {
     const source = readFileSync(`addon/locale/${locale}/addon.ftl`, "utf8");
@@ -123,6 +143,36 @@ test("both host locales define every whiteboard chrome label", () => {
       );
     }
   }
+});
+
+test("both host locales define the complete tutorial label set", () => {
+  const expectedKeys = tutorialLabels.map(([, key]) => key).sort();
+  for (const locale of ["en-US", "zh-CN"]) {
+    const source = readFileSync(`addon/locale/${locale}/addon.ftl`, "utf8");
+    const actualKeys = [
+      ...source.matchAll(/^(whiteboard-tutorial-[\w-]+)\s*=/gm),
+    ]
+      .map((match) => match[1])
+      .sort();
+    assert.deepEqual(actualKeys, expectedKeys, locale);
+    assert.match(
+      source,
+      /^whiteboard-tutorial-title\s*=\s*\S.*\.canvas$/m,
+      `${locale}: localized title must be a .canvas filename`,
+    );
+  }
+});
+
+test("host maps every tutorial label directly through typed localization", () => {
+  const source = readFileSync("src/modules/whiteboard/tutorial.ts", "utf8");
+  for (const [field, key] of tutorialLabels) {
+    assert.match(
+      source,
+      new RegExp(`${field}:\\s*getString\\("${key}"\\)`),
+      `${field}: ${key}`,
+    );
+  }
+  assert.doesNotMatch(source, /FluentMessageId/);
 });
 
 test("library acquisition uses the Literature label in both host locales", () => {

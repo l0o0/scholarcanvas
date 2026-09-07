@@ -240,8 +240,17 @@ test("copies and bounds real academic samples through a canvas-file round trip",
       content: "A supplied child note",
     },
   };
+  Object.assign(sample.literature.source, { extension: "preserved" });
 
   const document = tutorialCanvasDocument(english, sample);
+  const copiedLiterature = document.nodes.find(
+    (node) => node.kind === "literature",
+  );
+  assert.equal(
+    (copiedLiterature?.source as { extension?: string }).extension,
+    "preserved",
+  );
+  delete (copiedLiterature?.source as { extension?: string }).extension;
   const parsed = parseCanvasDocument(document);
   const literature = parsed.document.nodes.filter(
     (node) => node.kind === "literature",

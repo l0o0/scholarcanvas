@@ -42,12 +42,4 @@ export type {
   SourceGatewayDependencies,
   ZoteroSourceGateway,
 } from "./source-gateway";
-export {
-  ensureTutorialWhiteboard,
-  selectTutorialSample,
-  TUTORIAL_CANDIDATE_LIMIT,
-} from "./tutorial";
-export type {
-  TutorialOnboardingDependencies,
-  TutorialSampleDependencies,
-} from "./tutorial";
+export { ensureTutorialWhiteboard } from "./tutorial";

@@ -1,4 +1,4 @@
-import { createAcademicNode, type ZoteroLibraryRef } from "./academic";
+import { createAcademicNode } from "./academic";
 import { createBasicNode } from "./basic";
 import { createAcademicConnection } from "./connection";
 import { CANVAS_DOCUMENT_VERSION, type CanvasDocument } from "./document";
@@ -239,7 +239,7 @@ export function tutorialCanvasDocument(
         { x: 360, y: 440 },
         "tutorial-sample-literature",
         {
-          source: copyLiteratureSource(sample.literature.source),
+          source: copySource(sample.literature.source),
           snapshot: {
             ...sample.literature.snapshot,
             ...(sample.literature.snapshot.tags
@@ -256,11 +256,7 @@ export function tutorialCanvasDocument(
         { x: 720, y: 440 + index * 220 },
         `tutorial-sample-quote-${index + 1}`,
         {
-          source: {
-            ...copyLiteratureSource(quote.source),
-            attachmentKey: quote.source.attachmentKey,
-            annotationKey: quote.source.annotationKey,
-          },
+          source: copySource(quote.source),
           snapshot: { ...quote.snapshot },
         },
       ),
@@ -276,13 +272,7 @@ export function tutorialCanvasDocument(
           "tutorial-sample-note",
           { content: sample.note.content, style: sampleStyle },
         ),
-        source: {
-          ...copyLibrarySource(sample.note.source),
-          noteKey: sample.note.source.noteKey,
-          ...(sample.note.source.itemKey
-            ? { itemKey: sample.note.source.itemKey }
-            : {}),
-        },
+        source: copySource(sample.note.source),
         ...(sample.note.sourceSnapshot
           ? { sourceSnapshot: { ...sample.note.sourceSnapshot } }
           : {}),
@@ -320,13 +310,8 @@ function guideNode(id: string, x: number, title: string, body: string) {
   });
 }
 
-function copyLiteratureSource(source: {
-  library: ZoteroLibraryRef;
-  itemKey: string;
-}) {
-  return { ...copyLibrarySource(source), itemKey: source.itemKey };
-}
-
-function copyLibrarySource(source: { library: ZoteroLibraryRef }) {
-  return { library: { ...source.library } as ZoteroLibraryRef };
+function copySource<Source extends { library: object }>(
+  source: Source,
+): Source {
+  return { ...source, library: { ...source.library } };
 }

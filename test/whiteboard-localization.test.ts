@@ -163,6 +163,16 @@ test("both host locales define the complete tutorial label set", () => {
   }
 });
 
+test("the Chinese tutorial uses the UI term for Claim", () => {
+  const source = readFileSync("addon/locale/zh-CN/addon.ftl", "utf8");
+  assert.match(source, /^whiteboard-tutorial-claim-badge = 主张$/m);
+  assert.match(
+    source,
+    /^whiteboard-tutorial-write-note-body = 从问题或主张模板开始，然后继续编辑。$/m,
+  );
+  assert.doesNotMatch(source, /^whiteboard-tutorial-.*论点/m);
+});
+
 test("host maps every tutorial label directly through typed localization", () => {
   const source = readFileSync("src/modules/whiteboard/tutorial.ts", "utf8");
   for (const [field, key] of tutorialLabels) {

@@ -76,30 +76,68 @@ test("plugin shutdown flushes canvases before closing them", () => {
   );
 });
 
-test("plugin schedules tutorial onboarding after startup initialization", () => {
+function statementIndex(
+  source: string,
+  pattern: RegExp,
+  label: string,
+): number {
+  const index = pattern.exec(source)?.index ?? -1;
+  assert.ok(index >= 0, `missing ${label}`);
+  return index;
+}
+
+test("plugin owns tutorial onboarding across startup and shutdown", () => {
   assert.match(
     hooks,
     /import\s*\{[\s\S]*ensureTutorialWhiteboard[\s\S]*\}\s*from "\.\/modules\/whiteboard"/,
   );
-  assert.match(hooks, /void ensureTutorialWhiteboard\(\)/);
+  assert.match(hooks, /^let tutorialStartup: Promise<void> \| undefined;$/m);
   assert.doesNotMatch(hooks, /await ensureTutorialWhiteboard\(\)/);
 
   const startup = hooks.slice(
     hooks.indexOf("async function onStartup"),
     hooks.indexOf("async function onMainWindowLoad"),
   );
-  const tutorial = startup.indexOf("void ensureTutorialWhiteboard()");
-  for (const initialized of [
-    "initLocale()",
-    "registerMenus()",
-    "onMainWindowLoad(win)",
-    "registerSidebarSection()",
-  ]) {
+  const tutorial = statementIndex(
+    startup,
+    /^\s*tutorialStartup = ensureTutorialWhiteboard\(\);$/m,
+    "non-awaited tutorial assignment",
+  );
+  for (const [label, pattern] of [
+    ["initLocale()", /^\s*initLocale\(\);$/m],
+    ["registerMenus()", /^\s*registerMenus\(\);$/m],
+    [
+      "onMainWindowLoad(win)",
+      /^\s*Zotero\.getMainWindows\(\)\.map\(\(win\) => onMainWindowLoad\(win\)\),$/m,
+    ],
+    ["registerSidebarSection()", /^\s*registerSidebarSection\(\);$/m],
+  ] as const) {
     assert.ok(
-      startup.indexOf(initialized) < tutorial,
-      `tutorial must follow ${initialized}`,
+      statementIndex(startup, pattern, label) < tutorial,
+      `tutorial must follow ${label}`,
     );
   }
+
+  const shutdown = hooks.slice(
+    hooks.indexOf("async function onShutdown"),
+    hooks.indexOf("function registerPrefs"),
+  );
+  const drain = statementIndex(
+    shutdown,
+    /^\s*await tutorialStartup;$/m,
+    "tutorial shutdown drain",
+  );
+  const clear = statementIndex(
+    shutdown,
+    /^\s*tutorialStartup = undefined;$/m,
+    "tutorial promise clear",
+  );
+  const teardown = statementIndex(
+    shutdown,
+    /^\s*await closeAllMarkdownWindows\(\);$/m,
+    "first shutdown teardown",
+  );
+  assert.ok(drain < clear && clear < teardown);
 });
 
 test("tab title hooks derive dirty state from the coordinator", () => {

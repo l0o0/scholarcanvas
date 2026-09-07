@@ -38,6 +38,8 @@ import { getString, initLocale } from "./utils/locale";
 import { bindMarkdownSettingsPreferencePane } from "./modules/markdown/settings";
 import { disposeMarkdownRenderer } from "./modules/markdown/async-render";
 
+let tutorialStartup: Promise<void> | undefined;
+
 async function onStartup() {
   await Promise.all([
     Zotero.initializationPromise,
@@ -58,7 +60,7 @@ async function onStartup() {
   );
 
   registerSidebarSection();
-  void ensureTutorialWhiteboard();
+  tutorialStartup = ensureTutorialWhiteboard();
 
   addon.api = {
     version: 2,
@@ -118,6 +120,10 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
 }
 
 async function onShutdown(): Promise<void> {
+  if (tutorialStartup) {
+    await tutorialStartup;
+    tutorialStartup = undefined;
+  }
   await closeAllMarkdownWindows();
   await flushAllSessions();
   await flushAllWhiteboards();

@@ -106,9 +106,31 @@ test("toolbar exposes one local academic creation group only", () => {
   assert.ok(academicGroup, "local academic tools need one toolbar group");
   assert.ok(academicGroup.includes('title="addFrame (F)"'));
   assert.doesNotMatch(academicGroup, /addQuestion \(Q\)|addClaim \(C\)/);
-  assert.match(academicGroup, />Question<\/option>/);
-  assert.match(academicGroup, />Claim<\/option>/);
+  assert.doesNotMatch(academicGroup, /<select/);
+  assert.match(academicGroup, /class="zmd-board-template-trigger"/);
+  assert.match(academicGroup, /aria-haspopup="menu"/);
+  assert.match(academicGroup, />Note</);
   assert.doesNotMatch(markup, /kindLiterature|kindQuote/);
+});
+
+test("template picker uses the toolbar menu vocabulary", () => {
+  assert.doesNotMatch(css, /\.zmd-board-template-picker\s*\{/);
+  assert.match(
+    css,
+    /\.zmd-board-top-island \.zmd-board-template-trigger\s*\{[^}]*background:\s*transparent[^}]*color:\s*var\(--zmd-board-text/s,
+  );
+  assert.match(
+    css,
+    /\.zmd-board-template-trigger:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--zmd-board-accent/s,
+  );
+  assert.match(
+    css,
+    /\.zmd-board-template-menu,\s*\.zmd-board-more-menu\s*\{[^}]*background:\s*var\(--zmd-board-surface[^}]*border:\s*1px solid var\(--zmd-board-border/s,
+  );
+  assert.match(
+    css,
+    /\.zmd-board-template-menu button\[aria-checked="true"\]\s*\{[^}]*background:\s*var\(--zmd-board-accent-soft/s,
+  );
 });
 
 test("toolbar exposes Literature as its only library acquisition tool", () => {

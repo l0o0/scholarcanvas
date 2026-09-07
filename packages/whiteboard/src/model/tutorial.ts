@@ -62,11 +62,9 @@ const frameStyle = {
 } as const;
 
 const sampleStyle = {
-  fill: "#eff6ff",
   stroke: "#60a5fa",
   strokeWidth: 2,
   radius: 12,
-  textColor: "#172554",
 } as const;
 
 export function tutorialCanvasDocument(

@@ -52,6 +52,18 @@ export const IconRedo = () => (
   </Icon>
 );
 
+export const IconChevronDown = () => (
+  <Icon>
+    <path d="m6 9 6 6 6-6" />
+  </Icon>
+);
+
+export const IconCheck = () => (
+  <Icon>
+    <path d="m5 12 4 4L19 6" />
+  </Icon>
+);
+
 export const IconSelect = () => (
   <Icon>
     <path d="M4 4 11 20 13 13 20 11Z" />

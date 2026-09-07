@@ -9,6 +9,8 @@ import {
   IconAlignTop,
   IconAlignVCenter,
   IconArrow,
+  IconCheck,
+  IconChevronDown,
   IconDistributeH,
   IconDistributeV,
   IconEllipse,
@@ -61,19 +63,38 @@ export function TopIsland(props: {
   onOpenShortcuts: () => void;
 }) {
   const { labels, activeTool, onSelectTool } = props;
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<"templates" | "more" | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const templateTriggerRef = useRef<HTMLButtonElement>(null);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!openMenu) return;
     const onPointerDown = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) {
-        setMenuOpen(false);
+        setOpenMenu(null);
       }
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const trigger =
+        openMenu === "templates"
+          ? templateTriggerRef.current
+          : moreTriggerRef.current;
+      setOpenMenu(null);
+      trigger?.focus();
+    };
     window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [menuOpen]);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [openMenu]);
+  const activeNoteTemplate =
+    props.noteTemplates.find(
+      (template) => template.id === props.activeNoteTemplateId,
+    ) ?? props.noteTemplates[0];
   const groups: ToolButton[][] = [
     [
       { tool: "select", title: labels.select, icon: <IconSelect /> },
@@ -104,6 +125,7 @@ export function TopIsland(props: {
 
   return (
     <div
+      ref={menuRef}
       className="zmd-board-top-island"
       role="toolbar"
       aria-label={labels.canvas}
@@ -118,28 +140,62 @@ export function TopIsland(props: {
               aria-label={item.title}
               aria-pressed={activeTool === item.tool}
               className={activeTool === item.tool ? "is-active" : ""}
-              onClick={() => onSelectTool(item.tool)}
+              onClick={() => {
+                setOpenMenu(null);
+                onSelectTool(item.tool);
+              }}
             >
               {item.icon}
             </button>
           ))}
           {group.some((item) => item.tool === "note") ? (
-            <select
-              className="zmd-board-template-picker"
-              title={labels.addNote}
-              aria-label={labels.addNote}
-              value={props.activeNoteTemplateId}
-              onChange={(event) => {
-                props.onSelectNoteTemplate(event.currentTarget.value);
-                props.onSelectTool("note");
-              }}
-            >
-              {props.noteTemplates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
+            <div className="zmd-board-template">
+              <button
+                ref={templateTriggerRef}
+                type="button"
+                className="zmd-board-template-trigger"
+                title={labels.addNote}
+                aria-label={labels.addNote}
+                aria-haspopup="menu"
+                aria-expanded={openMenu === "templates"}
+                onClick={() =>
+                  setOpenMenu((current) =>
+                    current === "templates" ? null : "templates",
+                  )
+                }
+              >
+                <span>{activeNoteTemplate?.name ?? labels.addNote}</span>
+                <IconChevronDown />
+              </button>
+              {openMenu === "templates" ? (
+                <div
+                  className="zmd-board-template-menu"
+                  role="menu"
+                  aria-label={labels.addNote}
+                >
+                  {props.noteTemplates.map((template) => {
+                    const active = template.id === props.activeNoteTemplateId;
+                    return (
+                      <button
+                        key={template.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={active}
+                        onClick={() => {
+                          props.onSelectNoteTemplate(template.id);
+                          props.onSelectTool("note");
+                          setOpenMenu(null);
+                          templateTriggerRef.current?.focus();
+                        }}
+                      >
+                        <span>{template.name}</span>
+                        {active ? <IconCheck /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ))}
@@ -262,24 +318,27 @@ export function TopIsland(props: {
       >
         <IconLayout />
       </button>
-      <div className="zmd-board-more" ref={menuRef}>
+      <div className="zmd-board-more">
         <button
+          ref={moreTriggerRef}
           type="button"
           title={labels.more}
           aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          className={menuOpen ? "is-active" : ""}
-          onClick={() => setMenuOpen((open) => !open)}
+          aria-expanded={openMenu === "more"}
+          className={openMenu === "more" ? "is-active" : ""}
+          onClick={() =>
+            setOpenMenu((current) => (current === "more" ? null : "more"))
+          }
         >
           <IconMore />
         </button>
-        {menuOpen ? (
+        {openMenu === "more" ? (
           <div className="zmd-board-more-menu" role="menu">
             <button
               type="button"
               role="menuitem"
               onClick={() => {
-                setMenuOpen(false);
+                setOpenMenu(null);
                 props.onOpenShortcuts();
               }}
             >

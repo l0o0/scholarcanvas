@@ -262,6 +262,12 @@ test("copies and bounds real academic samples through a canvas-file round trip",
   );
   assert.equal(notes[0].source?.noteKey, "NOTE1234");
   assert.equal(notes[0].content, "A supplied child note");
+  for (const node of [...literature, ...quotes, ...notes]) {
+    assert.equal(node.style?.fill, undefined);
+    assert.equal(node.style?.textColor, undefined);
+    assert.equal(node.style?.stroke, "#60a5fa");
+    assert.equal(node.style?.strokeWidth, 2);
+  }
   assert.notEqual(literature[0].source, sample.literature.source);
   assert.notEqual(
     literature[0].source.library,

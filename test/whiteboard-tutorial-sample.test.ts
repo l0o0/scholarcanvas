@@ -363,6 +363,50 @@ test("returns undefined for no candidates or a discovery exception", async () =>
   assert.equal(await selectTutorialSample(deps), undefined);
 });
 
+test("logs only production recent-item query failures", async (t) => {
+  const failure = new Error("database unavailable");
+  const logs: unknown[][] = [];
+  const previousZotero = Object.getOwnPropertyDescriptor(globalThis, "Zotero");
+  const previousToolkit = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "ztoolkit",
+  );
+  Object.defineProperties(globalThis, {
+    Zotero: {
+      configurable: true,
+      value: {
+        Libraries: { userLibraryID: USER_LIBRARY_ID },
+        DB: { columnQueryAsync: async () => Promise.reject(failure) },
+        Items: { get: () => null },
+      },
+    },
+    ztoolkit: {
+      configurable: true,
+      value: { log: (...args: unknown[]) => logs.push(args) },
+    },
+  });
+  t.after(() => {
+    if (previousZotero)
+      Object.defineProperty(globalThis, "Zotero", previousZotero);
+    else Reflect.deleteProperty(globalThis, "Zotero");
+    if (previousToolkit)
+      Object.defineProperty(globalThis, "ztoolkit", previousToolkit);
+    else Reflect.deleteProperty(globalThis, "ztoolkit");
+  });
+
+  assert.equal(await selectTutorialSample(), undefined);
+  assert.equal(logs.length, 1);
+  assert.match(String(logs[0][0]), /recent item discovery failed/i);
+  assert.equal(logs[0][1], failure);
+
+  const injected = dependencies([], [], gateway());
+  injected.recentItemIDs = async () => {
+    throw failure;
+  };
+  assert.equal(await selectTutorialSample(injected), undefined);
+  assert.equal(logs.length, 1);
+});
+
 test("production discovery issues one parameterized bounded ID query", async () => {
   const calls: Array<{ sql: string; params: unknown[] }> = [];
   const previous = Object.getOwnPropertyDescriptor(globalThis, "Zotero");

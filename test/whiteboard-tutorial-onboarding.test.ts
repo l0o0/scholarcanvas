@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import type { TutorialCanvasLabels } from "../packages/whiteboard/src/model/tutorial.ts";
+import type {
+  TutorialCanvasLabels,
+  TutorialCanvasSample,
+} from "../packages/whiteboard/src/model/tutorial.ts";
 import {
   ensureTutorialWhiteboard,
   type TutorialOnboardingDependencies,
@@ -163,6 +166,39 @@ test("a creation exception resolves, logs, and leaves completion unset", async (
   assert.equal(markCalls, 0);
   assert.equal(logs.length, 1);
   assert.equal(logs[0][1], failure);
+});
+
+test("a malformed sample skips creation, completion, and opening", async () => {
+  const events: string[] = [];
+  const logs: unknown[][] = [];
+  const malformedSample = {
+    literature: {
+      kind: "literature",
+      source: { library: { type: "user" }, itemKey: "" },
+      snapshot: { title: "Malformed source" },
+    },
+    quotes: [],
+  } as TutorialCanvasSample;
+
+  await assert.doesNotReject(() =>
+    ensureTutorialWhiteboard(
+      dependencies({
+        selectSample: async () => malformedSample,
+        create: async () => {
+          events.push("create");
+          return attachment;
+        },
+        markCompleted: () => events.push("mark"),
+        open: async () => events.push("open"),
+        log: (...args) => logs.push(args),
+      }),
+    ),
+  );
+
+  assert.deepEqual(events, []);
+  assert.equal(logs.length, 1);
+  assert.match(String(logs[0][0]), /creation or opening failed/i);
+  assert.match(String(logs[0][1]), /malformed-node/);
 });
 
 test("an open exception resolves after completion is marked", async () => {

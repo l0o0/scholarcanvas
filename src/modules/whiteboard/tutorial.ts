@@ -1,4 +1,5 @@
 import {
+  parseCanvasDocument,
   tutorialCanvasDocument,
   type CanvasDocument,
   type TutorialCanvasLabels,
@@ -195,16 +196,22 @@ function isItemID(value: unknown): value is number {
 function productionDependencies(): TutorialSampleDependencies {
   return {
     userLibraryID: Zotero.Libraries.userLibraryID,
-    recentItemIDs: (libraryID, limit) =>
-      Zotero.DB.columnQueryAsync<number>(
-        `SELECT itemID
-         FROM items
-         WHERE libraryID = ?
-           AND itemID NOT IN (SELECT itemID FROM deletedItems)
-         ORDER BY dateModified DESC, itemID DESC
-         LIMIT ?`,
-        [libraryID, limit],
-      ),
+    recentItemIDs: async (libraryID, limit) => {
+      try {
+        return await Zotero.DB.columnQueryAsync<number>(
+          `SELECT itemID
+           FROM items
+           WHERE libraryID = ?
+             AND itemID NOT IN (SELECT itemID FROM deletedItems)
+           ORDER BY dateModified DESC, itemID DESC
+           LIMIT ?`,
+          [libraryID, limit],
+        );
+      } catch (error) {
+        safeLog(undefined, "Tutorial recent item discovery failed", error);
+        throw error;
+      }
+    },
     getItem: (itemID) => Zotero.Items.get(itemID) || null,
     gateway: createZoteroSourceGateway(),
   };
@@ -241,8 +248,15 @@ async function runTutorial(
 
   try {
     const labels = deps.labels();
-    const document = tutorialCanvasDocument(labels, sample);
-    const attachment = await deps.create(document, labels.title);
+    const parsed = parseCanvasDocument(tutorialCanvasDocument(labels, sample));
+    if (parsed.issues.length) {
+      throw new Error(
+        `Tutorial canvas validation failed: ${parsed.issues
+          .map((issue) => issue.code)
+          .join(", ")}`,
+      );
+    }
+    const attachment = await deps.create(parsed.document, labels.title);
     if (!attachment) {
       safeLog(deps.log, "Tutorial whiteboard creation returned no attachment");
       return;

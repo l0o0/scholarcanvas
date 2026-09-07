@@ -231,6 +231,7 @@ test("explicit attachment options override the active library and collection", a
   assert.equal(imported?.libraryID, 505);
   assert.deepEqual(imported?.collections, []);
   assert.equal(imported?.title, "Bamboo Tutorial.canvas");
+  assert.equal(imported?.fileBaseName, "Bamboo Tutorial");
   assert.deepEqual(globals.selected, []);
 });
 
@@ -251,6 +252,10 @@ test("omitted attachment options retain active-menu defaults", async (t) => {
   assert.match(
     String(imported?.title),
     /^Whiteboard-\d{4}(?:-\d{2}){4}\.canvas$/,
+  );
+  assert.equal(
+    imported?.fileBaseName,
+    String(imported?.title).replace(/\.canvas$/i, ""),
   );
   assert.deepEqual(globals.selected, [404]);
 });

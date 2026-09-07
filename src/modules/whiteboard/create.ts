@@ -207,6 +207,7 @@ export async function createWhiteboardAttachment(
 
     const attachment = await Zotero.Attachments.importFromFile({
       file: tmpPath,
+      fileBaseName: filename.replace(/\.canvas$/i, ""),
       parentItemID: parent?.id,
       libraryID: parent ? undefined : libraryID,
       collections,

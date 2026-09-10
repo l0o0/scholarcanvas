@@ -64,6 +64,12 @@ export const IconCheck = () => (
   </Icon>
 );
 
+export const IconQuote = () => (
+  <Icon>
+    <path d="M10 11H4V5h6v8a6 6 0 0 1-6 6M20 11h-6V5h6v8a6 6 0 0 1-6 6" />
+  </Icon>
+);
+
 export const IconSelect = () => (
   <Icon>
     <path d="M4 4 11 20 13 13 20 11Z" />

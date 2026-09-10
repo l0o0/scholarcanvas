@@ -26,6 +26,7 @@ export type FluentMessageId =
   | 'markdown-outline-empty'
   | 'markdown-outline-title'
   | 'markdown-outline-toggle'
+  | 'menuitem-create-example-whiteboard'
   | 'menuitem-create-item-md'
   | 'menuitem-create-md'
   | 'menuitem-create-standalone-md'

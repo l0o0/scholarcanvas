@@ -42,16 +42,7 @@ export async function createMarkdownAttachment(
     }
   }
 
-  // `getDisplayTitle` may return a Promise in some builds; only use it when
-  // it is already a string (it would otherwise end up in the filename).
-  const fieldTitle = parent ? String(parent.getField("title") || "") : "";
-  const display = parent?.getDisplayTitle?.();
-  const displayTitle =
-    display && typeof (display as { then?: unknown }).then !== "function"
-      ? String(display)
-      : "";
-  const titleBase = parent ? fieldTitle || displayTitle || "Note" : "Note";
-  const filename = defaultMarkdownFilename(String(titleBase));
+  const filename = defaultMarkdownFilename();
   const documentTitle = markdownDocumentTitle(filename);
 
   const useFrontmatter = getPref("frontmatter") !== false;

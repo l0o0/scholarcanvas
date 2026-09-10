@@ -21,6 +21,7 @@ whiteboard-unsaved-prompt = This board has unsaved changes. Save before closing?
 whiteboard-pdf-page-title = PDF Page
 whiteboard-pdf-page-prompt = Which page should be snapshotted as the card image?
 whiteboard-tutorial-title = Bamboo Academic Whiteboard.canvas
+menuitem-create-example-whiteboard = Bamboo: Create Example Whiteboard
 whiteboard-tutorial-welcome = Welcome
 whiteboard-tutorial-welcome-body = Follow this path to turn reading into connected thinking.
 whiteboard-tutorial-source-notice = Sample cards come from your library; Bamboo does not change the source items.

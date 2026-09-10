@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ReactElement,
+  type CSSProperties,
 } from "react";
 import {
   Background,
@@ -1352,6 +1353,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           y: window.innerHeight / 2,
         }) ?? { x: 120, y: 120 };
       const nodeId = newId(kind);
+      setActiveTool("select");
       if (kind === "literature") {
         const requestId = `pick-${nodeId}-${Date.now().toString(36)}`;
         academicAcquisition.placeLiterature(requestId, nodeId, center);
@@ -2378,7 +2380,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         {editing && editingNode && editingScreen && editingTextStyle ? (
           <div
             className="zmd-board-editor is-in-shape"
+            data-kind={editingNode.type}
             style={{
+              ...({ "--zmd-edit-zoom": zoom } as CSSProperties),
+              borderWidth:
+                editingNode.type === "note"
+                  ? (editingNode.data.model.style?.strokeWidth ?? 1) * zoom
+                  : undefined,
               left: editingScreen.x,
               top: editingScreen.y,
               width:
@@ -2394,12 +2402,19 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             }}
           >
             <textarea
+              ref={(element) => {
+                if (element && editingNode.type === "note") {
+                  element.style.height = "0px";
+                  element.style.height = `${element.scrollHeight}px`;
+                }
+              }}
               autoFocus
               aria-label={labels.editText}
               className="zmd-board-in-shape-edit"
               value={editing.value}
               style={{
                 ...labelTextStyle(editingTextStyle),
+                lineHeight: editingNode.type === "note" ? 1.45 : 1.25,
                 fontSize:
                   editingTextStyle.fontSize * (viewportRef.current.zoom || 1),
               }}
@@ -2413,6 +2428,8 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 handleEditBlur(holdEditFocusRef, commitEdit);
               }}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.keyCode === 229)
+                  return;
                 if (
                   (event.metaKey || event.ctrlKey) &&
                   event.key.toLowerCase() === "b"
@@ -2423,7 +2440,12 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                   );
                   return;
                 }
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (
+                  event.key === "Enter" &&
+                  (editingNode.type === "note"
+                    ? event.metaKey || event.ctrlKey
+                    : !event.shiftKey)
+                ) {
                   event.preventDefault();
                   commitEdit();
                 } else if (event.key === "Escape") {

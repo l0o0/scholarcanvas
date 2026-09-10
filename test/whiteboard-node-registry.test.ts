@@ -368,7 +368,7 @@ test("renders local academic text as plain pre-wrapped content", () => {
     content: "**plain research**\nsecond line",
   });
   const markup = renderNode(model);
-  assert.match(markup, new RegExp(`>${labels.kindNote}`));
+  assert.match(markup, new RegExp(`title="${labels.kindNote}"`));
   assert.match(markup, />Question</);
   assert.match(markup, /\*\*plain research\*\*/);
   assert.match(markup, /second line/);

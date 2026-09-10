@@ -7,6 +7,7 @@ import type {
 } from "../packages/whiteboard/src/model/tutorial.ts";
 import {
   ensureTutorialWhiteboard,
+  createExampleWhiteboard,
   type TutorialOnboardingDependencies,
 } from "../src/modules/whiteboard/tutorial.ts";
 
@@ -89,6 +90,29 @@ test("an existing completion marker skips tutorial work", async () => {
   );
   assert.equal(selectCalls, 0);
   assert.equal(createCalls, 0);
+});
+
+test("manual example creation repeats without reading or changing onboarding completion", async () => {
+  const events: string[] = [];
+  const deps = dependencies({
+    completed: () => {
+      throw new Error("manual creation must not read completion");
+    },
+    markCompleted: () => {
+      throw new Error("manual creation must not change completion");
+    },
+    create: async (document) => {
+      assert.ok(document.nodes.length > 0);
+      events.push("create");
+      return attachment;
+    },
+    open: async () => {
+      events.push("open");
+    },
+  });
+  await createExampleWhiteboard(deps);
+  await createExampleWhiteboard(deps);
+  assert.deepEqual(events, ["create", "open", "create", "open"]);
 });
 
 test("a throwing completion read returns a resolving promise", async () => {

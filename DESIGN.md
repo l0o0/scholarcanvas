@@ -158,6 +158,33 @@ The toolbar is a single, centered icon toolbelt. It follows the Live Preview tex
 - **Don't** add floating cards, oversized shadows, gradients, or marketing-style composition to the editor shell.
 - **Don't** let status-bar content sit closer to the window edge than the toolbar or Live Preview content.
 
+## Research Canvas Cards
+
+Academic cards share an 8px radius, 12px vertical / 14px horizontal padding,
+theme-aware neutral surfaces, and a compact icon-and-label header. A custom Note
+badge replaces the generic visible type label; the underlying type remains in
+the header tooltip. Question and Claim are Note templates, with restrained
+border colors and optional bold content, not separate node types. Built-in
+templates leave fill and text colors unset so they follow the active theme.
+
+Literature prioritizes its title, citation, and a small tag set. Quote uses a
+structural quotation rule inside its body, with provenance in the footer.
+Footers render only when there is information to show. Existing node sizes and
+user-defined styles remain authoritative; content is clipped within the body
+while provenance retains its reserved space.
+
+Selection uses a crisp theme-aware outline instead of a blue glow. Card handles
+remain measurable and interactive, but become visible on hover, selection,
+keyboard focus, or while a connection is being drawn. Touch devices retain
+visible handles. The shared selection toolbar and existing editing flows remain
+the action surfaces.
+
+Note editing aligns to the card body using the same padding and header tokens,
+scaled with the canvas zoom. The input grows within the available body space
+and scrolls for longer content. Enter inserts a newline; Ctrl/Cmd+Enter commits,
+Escape cancels the current edit, and input-method composition never commits an
+edit. Basic shape labels retain their existing Enter-to-commit behavior.
+
 ## Table Editing
 
 The toolbar table control opens an anchored `8 x 8` grid. Hovering previews a contiguous rectangle and reports `columns x rows`; clicking inserts a valid GFM table with the first header cell selected. Row count describes visible table rows and excludes the Markdown delimiter line.

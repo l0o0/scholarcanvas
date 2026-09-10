@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  buildTimestampedMarkdownFilename,
+  defaultMarkdownFilename,
   isMarkdownFilename,
   markdownAttachmentTitle,
   markdownDocumentTitle,
@@ -10,16 +10,13 @@ import {
 const fixedTime = new Date(2026, 7, 13, 14, 35, 42);
 
 test("builds a timestamped Note filename without spaces", () => {
-  assert.equal(
-    buildTimestampedMarkdownFilename("Note", fixedTime),
-    "Note-2026-08-13-14-35.md",
-  );
+  assert.equal(defaultMarkdownFilename(fixedTime), "Note-20260813-143542.md");
 });
 
-test("normalizes whitespace and repeated separators in generated filenames", () => {
+test("pads the local date and time including seconds", () => {
   assert.equal(
-    buildTimestampedMarkdownFilename("  Multi  Agent -- Notes  ", fixedTime),
-    "Multi-Agent-Notes-2026-08-13-14-35.md",
+    defaultMarkdownFilename(new Date(2026, 0, 2, 3, 4, 5)),
+    "Note-20260102-030405.md",
   );
 });
 

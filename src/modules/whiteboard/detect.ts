@@ -19,24 +19,18 @@ export function getExtension(filename: string): string {
   return base.slice(idx + 1).toLowerCase();
 }
 
-export function defaultCanvasFilename(
-  title?: string,
-  now: Date = new Date(),
-): string {
-  const raw = (title || "Whiteboard").trim() || "Whiteboard";
-  const safe = Zotero.File.getValidFileName(raw).replace(/\.canvas$/i, "");
-  const timestamp = [
+export function defaultCanvasFilename(now: Date = new Date()): string {
+  const date = [
     now.getFullYear(),
     pad2(now.getMonth() + 1),
     pad2(now.getDate()),
+  ].join("");
+  const time = [
     pad2(now.getHours()),
     pad2(now.getMinutes()),
-  ].join("-");
-  const base = (safe || "Whiteboard")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-  return `${base || "Whiteboard"}-${timestamp}.canvas`;
+    pad2(now.getSeconds()),
+  ].join("");
+  return `Canvas-${date}-${time}.canvas`;
 }
 
 function pad2(value: number) {

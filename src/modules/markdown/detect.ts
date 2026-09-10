@@ -32,31 +32,18 @@ export function getExtension(filename: string): string {
   return base.slice(idx + 1).toLowerCase();
 }
 
-export function defaultMarkdownFilename(
-  title?: string,
-  now: Date = new Date(),
-): string {
-  const raw = (title || "Note").trim() || "Note";
-  const safe = Zotero.File.getValidFileName(raw).replace(/\.md$/i, "");
-  return buildTimestampedMarkdownFilename(safe || "Note", now);
-}
-
-export function buildTimestampedMarkdownFilename(
-  title: string,
-  now: Date,
-): string {
-  const base = (title.trim() || "Note")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-  const timestamp = [
+export function defaultMarkdownFilename(now: Date = new Date()): string {
+  const date = [
     now.getFullYear(),
     pad2(now.getMonth() + 1),
     pad2(now.getDate()),
+  ].join("");
+  const time = [
     pad2(now.getHours()),
     pad2(now.getMinutes()),
-  ].join("-");
-  return `${base || "Note"}-${timestamp}.md`;
+    pad2(now.getSeconds()),
+  ].join("");
+  return `Note-${date}-${time}.md`;
 }
 
 export function markdownDocumentTitle(filename: string): string {

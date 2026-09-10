@@ -29,6 +29,6 @@ test("new research canvases use the canvas suffix", () => {
   (globalThis as any).Zotero = {
     File: { getValidFileName: (value: string) => value },
   };
-  const name = defaultCanvasFilename("Review", new Date(2026, 7, 28, 9, 5));
-  assert.equal(name, "Review-2026-08-28-09-05.canvas");
+  const name = defaultCanvasFilename(new Date(2026, 7, 28, 9, 5, 2));
+  assert.equal(name, "Canvas-20260828-090502.canvas");
 });

@@ -23,6 +23,8 @@ function installAttachmentGlobals(
     names.map((name) => [name, (globalThis as Record<string, unknown>)[name]]),
   );
   const selected: number[] = [];
+  const directories: string[] = [];
+  const removed: unknown[][] = [];
   let progressWindows = 0;
   Object.assign(globalThis, {
     Zotero: {
@@ -41,8 +43,13 @@ function installAttachmentGlobals(
     },
     PathUtils: { join: (...parts: string[]) => parts.join("/") },
     IOUtils: {
+      makeDirectory: async (path: string) => {
+        directories.push(path);
+      },
       exists: async () => false,
-      remove: async () => {},
+      remove: async (...args: unknown[]) => {
+        removed.push(args);
+      },
     },
     ztoolkit: {
       log: () => {},
@@ -68,7 +75,12 @@ function installAttachmentGlobals(
       else (globalThis as Record<string, unknown>)[name] = value;
     }
   });
-  return { selected, progressWindows: () => progressWindows };
+  return {
+    selected,
+    directories,
+    removed,
+    progressWindows: () => progressWindows,
+  };
 }
 
 test("only the canonical canvas suffix is accepted", () => {
@@ -232,6 +244,13 @@ test("explicit attachment options override the active library and collection", a
   assert.deepEqual(imported?.collections, []);
   assert.equal(imported?.title, "Bamboo Tutorial.canvas");
   assert.equal(imported?.fileBaseName, "Bamboo Tutorial");
+  assert.equal(
+    imported?.file,
+    `${globals.directories[0]}/Bamboo Tutorial.canvas`,
+  );
+  assert.deepEqual(globals.removed, [
+    [globals.directories[0], { recursive: true }],
+  ]);
   assert.deepEqual(globals.selected, []);
 });
 
@@ -249,15 +268,16 @@ test("omitted attachment options retain active-menu defaults", async (t) => {
 
   assert.equal(imported?.libraryID, 202);
   assert.deepEqual(imported?.collections, [303]);
-  assert.match(
-    String(imported?.title),
-    /^Whiteboard-\d{4}(?:-\d{2}){4}\.canvas$/,
-  );
+  assert.match(String(imported?.title), /^Canvas-\d{8}-\d{6}\.canvas$/);
   assert.equal(
     imported?.fileBaseName,
     String(imported?.title).replace(/\.canvas$/i, ""),
   );
   assert.deepEqual(globals.selected, [404]);
+  assert.equal(imported?.file, `${globals.directories[0]}/${imported?.title}`);
+  assert.deepEqual(globals.removed, [
+    [globals.directories[0], { recursive: true }],
+  ]);
 });
 
 test("reportError false suppresses the creation failure window", async (t) => {

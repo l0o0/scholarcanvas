@@ -172,22 +172,22 @@ export async function createWhiteboardAttachment(
     }
   }
 
-  const titleBase = parent
-    ? parent.getField("title") || parent.getDisplayTitle()
-    : "Whiteboard";
-  const filename = options.filename ?? defaultCanvasFilename(String(titleBase));
+  const filename = Zotero.File.getValidFileName(
+    options.filename ?? defaultCanvasFilename(),
+  );
   const content = serializeCanvasDocument(
     options.document ?? emptyCanvasDocument(),
   );
 
-  const tmpDir = Zotero.getTempDirectory().path;
-  const tmpPath = PathUtils.join(
-    tmpDir,
-    `zotero-whiteboard-${Date.now()}-${filename}`,
+  const tmpDir = PathUtils.join(
+    Zotero.getTempDirectory().path,
+    `bamboo-canvas-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
   );
-  await Zotero.File.putContentsAsync(tmpPath, content);
+  const tmpPath = PathUtils.join(tmpDir, filename);
+  await IOUtils.makeDirectory(tmpDir, { ignoreExisting: false });
 
   try {
+    await Zotero.File.putContentsAsync(tmpPath, content);
     const pane = Zotero.getActiveZoteroPane();
     const selectedLibraryIDs = pane?.getSelectedLibraryIDs?.();
     const libraryID =
@@ -246,7 +246,7 @@ export async function createWhiteboardAttachment(
     return null;
   } finally {
     try {
-      if (await IOUtils.exists(tmpPath)) await IOUtils.remove(tmpPath);
+      await IOUtils.remove(tmpDir, { recursive: true });
     } catch {
       // ignore
     }

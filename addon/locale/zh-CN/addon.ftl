@@ -21,6 +21,7 @@ whiteboard-unsaved-prompt = 白板有未保存的更改，关闭前要保存吗�
 whiteboard-pdf-page-title = PDF 页面
 whiteboard-pdf-page-prompt = 要把哪一页截取为卡片图片？
 whiteboard-tutorial-title = Bamboo 学术白板.canvas
+menuitem-create-example-whiteboard = Bamboo：创建示例白板
 whiteboard-tutorial-welcome = 欢迎
 whiteboard-tutorial-welcome-body = 沿着这条路径，把阅读变成相互连接的思考。
 whiteboard-tutorial-source-notice = 示例卡片来自你的文库；Bamboo 不会修改来源条目。

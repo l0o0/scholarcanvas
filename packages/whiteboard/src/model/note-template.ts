@@ -53,8 +53,7 @@ export function createBuiltinNoteTemplates(
       name: labels.question,
       badge: labels.question,
       style: {
-        fill: "#fff7d6",
-        stroke: "#d6a700",
+        stroke: "#7d9589",
         strokeWidth: 1,
       },
       defaultSize: { width: 260, height: 128 },
@@ -66,8 +65,7 @@ export function createBuiltinNoteTemplates(
       name: labels.claim,
       badge: labels.claim,
       style: {
-        fill: "#eef5ff",
-        stroke: "#5b7fa8",
+        stroke: "#858b96",
         strokeWidth: 1,
         fontWeight: "bold",
       },

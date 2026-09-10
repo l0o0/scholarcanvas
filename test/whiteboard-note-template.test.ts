@@ -35,6 +35,10 @@ test("built-in Question and Claim templates remain ordinary Notes", () => {
   assert.equal(question.badge, "问题");
   assert.equal(question.content, "");
   assert.notEqual(question.style, templates[1]!.style);
+  for (const template of templates) {
+    assert.equal(template.style.fill, undefined);
+    assert.equal(template.style.textColor, undefined);
+  }
 });
 
 test("template parsing allowlists style and rejects malformed identity", () => {

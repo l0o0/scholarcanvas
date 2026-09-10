@@ -5,6 +5,7 @@ import {
   type CanvasNodeKind,
 } from "../model/academic";
 import type { CanvasNodeStyle } from "../model/core";
+import { IconItem, IconNote, IconQuote } from "../whiteboard/icons";
 
 export function nodeSurfaceFill(
   kind: CanvasNodeKind,
@@ -101,10 +102,22 @@ export function CardShell(props: {
       <Handle type="source" position={Position.Right} />
       <Handle type="target" position={Position.Top} />
       <Handle type="source" position={Position.Bottom} />
-      <span className="zmd-board-card-kind">{props.kindLabel}</span>
-      {props.badge ? (
-        <span className="zmd-board-note-badge">{props.badge}</span>
-      ) : null}
+      <header className="zmd-board-card-header" title={props.kindLabel}>
+        {props.kind === "literature" ? (
+          <IconItem />
+        ) : props.kind === "quote" ? (
+          <IconQuote />
+        ) : props.kind === "note" ? (
+          <IconNote />
+        ) : null}
+        <span
+          className={
+            props.badge ? "zmd-board-note-badge" : "zmd-board-card-kind"
+          }
+        >
+          {props.badge || props.kindLabel}
+        </span>
+      </header>
       <div
         className="zmd-board-card-body"
         style={nodeContentAlignmentStyle(nodeStyle)}

@@ -77,12 +77,12 @@ export function QuoteNode({ data, selected }: NodeProps<CanvasFlowNode>) {
           role="img"
         />
       ) : null}
-      <p
+      <blockquote
         className="zmd-board-card-content"
         style={nodeTextStyle(model.style ?? {})}
       >
         {snapshot.text}
-      </p>
+      </blockquote>
       {snapshot.comment ? (
         <p className="zmd-board-card-comment">{snapshot.comment}</p>
       ) : null}

@@ -219,6 +219,12 @@ function productionDependencies(): TutorialSampleDependencies {
 
 let tutorialInFlight: Promise<void> | undefined;
 
+export async function createExampleWhiteboard(
+  deps: TutorialOnboardingDependencies = productionOnboardingDependencies(),
+): Promise<void> {
+  await runTutorial({ ...deps, markCompleted: () => {} });
+}
+
 export function ensureTutorialWhiteboard(
   deps?: TutorialOnboardingDependencies,
 ): Promise<void> {

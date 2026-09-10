@@ -1,4 +1,8 @@
 .zmd-board-host {
+  --zmd-card-padding-x: 14px;
+  --zmd-card-padding-y: 12px;
+  --zmd-card-header-height: 14px;
+  --zmd-card-header-gap: 8px;
   position: relative;
   width: 100%;
   height: 100%;
@@ -34,6 +38,24 @@
   height: 8px;
   border: 1px solid var(--zmd-board-border, #d1d5db);
   background: var(--zmd-board-surface, #fff);
+}
+
+/* Keep handle geometry and hit areas available while hiding idle chrome. */
+.zmd-board-card .react-flow__handle {
+  opacity: 0;
+}
+
+.zmd-board-card:hover .react-flow__handle,
+.zmd-board-card.is-selected .react-flow__handle,
+.react-flow__node:focus-within .zmd-board-card .react-flow__handle,
+.react-flow:has(.react-flow__connection) .zmd-board-card .react-flow__handle {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .zmd-board-card .react-flow__handle {
+    opacity: 1;
+  }
 }
 
 .zmd-board-host .react-flow__edge-path {
@@ -485,13 +507,15 @@
 }
 
 .zmd-board-card {
+  --zmd-card-emphasis: var(--zmd-board-muted, #6b7280);
+  --zmd-card-selected: var(--zmd-board-text, #111827);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
   overflow: visible;
-  padding: 12px 12px 14px;
+  padding: var(--zmd-card-padding-y) var(--zmd-card-padding-x);
   border: var(--zmd-board-node-stroke-width, 1px)
     var(--zmd-board-node-stroke-style, solid)
     var(--zmd-board-node-stroke, var(--zmd-board-border, #e5e7eb));
@@ -502,8 +526,40 @@
 }
 
 .zmd-board-card.is-selected {
-  border-color: var(--zmd-board-accent, #2563eb);
-  box-shadow: 0 0 0 3px var(--zmd-board-accent-soft, rgba(37, 99, 235, 0.12));
+  outline: 1.5px solid var(--zmd-card-selected);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+.zmd-board-card:hover:not(.is-selected) {
+  box-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--zmd-board-muted, #6b7280) 25%, transparent);
+}
+
+.zmd-board-card.is-literature {
+  --zmd-card-emphasis: var(--zmd-board-literature-accent, #536b85);
+}
+
+.zmd-board-card.is-note {
+  --zmd-card-emphasis: var(--zmd-board-note-accent, #816b4e);
+}
+
+.zmd-board-card-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: var(--zmd-card-header-height);
+  margin-bottom: var(--zmd-card-header-gap);
+  color: var(--zmd-card-emphasis);
+}
+
+.zmd-board-card-header > svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.6;
 }
 
 .zmd-board-template {
@@ -541,32 +597,21 @@
   outline-offset: 1px;
 }
 
-.zmd-board-card-kind {
-  display: inline-block;
-  flex: 0 0 auto;
-  margin-bottom: 8px;
-  color: var(--zmd-board-muted, #6b7280);
-  font-size: 10px;
-  font-weight: 600;
+.zmd-board-card-kind,
+.zmd-board-note-badge {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
   line-height: 1.2;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
 .zmd-board-note-badge {
-  align-self: flex-start;
-  max-width: 100%;
-  margin: -2px 0 8px;
-  overflow: hidden;
-  padding: 2px 6px;
-  border: 1px solid var(--zmd-board-border, #e5e7eb);
-  border-radius: 999px;
-  color: var(--zmd-board-muted, #6b7280);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-transform: none;
 }
 
 .zmd-board-note-template-controls {
@@ -686,6 +731,13 @@
   flex: 0 0 auto;
   min-width: 0;
   overflow-wrap: anywhere;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--zmd-board-border, #e5e7eb);
+}
+
+.zmd-board-card-footer > :first-child {
+  margin-top: 0;
 }
 
 .zmd-board-card-meta,
@@ -705,6 +757,7 @@
 }
 
 .zmd-board-card-content {
+  margin-top: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -719,6 +772,8 @@
 }
 
 .zmd-board-card.is-quote .zmd-board-card-content {
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--zmd-board-border, #b8bdc5);
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
@@ -1292,6 +1347,25 @@
   overflow-y: auto;
 }
 
+.zmd-board-editor.is-in-shape[data-kind="note"] {
+  padding: calc(
+      (
+          var(--zmd-card-padding-y) + var(--zmd-card-header-height) +
+            var(--zmd-card-header-gap)
+        ) *
+        var(--zmd-edit-zoom)
+    )
+    calc(var(--zmd-card-padding-x) * var(--zmd-edit-zoom))
+    calc(var(--zmd-card-padding-y) * var(--zmd-edit-zoom));
+}
+
+.zmd-board-editor[data-kind="note"] .zmd-board-in-shape-edit {
+  min-height: 0;
+  padding: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .react-flow__node.is-editing-label .zmd-board-card-title,
 .react-flow__node.is-editing-label .zmd-board-card-body,
 .react-flow__node.is-editing-label .zmd-board-card-footer,
@@ -1336,6 +1410,8 @@
 
 html[data-theme="dark"],
 .zmd-board-host[data-theme="dark"] {
+  --zmd-board-literature-accent: #a2b3c8;
+  --zmd-board-note-accent: #bdae95;
   --zmd-board-bg: #12141a;
   --zmd-board-surface: #1a1d24;
   --zmd-board-hover: #22262f;

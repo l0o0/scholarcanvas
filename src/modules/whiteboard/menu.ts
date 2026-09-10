@@ -5,6 +5,7 @@ import {
 } from "./create";
 import { isWhiteboardAttachment } from "./detect";
 import { openWhiteboardAttachment, recentWhiteboardIDs } from "./open";
+import { createExampleWhiteboard } from "./tutorial";
 
 const itemCleanups = new Map<Window, () => void>();
 
@@ -26,6 +27,31 @@ export function registerWhiteboardMenus(win: _ZoteroTypes.MainWindow) {
   const itemPopup = doc.querySelector("#zotero-itemmenu") as HTMLElement | null;
 
   const cleanups: Array<() => void> = [];
+
+  const help = doc.querySelector("#menu_HelpPopup");
+  if (help) {
+    const example = doc.createXULElement("menuitem") as HTMLElement;
+    example.id = `${addon.data.config.addonRef}-help-example-whiteboard`;
+    example.setAttribute(
+      "label",
+      getString("menuitem-create-example-whiteboard"),
+    );
+    example.setAttribute("class", "menuitem-iconic");
+    example.style.listStyleImage = `url(${icon()})`;
+    example.addEventListener("command", async () => {
+      if (example.getAttribute("disabled") === "true") return;
+      example.setAttribute("disabled", "true");
+      try {
+        await createExampleWhiteboard();
+      } catch (error) {
+        ztoolkit.log("Create example whiteboard failed", error);
+      } finally {
+        example.removeAttribute("disabled");
+      }
+    });
+    help.appendChild(example);
+    cleanups.push(() => example.remove());
+  }
 
   if (tools) {
     const item = doc.createXULElement("menuitem") as HTMLElement;

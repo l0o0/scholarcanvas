@@ -1,5 +1,6 @@
 import {
   ACADEMIC_SOURCE_CARD_SIZE,
+  isNoteType,
   type CanvasNode,
   type LiteratureSnapshot,
   type LiteratureSource,
@@ -80,7 +81,7 @@ export function demoCanvasDocument(): CanvasDocument {
       {
         id: "literature-1",
         kind: "literature",
-        position: { x: 0, y: 0 },
+        position: { x: 160, y: 160 },
         ...ACADEMIC_SOURCE_CARD_SIZE.literature,
         source: { library: { type: "user" }, itemKey: "ITEM1234" },
         snapshot: { title: "A paper" },
@@ -88,7 +89,7 @@ export function demoCanvasDocument(): CanvasDocument {
       {
         id: "quote-1",
         kind: "quote",
-        position: { x: 340, y: 0 },
+        position: { x: 560, y: 160 },
         ...ACADEMIC_SOURCE_CARD_SIZE.quote,
         source: {
           library: { type: "user" },
@@ -101,10 +102,10 @@ export function demoCanvasDocument(): CanvasDocument {
       {
         id: "note-claim-1",
         kind: "note",
-        position: { x: 680, y: 0 },
+        position: { x: 780, y: 500 },
         width: 260,
         height: 128,
-        badge: "Claim",
+        noteType: "claim",
         content: "This evidence supports the claim.",
       },
     ],
@@ -114,6 +115,8 @@ export function demoCanvasDocument(): CanvasDocument {
         kind: "academic",
         source: "quote-1",
         target: "note-claim-1",
+        sourceHandle: "bottom",
+        targetHandle: "top",
         relation: "supports",
       },
     ],
@@ -301,6 +304,7 @@ function parseNode(value: unknown): CanvasNode | undefined {
         : undefined;
       if (
         badge === INVALID ||
+        (has(value, "noteType") && !isNoteType(value.noteType)) ||
         (has(value, "source") && !source) ||
         (has(value, "sourceSnapshot") && !sourceSnapshot)
       ) {
@@ -310,6 +314,7 @@ function parseNode(value: unknown): CanvasNode | undefined {
         ...base,
         kind: "note",
         content: value.content,
+        ...(isNoteType(value.noteType) ? { noteType: value.noteType } : {}),
         ...(badge !== undefined ? { badge } : {}),
         ...(source ? { source } : {}),
         ...(sourceSnapshot ? { sourceSnapshot } : {}),

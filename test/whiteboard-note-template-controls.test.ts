@@ -20,6 +20,8 @@ test("selected Note controls expose badge, apply, save, and custom management", 
       note: "Note",
       question: "Question",
       claim: "Claim",
+      evidence: "Evidence",
+      summary: "Summary",
     }),
     {
       id: "custom-1",
@@ -35,6 +37,7 @@ test("selected Note controls expose badge, apply, save, and custom management", 
       note,
       templates,
       onBadgeChange: () => {},
+      onTypeChange: () => {},
       onApply: () => {},
       onSave: () => {},
       onRename: () => {},
@@ -44,8 +47,11 @@ test("selected Note controls expose badge, apply, save, and custom management", 
   );
 
   assert.match(markup, /badge/);
-  assert.match(markup, /value="问题"/);
-  assert.match(markup, />Question<\/option>/);
+  assert.match(markup, /value="question" selected=""/);
+  assert.match(markup, />addQuestion<\/option>/);
+  assert.match(markup, />addEvidence<\/option>/);
+  assert.match(markup, />addSummary<\/option>/);
+  assert.match(markup, /<details[^>]*>[\s\S]*applyTemplate/);
   assert.match(markup, />Hypothesis<\/option>/);
   assert.match(markup, /saveAsTemplate/);
   assert.match(markup, /includeTemplateContent/);

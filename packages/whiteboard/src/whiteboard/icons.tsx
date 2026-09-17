@@ -1,3 +1,4 @@
+import type { NoteType } from "../model/academic";
 /// <reference lib="dom" />
 
 /**
@@ -388,3 +389,22 @@ export const IconAlignTextRight = () => (
     <line x1="21" x2="7" y1="18" y2="18" />
   </Icon>
 );
+
+export function NoteTypeIcon({ type }: { type: NoteType }) {
+  switch (type) {
+    case "question":
+      return <IconQuestion />;
+    case "claim":
+      return <IconClaim />;
+    case "evidence":
+      return <IconQuote />;
+    case "summary":
+      return (
+        <Icon>
+          <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
+        </Icon>
+      );
+    default:
+      return <IconNote />;
+  }
+}

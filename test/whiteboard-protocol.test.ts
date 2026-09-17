@@ -297,6 +297,7 @@ const activeIframeToHostMessages = [
     payload: { requestId: "snapshot-1", rev: 4, snapshot: emptyDocument },
   },
   { ...protocolBase, type: "save" },
+  { ...protocolBase, type: "switchWindow" },
   { ...protocolBase, type: "error", payload: { message: "render failed" } },
   {
     ...protocolBase,

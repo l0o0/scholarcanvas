@@ -49,6 +49,15 @@ export interface WhiteboardLabels {
   addNote: string;
   addQuestion: string;
   addClaim: string;
+  addEvidence: string;
+  addSummary: string;
+  noteType: string;
+  notePrompt: string;
+  questionPrompt: string;
+  claimPrompt: string;
+  evidencePrompt: string;
+  summaryPrompt: string;
+  editNoteBody: string;
   addFrame: string;
   addPdf: string;
   addFile: string;
@@ -118,6 +127,7 @@ export interface WhiteboardLabels {
   undo: string;
   redo: string;
   save: string;
+  switchWindow: string;
   editText: string;
   copy: string;
   delete: string;
@@ -139,6 +149,8 @@ export interface WhiteboardLabels {
   saving: string;
   saveFailed: string;
   exportPng: string;
+  exporting: string;
+  exportRenderFailed: string;
   exportSvg: string;
   exportMarkdown: string;
   more: string;
@@ -146,6 +158,7 @@ export interface WhiteboardLabels {
   close: string;
   stroke: string;
   background: string;
+  transparent: string;
   style: string;
   solid: string;
   dashed: string;
@@ -165,6 +178,9 @@ export interface WhiteboardLabels {
   weightRegular: string;
   weightBold: string;
   commonColors: string;
+  opacity: string;
+  customColor: string;
+  resetColor: string;
   recentColors: string;
   shortcutSelect: string;
   shortcutHand: string;
@@ -464,6 +480,7 @@ export type WhiteboardToParentBody =
       };
     }
   | { type: "save" }
+  | { type: "switchWindow" }
   | { type: "error"; payload: { message: string } }
   | {
       type: "openItem";
@@ -541,6 +558,7 @@ const activeWhiteboardToParentTypes = {
   change: true,
   snapshot: true,
   save: true,
+  switchWindow: true,
   error: true,
   pickAcademicSource: true,
   openItem: true,
@@ -751,6 +769,15 @@ const whiteboardLabelStringKeys: Record<
   addNote: true,
   addQuestion: true,
   addClaim: true,
+  addEvidence: true,
+  addSummary: true,
+  noteType: true,
+  notePrompt: true,
+  questionPrompt: true,
+  claimPrompt: true,
+  evidencePrompt: true,
+  summaryPrompt: true,
+  editNoteBody: true,
   addFrame: true,
   addPdf: true,
   addFile: true,
@@ -819,6 +846,7 @@ const whiteboardLabelStringKeys: Record<
   undo: true,
   redo: true,
   save: true,
+  switchWindow: true,
   editText: true,
   copy: true,
   delete: true,
@@ -840,6 +868,8 @@ const whiteboardLabelStringKeys: Record<
   saving: true,
   saveFailed: true,
   exportPng: true,
+  exporting: true,
+  exportRenderFailed: true,
   exportSvg: true,
   exportMarkdown: true,
   more: true,
@@ -847,6 +877,7 @@ const whiteboardLabelStringKeys: Record<
   close: true,
   stroke: true,
   background: true,
+  transparent: true,
   style: true,
   solid: true,
   dashed: true,
@@ -866,6 +897,9 @@ const whiteboardLabelStringKeys: Record<
   weightRegular: true,
   weightBold: true,
   commonColors: true,
+  opacity: true,
+  customColor: true,
+  resetColor: true,
   recentColors: true,
   shortcutSelect: true,
   shortcutHand: true,
@@ -1247,6 +1281,7 @@ function validateWhiteboardToParentMessageForChannel(
   switch (type) {
     case "ready":
     case "save":
+    case "switchWindow":
       return !hasOwn(data, "payload");
     case "change":
       return (

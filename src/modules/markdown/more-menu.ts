@@ -2,6 +2,7 @@ import { getString } from "../../utils/locale";
 import type { FluentMessageId } from "../../../typings/i10n";
 
 export type MoreMenuAction =
+  | "open-window"
   | "document-info"
   | "rename"
   | "show-in-folder"
@@ -37,6 +38,7 @@ export const MORE_MENU_SECTIONS: readonly (readonly MoreMenuItem[])[] = [
     { action: "document-info" },
     { action: "rename" },
     { action: "show-in-folder" },
+    { action: "open-window" },
   ],
   [
     { action: "find", shortcut: findShortcutLabel() },

@@ -17,8 +17,8 @@ export async function createMarkdownAttachment(
     silent?: boolean;
     /** Target library for top-level attachments (defaults to user library). */
     libraryID?: number;
-    /** Target collection for top-level attachments (defaults to the selection). */
-    collectionID?: number;
+    /** Target collection; null means library root, omitted uses selection. */
+    collectionID?: number | null;
   } = {},
 ): Promise<Zotero.Item | null> {
   const {

@@ -456,7 +456,7 @@ export function createMarkdownModalController(
     const renderAbout = () => {
       const heading = renderHeading(getString("settings-page-about"));
       const about = options.about || {
-        name: "Bamboo 竹子",
+        name: "Scholar Canvas",
         version: "—",
         buildTime: "—",
       };

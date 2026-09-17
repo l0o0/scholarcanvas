@@ -153,3 +153,69 @@ test("cleanup only ever removes plugin-generated asset files", () => {
     { remove: [], removeDirectory: false },
   );
 });
+
+test("sized HTML images round-trip escaped attributes and retain attachment references", async () => {
+  const { serializeImageReference, parseHtmlImage } =
+    await import("../src/modules/markdown/images/model.ts");
+  const original = {
+    source: "assets/a & b.png",
+    alt: 'A "quote" <diagram>',
+    title: "Figure 1",
+  };
+  const source = serializeImageReference(original, 480);
+  const image = parseHtmlImage(source)!;
+  assert.equal(image.width, 480);
+  assert.equal(image.source, original.source);
+  assert.equal(image.alt, original.alt);
+  assert.equal(image.title, original.title);
+  assert.equal(
+    serializeImageReference(image, 240),
+    serializeImageReference(original, 240),
+  );
+  assert.equal(
+    parseHtmlImage(serializeImageReference(image))?.width,
+    undefined,
+  );
+  assert.deepEqual(referencedAssets(source), [original.source]);
+});
+
+test("mixed Markdown and HTML occurrences have independent ranges and dimensions", () => {
+  const source =
+    '![one](assets/a.png "Caption")\n<img src="assets/a.png" alt="two" width="240">\n<img src="assets/a.png" width="720">';
+  const images = parseMarkdownImages(source);
+  assert.equal(images.length, 3);
+  assert.equal(images[0].title, "Caption");
+  assert.equal(images[1].width, 240);
+  assert.equal(images[2].width, 720);
+  for (const image of images)
+    assert.match(source.slice(image.from, image.to), /assets\/a.png/);
+  const next = replaceMarkdownRange(
+    source,
+    images[1].from,
+    images[1].to,
+    '<img src="assets/a.png" width="480">',
+  );
+  assert.deepEqual(
+    parseMarkdownImages(next).map((image) => image.width),
+    [undefined, 480, 720],
+  );
+});
+
+test("cleanup protects sized generated assets including single-quoted HTML references", () => {
+  const asset = "assets/1723500000000-abc1234.png";
+  assert.deepEqual(
+    planUnusedImageCleanup(
+      [asset],
+      `<img width='480' src='${asset}' alt='A &amp; B'>`,
+    ),
+    { remove: [], removeDirectory: false },
+  );
+});
+
+test("HTML images do not turn alt text into duplicate attachment references", () => {
+  const images = parseMarkdownImages(
+    '<img src="assets/a.png" alt="![example](assets/b.png)" width="320">',
+  );
+  assert.equal(images.length, 1);
+  assert.equal(images[0].source, "assets/a.png");
+});

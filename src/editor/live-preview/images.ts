@@ -7,6 +7,9 @@ export interface LiveImageDecorationPlan {
   to: number;
   alt: string;
   source: string;
+  sourceFrom: number;
+  sourceTo: number;
+  width?: number;
 }
 
 export function planLiveImageDecorations(
@@ -20,5 +23,8 @@ export function planLiveImageDecorations(
     to: active ? line.length : image.to,
     alt: image.alt,
     source: image.source,
+    sourceFrom: image.from,
+    sourceTo: image.to,
+    ...(image.width ? { width: image.width } : {}),
   }));
 }

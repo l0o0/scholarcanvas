@@ -2436,7 +2436,10 @@ test("academic creation and later edits share the visible editing state", () => 
 });
 
 test("in-shape editing exposes localized focus and hides underlying copy", () => {
-  assert.match(appSource, /aria-label=\{labels\.editText\}/);
+  assert.match(
+    appSource,
+    /aria-label=\{[\s\S]*labels\.editNoteBody[\s\S]*labels\.editText/,
+  );
   assert.match(
     canvasCss,
     /\.zmd-board-editor\.is-in-shape:focus-within\s*\{[^}]*box-shadow:/s,
@@ -2831,6 +2834,8 @@ test("edge arrow state survives flow, snapshot, and history round trips", () => 
     ],
   };
   const flow = canvasDocumentToFlow(document);
+  assert.equal(flow.edges[0].sourceHandle, "right");
+  assert.equal(flow.edges[0].targetHandle, "left");
   assert.deepEqual(flow.edges[0].markerEnd, {
     type: MarkerType.ArrowClosed,
     width: 16,

@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  hexToHsv,
-  hsvToHex,
+  colorPalette,
   normalizeHex,
 } from "../packages/whiteboard/src/chrome/color.ts";
 
@@ -12,8 +11,11 @@ test("normalizes 3 and 6 digit hex colors", () => {
   assert.equal(normalizeHex("not-a-color"), null);
 });
 
-test("round-trips black, white, and red through hsv", () => {
-  assert.equal(hsvToHex(hexToHsv("#000000")), "#000000");
-  assert.equal(hsvToHex(hexToHsv("#ffffff")), "#ffffff");
-  assert.equal(hsvToHex(hexToHsv("#ff0000")), "#ff0000");
+test("fill and stroke palettes share matching color families in reversed shade order", () => {
+  const light = colorPalette(true);
+  const dark = colorPalette(false);
+  assert.equal(new Set(light).size, 18);
+  assert.deepEqual(light.slice(0, 6), dark.slice(12));
+  assert.deepEqual(light.slice(6, 12), dark.slice(6, 12));
+  assert.deepEqual(light.slice(12), dark.slice(0, 6));
 });

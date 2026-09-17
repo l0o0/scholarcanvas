@@ -1,3 +1,7 @@
+import {
+  NOTE_TYPES,
+  canvasNodeUiSurfaceDefaults,
+} from "../packages/whiteboard/src/model/academic.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -12,44 +16,86 @@ import {
 } from "../packages/whiteboard/src/model/tutorial.ts";
 
 const english: TutorialCanvasLabels = {
-  title: "Bamboo academic whiteboard",
+  title: "Scholar Canvas academic whiteboard",
   welcome: "Welcome",
   welcomeBody: "Follow this path to turn reading into connected thinking.",
   sourceNotice:
-    "Sample cards come from your library; Bamboo does not change the source items.",
+    "Sample cards come from your library; Scholar Canvas does not change the source items.",
   addLiterature: "Add Literature",
   addLiteratureBody: "Drag a Zotero item onto the canvas.",
   browseQuotes: "Browse Quotes",
   browseQuotesBody: "Open the literature card and add useful excerpts.",
   writeNote: "Write a Note",
-  writeNoteBody: "Start with a Question or Claim template, then edit it.",
+  writeNoteBody: "Start with a Question or Viewpoint card, then edit it.",
   questionBadge: "Question",
-  claimBadge: "Claim",
+  claimBadge: "Viewpoint",
   organize: "Organize",
   organizeBody: "Group related cards in a Frame.",
   practice: "Practice",
   practiceBody: "Drag in another Zotero item and keep building.",
   supports: "supports",
+  exampleSource: "Your first source",
+  exampleSourceBody:
+    "Drag a paper from your library here. Its title and source stay together, so you can always return to the original.",
+  exampleQuote: "Make room for evidence",
+  exampleQuoteBody:
+    "Add an excerpt that matters to your question. Keep the original words, then write your interpretation in a separate note. Connect the two to make your reasoning visible.",
+  imageTitle: "Images & PDF snapshots",
+  imageBody: "Keep a visual beside your ideas.",
+  attachmentTitle: "Reading notes.md",
+  attachmentBody: "Right-click to open the Markdown attachment.",
+  attachmentContent:
+    "## Reading notes\n\n- Collect evidence\n- Ask a question\n- Write a viewpoint",
+  colorNote: "Capture a reading note.",
+  colorEvidence: "Keep a useful passage and its source.",
+  colorSummary: "Bring together agreements and differences.",
+  organizeAction: "Arrange and personalize",
+  colorQuestion: "What remains uncertain?",
+  colorClaim: "Connect evidence to your own interpretation.",
+  colorBody: "Select a card to change its fill, border, and text colors.",
+  share: "Share your thinking",
+  shareBody:
+    "Right-click the canvas to export PNG. Choose 2× or 4× for a crisp image of the whole board.",
 };
 
 const chinese: TutorialCanvasLabels = {
-  title: "Bamboo 学术白板",
+  title: "Scholar Canvas 学术白板",
   welcome: "欢迎",
   welcomeBody: "沿着这条路径，把阅读变成相互连接的思考。",
-  sourceNotice: "示例卡片来自你的文库；Bamboo 不会修改来源条目。",
+  sourceNotice: "示例卡片来自你的文库；Scholar Canvas 不会修改来源条目。",
   addLiterature: "添加文献",
   addLiteratureBody: "把 Zotero 条目拖到画布上。",
   browseQuotes: "浏览引文",
   browseQuotesBody: "打开文献卡片并添加有用的摘录。",
   writeNote: "写笔记",
-  writeNoteBody: "从问题或论点模板开始，然后继续编辑。",
+  writeNoteBody: "打开顶部“笔记”菜单，选择卡片类型，再点击画布开始写作。",
   questionBadge: "问题",
-  claimBadge: "论点",
+  claimBadge: "观点",
   organize: "整理",
   organizeBody: "用框架归拢相关卡片。",
   practice: "练习",
   practiceBody: "再拖入一个 Zotero 条目并继续构建。",
   supports: "支持",
+  exampleSource: "Your first source",
+  exampleSourceBody:
+    "Drag a paper from your library here. Its title and source stay together, so you can always return to the original.",
+  exampleQuote: "Make room for evidence",
+  exampleQuoteBody:
+    "Add an excerpt that matters to your question. Keep the original words, then write your interpretation in a separate note. Connect the two to make your reasoning visible.",
+  imageTitle: "图片与 PDF 快照",
+  imageBody: "把图像放在想法旁边。",
+  attachmentTitle: "阅读笔记.md",
+  attachmentBody: "右键打开 Markdown 附件。",
+  attachmentContent: "## 阅读笔记\n\n- 收集证据\n- 提出问题\n- 写下观点",
+  colorNote: "随手记下一段阅读心得，稍后再整理。",
+  colorEvidence: "记录有用的原文、数据或案例，并注明出处。",
+  colorSummary: "归纳共识、分歧与下一步，形成阶段性认识。",
+  organizeAction: "调整与整理",
+  colorQuestion: "还有什么值得追问？",
+  colorClaim: "连接证据，形成自己的理解。",
+  colorBody: "选中卡片，可修改填充色、边框色和文字颜色。",
+  share: "分享你的思考",
+  shareBody: "右键画布导出 PNG，选择 2× 或 4×，清晰分享整张白板。",
 };
 
 const guidedIds = [
@@ -99,14 +145,10 @@ test("builds valid localized static tutorials along a stable guided path", () =>
           connection.label === labels.supports,
       ),
     );
-    assert.deepEqual(parsed.document.viewport, { x: 40, y: 40, zoom: 0.85 });
+    assert.deepEqual(parsed.document.viewport, { x: 40, y: 70, zoom: 0.5 });
     const visibleTop = -document.viewport!.y / document.viewport!.zoom;
     assert.ok(byId.get("tutorial-title")!.position.y >= visibleTop);
     assert.ok(byId.get("tutorial-welcome")!.position.y >= visibleTop);
-    assert.ok(
-      byId.get("tutorial-welcome")!.position.x <
-        byId.get("tutorial-add-literature")!.position.x,
-    );
     assert.ok(
       byId.get("tutorial-add-literature")!.position.x <
         byId.get("tutorial-browse-quotes")!.position.x,
@@ -116,12 +158,8 @@ test("builds valid localized static tutorials along a stable guided path", () =>
         byId.get("tutorial-write-note")!.position.x,
     );
     assert.ok(
-      byId.get("tutorial-write-note")!.position.x <
-        byId.get("tutorial-organize")!.position.x,
-    );
-    assert.ok(
-      byId.get("tutorial-organize")!.position.x <
-        byId.get("tutorial-practice")!.position.x,
+      byId.get("tutorial-organize")!.position.y >
+        byId.get("tutorial-write-note")!.position.y,
     );
 
     const title = byId.get("tutorial-title");
@@ -157,26 +195,52 @@ test("builds valid localized static tutorials along a stable guided path", () =>
 
     const question = byId.get("tutorial-question");
     assert.ok(question?.kind === "note");
-    assert.equal(question.badge, labels.questionBadge);
-    assert.equal(question.content, "");
+    assert.equal(question.noteType, "question");
+    assert.equal(question.content, labels.colorQuestion);
     const claim = byId.get("tutorial-claim");
     assert.ok(claim?.kind === "note");
-    assert.equal(claim.badge, labels.claimBadge);
-    assert.equal(claim.content, "");
+    assert.equal(claim.noteType, "claim");
+    assert.equal(claim.content, labels.colorClaim);
 
-    for (const id of [
-      "tutorial-welcome",
-      "tutorial-add-literature",
-      "tutorial-browse-quotes",
-      "tutorial-write-note",
-      "tutorial-question",
-      "tutorial-claim",
-    ]) {
-      const badgeNote = byId.get(id);
-      assert.ok(badgeNote?.kind === "note" && badgeNote.badge);
-      assert.equal(badgeNote.style?.fill, undefined);
-      assert.equal(badgeNote.style?.textColor, undefined);
+    const colors = NOTE_TYPES.map((role) => {
+      const card = byId.get(`tutorial-color-${role}`)!;
+      assert.ok(card.kind === "note");
+      assert.equal(card.noteType, role);
+      assert.equal(card.frameId, "tutorial-organize");
+      assert.ok(card.content.trim().length > 0);
+      // The tutorial must follow the real types' defaults as their design evolves.
+      for (const key of [
+        "fill",
+        "stroke",
+        "textColor",
+        "radius",
+        "strokeStyle",
+      ] as const) {
+        assert.equal(card.style?.[key], undefined);
+      }
+      return canvasNodeUiSurfaceDefaults("note", "light", role).fill;
+    });
+    assert.equal(new Set(colors).size, 5);
+    // Every grouped example stays inside its frame after layout changes.
+    for (const card of parsed.document.nodes) {
+      if (!("frameId" in card) || !card.frameId) continue;
+      const frame = byId.get(card.frameId)!;
+      assert.ok(card.position.x >= frame.position.x);
+      assert.ok(card.position.y >= frame.position.y + 40);
+      assert.ok(card.position.x + card.width <= frame.position.x + frame.width);
+      assert.ok(
+        card.position.y + card.height <= frame.position.y + frame.height,
+      );
     }
+    const image = byId.get("tutorial-image");
+    assert.ok(
+      image?.kind === "pdf" &&
+        image.data.image?.startsWith("data:image/svg+xml"),
+    );
+    const attachment = byId.get("tutorial-attachment");
+    assert.ok(attachment?.kind === "attachment");
+    assert.equal(attachment.data.preview, labels.attachmentContent);
+    assert.ok(byId.has("tutorial-share"));
 
     const organize = byId.get("tutorial-organize");
     assert.ok(organize?.kind === "frame");

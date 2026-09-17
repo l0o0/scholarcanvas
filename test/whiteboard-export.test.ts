@@ -762,3 +762,38 @@ test("PNG conversion keeps contain placement and URI encoding", async () => {
     }
   }
 });
+
+test("SVG connections use the chosen sides and the same Bezier shape as the canvas", () => {
+  const svg = buildCanvasSvg({
+    version: 2,
+    nodes: [
+      {
+        id: "a",
+        kind: "note",
+        content: "A",
+        position: { x: 100, y: 100 },
+        width: 200,
+        height: 100,
+      },
+      {
+        id: "b",
+        kind: "note",
+        content: "B",
+        position: { x: 400, y: 400 },
+        width: 200,
+        height: 100,
+      },
+    ],
+    connections: [
+      {
+        id: "ab",
+        kind: "basic",
+        source: "a",
+        sourceHandle: "bottom",
+        target: "b",
+        targetHandle: "top",
+      },
+    ],
+  });
+  assert.match(svg, /<path d="M200,200 C200,300 500,300 500,400" fill="none"/);
+});

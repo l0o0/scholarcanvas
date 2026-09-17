@@ -1,5 +1,5 @@
 ---
-name: Bamboo 竹子
+name: Scholar Canvas
 description: A focused Markdown editor that feels native to Zotero and readable at writing speed.
 colors:
   canvas: "#fbfbfc"
@@ -53,13 +53,13 @@ components:
     size: "{spacing.control}"
 ---
 
-# Design System: Bamboo 竹子
+# Design System: Scholar Canvas
 
 ## Overview
 
 **Creative North Star: "The Quiet Research Desk"**
 
-Bamboo 竹子 is a compact, native-feeling writing surface for researchers working inside Zotero. Its interface should recede while the document remains legible, using a restrained neutral palette, thin structural borders, and one consistent icon vocabulary.
+Scholar Canvas is a compact, native-feeling writing surface for researchers working inside Zotero. Its interface should recede while the document remains legible, using a restrained neutral palette, thin structural borders, and one consistent icon vocabulary.
 
 The editor is document-first, not an IDE or a dashboard. Live Preview uses a centered reading column; the toolbar and status bar align to the same horizontal rhythm. The UI should feel deliberate and calm, never like a collection of floating controls.
 
@@ -161,23 +161,46 @@ The toolbar is a single, centered icon toolbelt. It follows the Live Preview tex
 ## Research Canvas Cards
 
 Academic cards share an 8px radius, 12px vertical / 14px horizontal padding,
-theme-aware neutral surfaces, and a compact icon-and-label header. A custom Note
-badge replaces the generic visible type label; the underlying type remains in
-the header tooltip. Question and Claim are Note templates, with restrained
-border colors and optional bold content, not separate node types. Built-in
-templates leave fill and text colors unset so they follow the active theme.
+theme-aware neutral surfaces, and a compact icon-and-label header. Notes carry a
+persistent card type: Note, Question, Viewpoint, Evidence, or Summary. The header
+shows the type and an optional short title. Type-specific prompts guide empty
+cards and editors without becoming saved body text. Built-in starting styles
+use a neutral Note, amber Question with rounded dashed edges, green Viewpoint
+with a stronger outline, blue Evidence with square corners, and lavender Summary.
+Each has a distinct icon, written label, and equivalent low-luminance dark palette.
+
+The properties panel always shows the selected card's type. Changing type keeps
+its title, body, source, dimensions, and explicit style overrides. Untouched default colors and corners follow the new type. Custom templates live in a
+collapsed section and remain one-time reusable starting points; they are not
+ongoing bindings. Old Question/Claim badges are recognized as types until the
+user edits the card, while custom titles remain intact.
 
 Literature prioritizes its title, citation, and a small tag set. Quote uses a
 structural quotation rule inside its body, with provenance in the footer.
 Footers render only when there is information to show. Existing node sizes and
-user-defined styles remain authoritative; content is clipped within the body
-while provenance retains its reserved space.
+user-defined styles remain authoritative. Long note bodies, excerpts, comments,
+and attachment previews scroll within the card while headers and provenance stay
+visible. Wheel gestures over the body never zoom the canvas, including at either
+scroll boundary. Blank canvas still supports zooming, and Space temporarily pans
+over cards. Center and bottom alignment fall back to the top when content
+overflows so the first line remains reachable.
 
 Selection uses a crisp theme-aware outline instead of a blue glow. Card handles
 remain measurable and interactive, but become visible on hover, selection,
 keyboard focus, or while a connection is being drawn. Touch devices retain
 visible handles. The shared selection toolbar and existing editing flows remain
 the action surfaces.
+
+Cards and shapes expose four independently named connection points. Every side can start or receive a connection, and the chosen sides persist when moving cards, undoing, or reloading. Connection previews and completed edges use the same Bezier curves. Handles have a larger invisible hit area and accent feedback when a target snaps. Hovering or selecting a line reveals draggable endpoints; a successful reconnection preserves its identity, label, relation, and styling in one undoable change. Dropping a reconnection on empty space retains the original line. JSON Canvas import/export carries the standard `fromSide` and `toSide` fields, and SVG export uses the same sides and curve style. PNG export omits the endpoint controls and selection emphasis.
+
+Color controls open compact popovers with six color families and three shades.
+Fill and outline palettes keep matching columns, with lighter fills and darker
+outlines first in light mode, reversed for dark mode. Backgrounds offer a separate
+transparent option. Restore default clears explicit color overrides so card types
+and themes remain authoritative. Custom color controls stay collapsed until
+requested, then expose react-colorful and a Hex field. Text colors use the same
+picker and retain an opacity control. Opening or expanding a picker never changes
+the toolbar's dimensions or writes a color to the document.
 
 Note editing aligns to the card body using the same padding and header tokens,
 scaled with the canvas zoom. The input grows within the available body space
@@ -210,3 +233,11 @@ The table context menu is shared by Live and Source modes. It appears only when 
 - The current column alignment is marked with a restrained accent check.
 - Every successful structural command replaces the table in one CodeMirror transaction so one undo restores the previous table.
 - Context menus use compact 32px rows, an 8px radius, theme-aware surfaces, and viewport-clamped fixed positioning.
+
+Markdown and Canvas expose “Open in standalone window” in their More menus and attachment context menus. Standalone editors expose “Return to Zotero tab” in the same position. These are nonmodal, resizable windows for multi-monitor work. Canvas keeps one editing surface per attachment; transfers and window closes save before disposing the source, and failed transfers retain the original editor.
+
+## Image Sizing
+
+Clicking an image in Live mode reveals a thin selection outline, four corner handles, and a compact floating toolbar. Dragging preserves aspect ratio and previews locally; releasing writes one undoable document change. Escape cancels an in-progress drag. The toolbar offers Small (240px), Medium (480px), Large (720px), Auto, a numeric width, and View original. Controls follow the selected occurrence, fit within the viewport, and use the editor's menu tokens in both themes. Keyboard users can focus an image, press Enter to reach the toolbar, or use arrow keys on a handle (Shift increases the step).
+
+Each occurrence stores its display width as a standard HTML image tag inside Markdown. Live rendering, reading preview, HTML export, image import, and asset cleanup recognize these references without enabling arbitrary HTML. Images retain their aspect ratio and fit the reading column when the window narrows. Original attachment bytes remain unchanged. Reading preview opens images in a temporary modal with Auto and 100% views; viewing never changes the document.

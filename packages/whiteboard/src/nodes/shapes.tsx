@@ -1,8 +1,13 @@
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import type { NodeProps } from "@xyflow/react";
 import { useWhiteboardLabels } from "../chrome/labels";
 import { canvasNodeSurfaceDefaults } from "../model/academic";
 import { labelTextStyle, verticalAlignmentStyle } from "../whiteboard/document";
-import { CardShell, nodeSurfaceFill, nodeSurfaceStroke } from "./CardShell";
+import {
+  CardShell,
+  NodeHandles,
+  nodeSurfaceFill,
+  nodeSurfaceStroke,
+} from "./CardShell";
 import type { CanvasFlowNode } from "./types";
 
 function point(value: { x: number; y: number } | undefined, fallback: number) {
@@ -75,8 +80,7 @@ export function RectNode({ data, selected }: NodeProps<CanvasFlowNode>) {
       className={`zmd-board-shape is-rect${selected ? " is-selected" : ""}`}
       style={shapeStyle("rect", model.style)}
     >
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Right} />
+      <NodeHandles />
       {model.data.title ? (
         <span style={labelTextStyle(model.style ?? {})}>
           {model.data.title}
@@ -94,8 +98,7 @@ export function EllipseNode({ data, selected }: NodeProps<CanvasFlowNode>) {
       className={`zmd-board-shape is-ellipse${selected ? " is-selected" : ""}`}
       style={shapeStyle("ellipse", model.style)}
     >
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Right} />
+      <NodeHandles />
       {model.data.title ? (
         <span style={labelTextStyle(model.style ?? {})}>
           {model.data.title}
@@ -131,8 +134,7 @@ function StrokeShape({
     <div
       className={`zmd-board-shape is-stroke${selected ? " is-selected" : ""}`}
     >
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Right} />
+      <NodeHandles />
       <svg
         className="zmd-board-stroke"
         style={{ color: stroke }}

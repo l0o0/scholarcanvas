@@ -1,5 +1,10 @@
 import type { NodeProps } from "@xyflow/react";
-import { useWhiteboardLabels } from "../chrome/labels";
+import { getNoteType, getNoteTitle } from "../model/academic";
+import {
+  useWhiteboardLabels,
+  noteTypeLabel,
+  noteTypePrompt,
+} from "../chrome/labels";
 import { nodeTextStyle } from "../whiteboard/document";
 import {
   CardShell,
@@ -97,19 +102,22 @@ function AcademicTextNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   return (
     <CardShell
       kind="note"
-      kindLabel={labels.kindNote}
-      badge={model.badge}
+      noteType={getNoteType(model)}
+      kindLabel={noteTypeLabel(labels, getNoteType(model))}
+      badge={getNoteTitle(model)}
       selected={selected}
       nodeStyle={model.style}
     >
       <p
-        className="zmd-board-card-content"
+        className={`zmd-board-card-content${model.content === "" ? " is-placeholder" : ""}`}
         style={{
           ...nodeTextStyle(model.style ?? {}),
           whiteSpace: "pre-wrap",
         }}
       >
-        {model.content === "" ? labels.emptyNote : model.content}
+        {model.content === ""
+          ? noteTypePrompt(labels, getNoteType(model))
+          : model.content}
       </p>
     </CardShell>
   );

@@ -40,4 +40,6 @@ export interface InlineRange {
   from: number;
   to: number;
   kind: InlineKind;
+  /** Source URL for links, or the complete [[…]] source for wiki links. */
+  href?: string;
 }

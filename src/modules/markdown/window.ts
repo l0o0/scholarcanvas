@@ -4,10 +4,11 @@ import { injectMarkdownStyles } from "./styles";
 import {
   closeMarkdownSession,
   mountMarkdownEditorSurface,
+  openMarkdownTab,
   refreshMarkdownSessionOnFocus,
 } from "./tab";
 import { resolveMarkdownTabTitle } from "./tabHooks";
-import type { OpenSession } from "./session-registry";
+import { sessionRegistry, type OpenSession } from "./session-registry";
 import { MarkdownWindowRegistry } from "./window-registry";
 
 type StandaloneWindow = Window & {
@@ -27,8 +28,16 @@ function waitForWindowDocument(win: Window): Promise<void> {
   ) {
     return Promise.resolve();
   }
-  return new Promise((resolve) => {
-    win.addEventListener("load", () => resolve(), { once: true });
+  return new Promise((resolve, reject) => {
+    const timer = win.setTimeout(() => {
+      win.removeEventListener("load", loaded);
+      reject(new Error(getString("error-open-window")));
+    }, 8000);
+    const loaded = () => {
+      win.clearTimeout(timer);
+      resolve();
+    };
+    win.addEventListener("load", loaded, { once: true });
   });
 }
 
@@ -89,6 +98,10 @@ export async function openMarkdownWindow(
   }
 
   return windows.open(item.id, async () => {
+    // Include pending edits when opening from the attachment context menu.
+    for (const session of sessionRegistry.all()) {
+      if (session.itemID === item.id) await session.save.request();
+    }
     const source = await readMarkdown(item);
     const win = opener.openDialog(
       `chrome://${addon.data.config.addonRef}/content/markdownWindow.xhtml`,
@@ -96,30 +109,6 @@ export async function openMarkdownWindow(
       "chrome,dialog=no,centerscreen,resizable,width=1024,height=760,minwidth=640,minheight=480",
     ) as StandaloneWindow | null;
     if (!win) throw new Error(getString("error-open-window"));
-
-    await waitForWindowDocument(win);
-    ensureDOMGlobals(win);
-    injectMarkdownStyles(win);
-    const root = win.document.getElementById(
-      "bamboo-markdown-window-root",
-    ) as HTMLElement | null;
-    if (!root) {
-      win.close();
-      throw new Error(getString("error-open-window"));
-    }
-    root.classList.add("zotero-markdown-tab-content");
-
-    const sessionID = `window-${item.id}-${++windowSequence}`;
-    const session = mountMarkdownEditorSurface({
-      sessionID,
-      surface: "window",
-      item,
-      ...source,
-      win,
-      container: root,
-      isActive: () => !win.closed && win.document.hasFocus(),
-      updateTitle: () => void updateWindowTitle(win, item.id),
-    });
 
     const state = win as StandaloneWindow & { __bambooAllowClose?: boolean };
     state.__bambooAllowClose = false;
@@ -138,6 +127,47 @@ export async function openMarkdownWindow(
             .show();
         });
     });
+    try {
+      await waitForWindowDocument(win);
+    } catch (error) {
+      state.__bambooAllowClose = true;
+      win.close();
+      throw error;
+    }
+    ensureDOMGlobals(win);
+    injectMarkdownStyles(win);
+    const root = win.document.getElementById(
+      "bamboo-markdown-window-root",
+    ) as HTMLElement | null;
+    if (!root) {
+      state.__bambooAllowClose = true;
+      win.close();
+      throw new Error(getString("error-open-window"));
+    }
+    root.classList.add("zotero-markdown-tab-content");
+
+    const sessionID = `window-${item.id}-${++windowSequence}`;
+    let session: OpenSession;
+    try {
+      session = mountMarkdownEditorSurface({
+        sessionID,
+        surface: "window",
+        item,
+        ...source,
+        win,
+        container: root,
+        isActive: () => !win.closed && win.document.hasFocus(),
+        updateTitle: () => void updateWindowTitle(win, item.id),
+      });
+      await session.editor?.ready;
+      await session.editor?.requestSnapshot();
+    } catch (error) {
+      await closeMarkdownSession(sessionID);
+      state.__bambooAllowClose = true;
+      win.close();
+      throw error;
+    }
+
     win.focus();
     return { window: win, session };
   });
@@ -147,4 +177,50 @@ export async function closeAllMarkdownWindows(): Promise<void> {
   await windows.closeAll((value) =>
     closeWindowEntry(value.session.itemID, value),
   );
+}
+
+const transfers = new WeakMap<OpenSession, Promise<void>>();
+
+/** Move the active editor only after its destination has opened successfully. */
+export function switchMarkdownSurface(session: OpenSession): Promise<void> {
+  const pending = transfers.get(session);
+  if (pending) return pending;
+  const transfer = (async () => {
+    const root = session.view?.root;
+    if (root) root.inert = true;
+    try {
+      const item = Zotero.Items.get(session.itemID);
+      if (!item) throw new Error(getString("error-attachment-gone"));
+      await session.save.request({ force: true });
+      if (session.surface === "window") {
+        const tabID = await openMarkdownTab(item);
+        if (!tabID) throw new Error(getString("error-open-window"));
+        const target = sessionRegistry.get(tabID);
+        await target?.editor?.ready;
+        await target?.editor?.requestSnapshot();
+        await windows.close(item.id, (value) =>
+          closeWindowEntry(item.id, value),
+        );
+        Zotero.getMainWindow()?.focus();
+      } else {
+        const win = await openMarkdownWindow(item, {
+          opener: session.win as _ZoteroTypes.MainWindow,
+        });
+        if (!win) throw new Error(getString("error-open-window"));
+        await closeMarkdownSession(session.tabID, {
+          flush: true,
+          throwOnSaveError: true,
+        });
+        (session.win as _ZoteroTypes.MainWindow).Zotero_Tabs.close(
+          session.tabID,
+        );
+        win.focus();
+      }
+    } finally {
+      if (root) root.inert = false;
+      transfers.delete(session);
+    }
+  })();
+  transfers.set(session, transfer);
+  return transfer;
 }

@@ -24,6 +24,7 @@ import {
   writeImageAsset,
 } from "./images/service";
 import type { ImageAssetMap } from "./editor-protocol";
+import { navigateDocumentLink, searchDocumentLinks } from "./document-links";
 import {
   iconBold,
   iconH1,
@@ -827,6 +828,16 @@ class SidebarController {
         return current
           ? resolveImageAssetEntry(current, reference)
           : Promise.resolve({ error: getString("sidebar-attachment-gone") });
+      },
+      onLinkSearch: async (query) => {
+        // The editor may remain alive for one tick while Zotero switches the
+        // selected item. Never return candidates for a different document.
+        if (seq !== this.renderSeq || this.item?.id !== item.id) return [];
+        return searchDocumentLinks(item, query);
+      },
+      onOpenLink: (href) => {
+        if (seq !== this.renderSeq || this.item?.id !== item.id) return;
+        navigateDocumentLink(item, this.win, href);
       },
       onPasteImage: ({ bytes, mimeType }) => {
         void this.insertImage(new Uint8Array(bytes), mimeType);

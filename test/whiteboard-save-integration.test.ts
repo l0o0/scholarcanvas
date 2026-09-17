@@ -58,13 +58,13 @@ test("host persistence uses only schema-v2 canvas APIs", () => {
 
 test("autosave and close-before-flush ordering remain unchanged", () => {
   assert.match(tab, /const AUTOSAVE_MS = 800/);
-  const closeStart = tab.indexOf(
-    "export async function closeWhiteboardSession",
-  );
+  const closeStart = tab.indexOf("export function closeWhiteboardSession");
+  assert.ok(closeStart >= 0);
   const closeBody = tab.slice(closeStart);
   assert.ok(closeBody.indexOf("clearTimeout") < closeBody.indexOf("flush()"));
   assert.ok(
-    closeBody.indexOf("flush()") < closeBody.indexOf("editor?.destroy()"),
+    closeBody.indexOf("flush()") <
+      closeBody.indexOf("disposeWhiteboardSession(session)"),
   );
 });
 

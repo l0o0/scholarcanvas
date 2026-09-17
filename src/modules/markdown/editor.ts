@@ -4,11 +4,13 @@
  */
 import { getPref } from "../../utils/prefs";
 import { ensureDOMGlobals } from "../../utils/dom";
+import { getString } from "../../utils/locale";
 import {
   EDITOR_MESSAGE_SOURCE,
   EDITOR_PROTOCOL_VERSION,
   applyDocChanges,
   computeStats,
+  type EditorLinkCandidate,
   type EditorMode,
   type EditorOutlineItem,
   type EditorSurface,
@@ -97,6 +99,7 @@ type PendingCommand = Extract<
       | "setImageAssets"
       | "requestSnapshot"
       | "assetResolved"
+      | "linkSearchResults"
       | "init";
   }
 >;
@@ -134,6 +137,8 @@ export function createMarkdownEditor(
     onResolveAsset?: (
       reference: string,
     ) => Promise<{ dataUrl?: string; error?: string }>;
+    onLinkSearch?: (query: string) => Promise<EditorLinkCandidate[]>;
+    onOpenLink?: (href: string) => void;
     win?: Window;
     channel?: string;
     surface?: EditorSurface;
@@ -153,6 +158,8 @@ export function createMarkdownEditor(
     onSave,
     onPasteImage,
     onResolveAsset,
+    onLinkSearch,
+    onOpenLink,
   } = options;
   const surface = options.surface ?? "default";
 
@@ -173,7 +180,7 @@ export function createMarkdownEditor(
 
   const iframe = documentRef.createElement("iframe") as HTMLIFrameElement;
   iframe.className = "zmd-codemirror-iframe";
-  const iframeSrc = `${editorPageURL()}?channel=${encodeURIComponent(channel)}`;
+  const iframeSrc = `${editorPageURL()}?channel=${encodeURIComponent(channel)}&v=${Date.now()}`;
   iframe.setAttribute("src", iframeSrc);
   Object.assign(iframe.style, {
     border: "none",
@@ -319,6 +326,17 @@ export function createMarkdownEditor(
             theme: currentTheme,
             mode: currentMode,
             surface,
+            imageLabels: {
+              toolbar: getString("image-size-toolbar"),
+              width: getString("image-size-width"),
+              small: getString("image-size-small"),
+              medium: getString("image-size-medium"),
+              large: getString("image-size-large"),
+              auto: getString("image-size-auto"),
+              original: getString("image-view-original"),
+              close: getString("image-view-close"),
+              resize: getString("image-size-resize"),
+            },
           },
         });
         flushPending();
@@ -361,6 +379,47 @@ export function createMarkdownEditor(
             payload: { requestId, reference, ...asset },
           });
         });
+        break;
+      }
+      case "linkSearch": {
+        if (!onLinkSearch) break;
+        const { requestId, query } = data.payload;
+        void onLinkSearch(query)
+          .then((results) => {
+            if (destroyed) return;
+            // Item IDs remain host-only; only stable Zotero URI metadata crosses
+            // into the iframe and can be persisted by the user.
+            const safeResults = results.slice(0, 24).map((candidate) => {
+              const { itemID: _itemID, ...safeCandidate } =
+                candidate as EditorLinkCandidate & {
+                  itemID?: number;
+                };
+              return {
+                ...safeCandidate,
+                kindLabel:
+                  candidate.kindLabel ||
+                  getString(`document-link-kind-${candidate.kind}` as any),
+              };
+            });
+            sendOrQueue({
+              source: EDITOR_MESSAGE_SOURCE,
+              type: "linkSearchResults",
+              payload: { requestId, query, results: safeResults },
+            });
+          })
+          .catch((error) => {
+            ztoolkit.log("Markdown document-link search failed", error);
+            if (destroyed) return;
+            sendOrQueue({
+              source: EDITOR_MESSAGE_SOURCE,
+              type: "linkSearchResults",
+              payload: { requestId, query, results: [] },
+            });
+          });
+        break;
+      }
+      case "openLink": {
+        onOpenLink?.(data.payload.href);
         break;
       }
       case "save": {

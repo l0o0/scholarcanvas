@@ -1,6 +1,12 @@
 /// <reference lib="dom" />
 
 import {
+  getNoteType,
+  canvasNodeSurfaceDefaults,
+  type NoteType,
+} from "../model/academic";
+
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -12,13 +18,15 @@ import {
 import {
   Background,
   BackgroundVariant,
+  ConnectionLineType,
   ConnectionMode,
   Controls,
   MarkerType,
   ReactFlow,
   addEdge,
   applyEdgeChanges,
-  applyNodeChanges,
+  reconnectEdge,
+  useKeyPress,
   type Connection,
   type EdgeChange,
   type NodeChange,
@@ -47,6 +55,7 @@ import {
   BUILTIN_NOTE_TEMPLATES,
   applyNoteTemplate,
   createBuiltinNoteTemplates,
+  changeNoteType,
   createCustomNoteTemplate,
   materializeNoteTemplate,
   parseNoteTemplateRegistry,
@@ -81,7 +90,7 @@ import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
 import { TextStyleBar } from "../chrome/TextStyleBar";
 import { TopIsland } from "../chrome/TopIsland";
-import { WhiteboardLabelsProvider } from "../chrome/labels";
+import { WhiteboardLabelsProvider, noteTypePrompt } from "../chrome/labels";
 import {
   frameFromDrag,
   isBorderHit,
@@ -101,7 +110,8 @@ import {
   distributeNodes,
   type AlignMode,
 } from "./layout";
-import { buildCanvasMarkdown, buildCanvasSvg, svgToPngDataUrl } from "./export";
+import { buildCanvasMarkdown, buildCanvasSvg } from "./export";
+import { exportCanvasPng, type PngScale } from "./png";
 import {
   acceptAnnotationListFailure,
   acceptAnnotationListResult,
@@ -115,6 +125,7 @@ import {
   canvasDocumentToFlow,
   flowNodeText,
   flowToCanvasDocument,
+  applyCanvasNodeChanges,
   labelTextStyle,
   mergeEditingStyle,
   toggleEditingBold,
@@ -169,7 +180,16 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   addItem: "Item",
   addNote: "Note",
   addQuestion: "Question",
-  addClaim: "Claim",
+  addClaim: "Viewpoint",
+  addEvidence: "Evidence",
+  addSummary: "Summary",
+  noteType: "Card type",
+  notePrompt: "Capture a thought or reading note.",
+  questionPrompt: "What do I want to understand?",
+  claimPrompt: "What is my view, and why?",
+  evidencePrompt: "Which passage, data, or example matters?",
+  summaryPrompt: "What agrees, what differs, and what remains open?",
+  editNoteBody: "Edit body",
   addFrame: "Frame",
   addPdf: "PDF",
   addFile: "File",
@@ -182,12 +202,12 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   kindQuote: "Quote",
   kindNote: "Note",
   emptyNote: "Empty note",
-  badge: "Badge",
+  badge: "Title (optional)",
   applyTemplate: "Apply template",
-  chooseTemplate: "Choose a template",
+  chooseTemplate: "Choose a template to apply…",
   saveAsTemplate: "Save as template",
   templateName: "Template name",
-  includeTemplateContent: "Include current content",
+  includeTemplateContent: "Include body text",
   customTemplates: "Custom templates",
   noCustomTemplates: "No custom templates",
   renameTemplate: "Rename template",
@@ -241,6 +261,7 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   undo: "Undo",
   redo: "Redo",
   save: "Save",
+  switchWindow: "Open in standalone window",
   editText: "Edit text",
   copy: "Copy",
   delete: "Delete",
@@ -262,6 +283,9 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   saving: "Saving…",
   saveFailed: "Save failed",
   exportPng: "Export PNG",
+  exporting: "Rendering PNG…",
+  exportRenderFailed:
+    "Could not render PNG. Check that images have loaded, or try a lower resolution.",
   exportSvg: "Export SVG",
   exportMarkdown: "Export Markdown",
   more: "More",
@@ -269,6 +293,7 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   close: "Close",
   stroke: "Stroke",
   background: "Background",
+  transparent: "Transparent",
   style: "Style",
   solid: "Solid",
   dashed: "Dashed",
@@ -289,6 +314,9 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   weightBold: "Bold",
   commonColors: "Common custom colors",
   recentColors: "Recently used colors",
+  opacity: "Opacity",
+  customColor: "Custom color",
+  resetColor: "Restore default",
   shortcutSelect: "Select",
   shortcutHand: "Pan canvas",
   shortcutRect: "Draw rectangle",
@@ -297,7 +325,7 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   shortcutLine: "Draw line",
   shortcutText: "Add text",
   shortcutQuestion: "Add question",
-  shortcutClaim: "Add claim",
+  shortcutClaim: "Add viewpoint",
   shortcutFrame: "Add frame",
   shortcutEraser: "Erase",
   shortcutConstrain: "Constrain ratio or angle while drawing",
@@ -315,6 +343,7 @@ export interface WhiteboardAppProps {
   onReady: (api: WhiteboardRuntime) => void;
   onChange: (rev: number) => void;
   onSave: () => void;
+  onSwitchWindow?: () => void;
   onSaveNoteTemplate?: (template: NoteTemplate) => void;
   onDeleteNoteTemplate?: (templateId: string) => void;
   onPickAcademicSource: (
@@ -635,6 +664,11 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     CanvasFlowNode,
     CanvasFlowEdge
   > | null>(null);
+  const resizingRef = useRef(false);
+  const exportBusyRef = useRef(false);
+  const [exportStatus, setExportStatus] = useState<"busy" | "error" | null>(
+    null,
+  );
   const sourceGenerationRef = useRef(1);
   const sourceGenerationAnnouncedRef = useRef(0);
   const sourcePrioritiesRef = useRef(
@@ -728,10 +762,19 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         note: labels.addNote,
         question: labels.addQuestion,
         claim: labels.addClaim,
+        evidence: labels.addEvidence,
+        summary: labels.addSummary,
       }),
       ...customTemplates,
     ],
-    [customTemplates, labels.addClaim, labels.addNote, labels.addQuestion],
+    [
+      customTemplates,
+      labels.addClaim,
+      labels.addNote,
+      labels.addQuestion,
+      labels.addEvidence,
+      labels.addSummary,
+    ],
   );
   if (!noteRefreshRuntimeRef.current) {
     noteRefreshRuntimeRef.current = createNoteRefreshRuntime({
@@ -760,11 +803,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     });
   }
   const sourceRefreshRuntime = sourceRefreshRuntimeRef.current;
-  const [activeTool, setActiveTool] = useState<CanvasTool>("select");
+  const [selectedTool, setActiveTool] = useState<CanvasTool>("select");
+  const spacePressed = useKeyPress("Space", {
+    actInsideInputWithModifier: false,
+  });
   const [activeNoteTemplateId, setActiveNoteTemplateId] = useState<string>(
     BUILTIN_NOTE_TEMPLATE_IDS.note,
   );
-  const eraser = activeTool === "eraser";
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">(
     "saved",
   );
@@ -777,6 +822,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const [styleTarget, setStyleTarget] = useState<string | null>(null);
   const [annotationBrowser, setAnnotationBrowser] =
     useState<AnnotationBrowserSession | null>(null);
+  // Space temporarily owns all pointer gestures, including those over cards.
+  const activeTool =
+    spacePressed && !editing && !annotationBrowser ? "hand" : selectedTool;
+  const eraser = activeTool === "eraser";
   const annotationBrowserRef = useRef<AnnotationBrowserSession | null>(null);
   annotationBrowserRef.current = annotationBrowser;
   const annotationBrowserOriginNodeIdRef = useRef<string | null>(null);
@@ -1212,6 +1261,19 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         pushHistory();
       }
 
+      const resizeChanges = retainedChanges.filter(
+        (change) => change.type === "dimensions",
+      );
+      if (
+        resizeChanges.some((change) => change.resizing === true) &&
+        !resizingRef.current
+      ) {
+        pushHistory();
+        resizingRef.current = true;
+      }
+      if (resizeChanges.some((change) => change.resizing === false))
+        resizingRef.current = false;
+
       const drag = frameDragRef.current;
       if (drag?.phase === "ending") {
         retainedChanges = retainedChanges.filter(
@@ -1252,10 +1314,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 }
               : node;
           });
-          return applyNodeChanges(retainedChanges, movedNodes);
+          return applyCanvasNodeChanges(retainedChanges, movedNodes);
         });
       } else {
-        setNodes((current) => applyNodeChanges(retainedChanges, current));
+        setNodes((current) => applyCanvasNodeChanges(retainedChanges, current));
       }
 
       if (!drag && retainedChanges.some((change) => change.type !== "select")) {
@@ -1339,6 +1401,24 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           },
           current,
         ),
+      );
+      bump();
+    },
+    [bump, pushHistory],
+  );
+
+  const onReconnect = useCallback(
+    (edge: CanvasFlowEdge, connection: Connection) => {
+      if (
+        edge.source === connection.source &&
+        edge.target === connection.target &&
+        edge.sourceHandle === connection.sourceHandle &&
+        edge.targetHandle === connection.targetHandle
+      )
+        return;
+      pushHistory();
+      setEdges((current) =>
+        reconnectEdge(edge, connection, current, { shouldReplaceId: false }),
       );
       bump();
     },
@@ -1628,13 +1708,28 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     [deleteCanvasElements],
   );
 
+  const changeSelectedNoteType = useCallback(
+    (nodeId: string, noteType: NoteType) => {
+      updateNode(nodeId, (current) =>
+        updateFlowNodeModel(current, (model) =>
+          model.kind === "note" ? changeNoteType(model, noteType) : model,
+        ),
+      );
+    },
+    [updateNode],
+  );
+
   const changeNoteBadge = useCallback(
     (nodeId: string, badge: string) => {
       updateNode(nodeId, (current) =>
         updateFlowNodeModel(current, (model) => {
           if (model.kind !== "note") return model;
           const { badge: _badge, ...withoutBadge } = model;
-          return badge ? { ...withoutBadge, badge } : withoutBadge;
+          return {
+            ...withoutBadge,
+            noteType: getNoteType(model),
+            ...(badge ? { badge } : {}),
+          };
         }),
       );
     },
@@ -1863,7 +1958,8 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   );
 
   const exportAs = useCallback(
-    (format: "png" | "svg" | "md") => {
+    (format: "png" | "svg" | "md", scale: PngScale = 2) => {
+      if (exportBusyRef.current) return;
       setMenu(null);
       const doc = snapshotNow();
       const requestId = `export-${Date.now().toString(36)}`;
@@ -1876,8 +1972,8 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         });
         return;
       }
-      const svg = buildCanvasSvg(doc);
       if (format === "svg") {
+        const svg = buildCanvasSvg(doc);
         propsRef.current.onExportFile({
           requestId,
           format,
@@ -1886,14 +1982,27 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         });
         return;
       }
-      void svgToPngDataUrl(svg).then((dataUrl) => {
-        propsRef.current.onExportFile({
-          requestId,
-          format,
-          mimeType: "image/png",
-          dataUrl,
+      const host = canvasHostRef.current;
+      if (!host) return;
+      exportBusyRef.current = true;
+      setExportStatus("busy");
+      void exportCanvasPng(host, doc, scale)
+        .then((dataUrl) => {
+          propsRef.current.onExportFile({
+            requestId,
+            format,
+            mimeType: "image/png",
+            dataUrl,
+          });
+          setExportStatus(null);
+        })
+        .catch((error: unknown) => {
+          console.error("PNG export failed", error);
+          setExportStatus("error");
+        })
+        .finally(() => {
+          exportBusyRef.current = false;
         });
-      });
     },
     [snapshotNow],
   );
@@ -2120,6 +2229,14 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const editingNode = editing
     ? nodes.find((node) => node.id === editing.nodeId)
     : null;
+  const editingSurfaceDefaults = editingNode
+    ? canvasNodeSurfaceDefaults(
+        editingNode.data.model.kind,
+        editingNode.data.model.kind === "note"
+          ? getNoteType(editingNode.data.model)
+          : undefined,
+      )
+    : undefined;
   const editingScreen = editingNode
     ? flowRef.current?.flowToScreenPosition(editingNode.position)
     : null;
@@ -2156,8 +2273,12 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       >
         <TopIsland
           labels={labels}
+          theme={theme}
           activeTool={activeTool}
-          onSelectTool={setActiveTool}
+          onSelectTool={(tool) => {
+            if (tool === "literature") addNode("literature");
+            else setActiveTool(tool);
+          }}
           noteTemplates={noteTemplates}
           activeNoteTemplateId={activeNoteTemplateId}
           onSelectNoteTemplate={setActiveNoteTemplateId}
@@ -2167,6 +2288,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           onUndo={() => runtimeRef.current?.undo()}
           onRedo={() => runtimeRef.current?.redo()}
           onSave={() => propsRef.current.onSave()}
+          onSwitchWindow={props.onSwitchWindow}
+          onExportPng={() => exportAs("png")}
+          exportBusy={exportStatus === "busy"}
           onFitView={fitView}
           onAutoLayout={autoLayout}
           onOpenShortcuts={() => setHelpOpen(true)}
@@ -2182,6 +2306,28 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             selectedEdges[0] && toggleEdgeArrow(selectedEdges[0].id)
           }
         />
+        {exportStatus ? (
+          <div
+            className="zmd-board-notice"
+            role={exportStatus === "error" ? "alert" : "status"}
+            data-tone={exportStatus === "error" ? "error" : "info"}
+          >
+            <span>
+              {exportStatus === "busy"
+                ? labels.exporting
+                : labels.exportRenderFailed}
+            </span>
+            {exportStatus === "error" ? (
+              <button
+                type="button"
+                aria-label={labels.close}
+                onClick={() => setExportStatus(null)}
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <CanvasNoticeRegion
           labels={labels}
           notice={canvasNotice}
@@ -2212,6 +2358,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           onDelete={deleteNode}
           noteTemplates={noteTemplates}
           onBadgeChange={changeNoteBadge}
+          onTypeChange={changeSelectedNoteType}
           onApplyTemplate={applyTemplateToNote}
           onSaveTemplate={saveNoteAsTemplate}
           onRenameTemplate={renameTemplate}
@@ -2270,27 +2417,36 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           fitView={!props.initialSnapshot}
           minZoom={0.1}
           connectionMode={ConnectionMode.Loose}
+          connectionLineType={ConnectionLineType.Bezier}
+          connectionRadius={28}
+          reconnectRadius={7}
           defaultEdgeOptions={{
-            type: "smoothstep",
+            type: "default",
+            interactionWidth: 24,
             markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
           }}
           snapToGrid={activeTool === "select"}
           snapGrid={[16, 16]}
           deleteKeyCode={null}
+          panActivationKeyCode={null}
           onKeyDownCapture={(event) => {
             captureCanvasArrowKey(event, Boolean(editing), nudgeSelected);
           }}
           panOnDrag={activeTool === "hand" ? true : [1, 2]}
+          panOnScroll={spacePressed && activeTool === "hand"}
           selectionOnDrag={activeTool === "select"}
           elementsSelectable={activeTool === "select"}
           nodesDraggable={!eraser && !editing && activeTool === "select"}
           nodesConnectable={!eraser && activeTool === "select"}
+          edgesReconnectable={!eraser && !editing && activeTool === "select"}
           onInit={(instance) => {
             flowRef.current = instance;
+            void instance.setViewport(viewportRef.current);
           }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onReconnect={onReconnect}
           onNodeClick={(event, node) => {
             if (!eraser) return;
             event.preventDefault();
@@ -2385,7 +2541,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               ...({ "--zmd-edit-zoom": zoom } as CSSProperties),
               borderWidth:
                 editingNode.type === "note"
-                  ? (editingNode.data.model.style?.strokeWidth ?? 1) * zoom
+                  ? (editingNode.data.model.style?.strokeWidth ??
+                      editingSurfaceDefaults?.strokeWidth ??
+                      1) * zoom
                   : undefined,
               left: editingScreen.x,
               top: editingScreen.y,
@@ -2396,8 +2554,9 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               borderRadius:
                 editingNode.type === "ellipse"
                   ? 999
-                  : (editingNode.data.model.style?.radius ?? 8) *
-                    (viewportRef.current.zoom || 1),
+                  : (editingNode.data.model.style?.radius ??
+                      editingSurfaceDefaults?.radius ??
+                      8) * (viewportRef.current.zoom || 1),
               ...verticalAlignmentStyle(editingTextStyle),
             }}
           >
@@ -2409,7 +2568,16 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 }
               }}
               autoFocus
-              aria-label={labels.editText}
+              aria-label={
+                editingNode.type === "note"
+                  ? labels.editNoteBody
+                  : labels.editText
+              }
+              placeholder={
+                editingNode.data.model.kind === "note"
+                  ? noteTypePrompt(labels, getNoteType(editingNode.data.model))
+                  : undefined
+              }
               className="zmd-board-in-shape-edit"
               value={editing.value}
               style={{
@@ -2506,10 +2674,19 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               </>
             ) : (
               <>
-                <button type="button" onClick={() => exportAs("png")}>
-                  <IconExport />
-                  <span>{labels.exportPng}</span>
-                </button>
+                {([1, 2, 4] as const).map((scale) => (
+                  <button
+                    key={scale}
+                    type="button"
+                    disabled={exportStatus === "busy"}
+                    onClick={() => exportAs("png", scale)}
+                  >
+                    <IconExport />
+                    <span>
+                      {labels.exportPng} · {scale}×
+                    </span>
+                  </button>
+                ))}
                 <button type="button" onClick={() => exportAs("svg")}>
                   <IconExport />
                   <span>{labels.exportSvg}</span>
@@ -2546,6 +2723,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         ) : null}
         {styleNode && styleScreen ? (
           <StyleBar
+            key={styleNode.id}
             node={styleNode}
             labels={labels}
             theme={theme}

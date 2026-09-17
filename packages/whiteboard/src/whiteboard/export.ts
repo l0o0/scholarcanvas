@@ -1,12 +1,40 @@
+import { getBezierPath, Position } from "@xyflow/react";
 import {
   canvasNodeSurfaceDefaults,
+  getNoteType,
   effectiveCanvasNodeTextStyle,
   type CanvasNode,
 } from "../model/academic";
 import type { CanvasNodeStyle } from "../model/core";
 import type { CanvasDocument } from "../model/document";
+import { isConnectionSide } from "../model/connection";
 
-function boundsOf(nodes: CanvasNode[]) {
+function connectionEndpoint(
+  node: CanvasNode,
+  handle: string | null | undefined,
+  fallback: Position,
+) {
+  const position = isConnectionSide(handle) ? (handle as Position) : fallback;
+  return {
+    x:
+      node.position.x +
+      (position === Position.Left
+        ? 0
+        : position === Position.Right
+          ? node.width
+          : node.width / 2),
+    y:
+      node.position.y +
+      (position === Position.Top
+        ? 0
+        : position === Position.Bottom
+          ? node.height
+          : node.height / 2),
+    position,
+  };
+}
+
+export function boundsOf(nodes: CanvasNode[]) {
   if (!nodes.length) return { x: 0, y: 0, width: 800, height: 600 };
   const left = Math.min(...nodes.map((n) => n.position.x));
   const top = Math.min(...nodes.map((n) => n.position.y));
@@ -272,7 +300,10 @@ export function buildCanvasSvg(doc: CanvasDocument): string {
     const width = node.width;
     const height = node.height;
     const style = node.style ?? {};
-    const defaults = canvasNodeSurfaceDefaults(node.kind);
+    const defaults = canvasNodeSurfaceDefaults(
+      node.kind,
+      node.kind === "note" ? getNoteType(node) : undefined,
+    );
     const stroke = style.stroke || defaults.stroke;
     const fill = fillValue(style.fill || defaults.fill, style.fillStyle);
     const strokeWidth = style.strokeWidth ?? defaults.strokeWidth;
@@ -310,10 +341,20 @@ export function buildCanvasSvg(doc: CanvasDocument): string {
       const source = doc.nodes.find((n) => n.id === edge.source);
       const target = doc.nodes.find((n) => n.id === edge.target);
       if (!source || !target) return "";
-      const sx = source.position.x + source.width / 2;
-      const sy = source.position.y + source.height / 2;
-      const tx = target.position.x + target.width / 2;
-      const ty = target.position.y + target.height / 2;
+      const from = connectionEndpoint(
+        source,
+        edge.sourceHandle,
+        Position.Right,
+      );
+      const to = connectionEndpoint(target, edge.targetHandle, Position.Left);
+      const [path] = getBezierPath({
+        sourceX: from.x,
+        sourceY: from.y,
+        sourcePosition: from.position,
+        targetX: to.x,
+        targetY: to.y,
+        targetPosition: to.position,
+      });
       const color = edge.color || "#94a3b8";
       const marker =
         edge.arrow === false
@@ -323,7 +364,7 @@ export function buildCanvasSvg(doc: CanvasDocument): string {
         edge.kind === "academic"
           ? attribute("data-relation", edge.relation)
           : "";
-      return `<line${relation}${attribute("x1", sx)}${attribute("y1", sy)}${attribute("x2", tx)}${attribute("y2", ty)}${attribute("stroke", color)} stroke-width="1.5"${attribute("stroke-dasharray", edge.dashed ? "6 4" : undefined)}${marker}/>`;
+      return `<path${relation}${attribute("d", path)} fill="none"${attribute("stroke", color)} stroke-width="1.5"${attribute("stroke-dasharray", edge.dashed ? "6 4" : undefined)}${marker}/>`;
     })
     .filter(Boolean)
     .join("\n");

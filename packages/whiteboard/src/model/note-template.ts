@@ -1,9 +1,16 @@
-import { createAcademicNode, type NoteNode } from "./academic";
+import {
+  createAcademicNode,
+  getNoteType,
+  getNoteTitle,
+  isNoteType,
+  type NoteType,
+  type NoteNode,
+} from "./academic";
 import type { CanvasNodeStyle, CanvasPoint } from "./core";
 
 export const NOTE_TEMPLATE_LIMITS = {
   name: 64,
-  badge: 16,
+  badge: 64,
   content: 20_000,
   minWidth: 120,
   maxWidth: 1_200,
@@ -15,11 +22,14 @@ export const BUILTIN_NOTE_TEMPLATE_IDS = {
   note: "bamboo.note",
   question: "bamboo.question",
   claim: "bamboo.claim",
+  evidence: "bamboo.evidence",
+  summary: "bamboo.summary",
 } as const;
 
 export interface NoteTemplate {
   id: string;
   name: string;
+  noteType?: NoteType;
   badge?: string;
   initialContent?: string;
   style: CanvasNodeStyle;
@@ -32,6 +42,8 @@ export interface BuiltinNoteTemplateLabels {
   note: string;
   question: string;
   claim: string;
+  evidence: string;
+  summary: string;
 }
 
 const BUILTIN_TIMESTAMP = "1970-01-01T00:00:00.000Z";
@@ -39,47 +51,25 @@ const BUILTIN_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 export function createBuiltinNoteTemplates(
   labels: BuiltinNoteTemplateLabels,
 ): NoteTemplate[] {
-  return [
-    {
-      id: BUILTIN_NOTE_TEMPLATE_IDS.note,
-      name: labels.note,
+  return (Object.keys(BUILTIN_NOTE_TEMPLATE_IDS) as NoteType[]).map(
+    (noteType, index) => ({
+      id: BUILTIN_NOTE_TEMPLATE_IDS[noteType],
+      name: labels[noteType],
+      noteType,
       style: {},
       defaultSize: { width: 260, height: 152 },
-      sortOrder: 0,
+      sortOrder: index,
       updatedAt: BUILTIN_TIMESTAMP,
-    },
-    {
-      id: BUILTIN_NOTE_TEMPLATE_IDS.question,
-      name: labels.question,
-      badge: labels.question,
-      style: {
-        stroke: "#7d9589",
-        strokeWidth: 1,
-      },
-      defaultSize: { width: 260, height: 128 },
-      sortOrder: 1,
-      updatedAt: BUILTIN_TIMESTAMP,
-    },
-    {
-      id: BUILTIN_NOTE_TEMPLATE_IDS.claim,
-      name: labels.claim,
-      badge: labels.claim,
-      style: {
-        stroke: "#858b96",
-        strokeWidth: 1,
-        fontWeight: "bold",
-      },
-      defaultSize: { width: 260, height: 128 },
-      sortOrder: 2,
-      updatedAt: BUILTIN_TIMESTAMP,
-    },
-  ];
+    }),
+  );
 }
 
 export const BUILTIN_NOTE_TEMPLATES = createBuiltinNoteTemplates({
   note: "Note",
   question: "Question",
-  claim: "Claim",
+  claim: "Viewpoint",
+  evidence: "Evidence",
+  summary: "Summary",
 });
 
 export function parseNoteTemplate(value: unknown): NoteTemplate | undefined {
@@ -102,7 +92,12 @@ export function parseNoteTemplate(value: unknown): NoteTemplate | undefined {
     "initialContent",
     NOTE_TEMPLATE_LIMITS.content,
   );
-  if (badge === INVALID || initialContent === INVALID) return undefined;
+  if (
+    badge === INVALID ||
+    initialContent === INVALID ||
+    (hasOwn(value, "noteType") && !isNoteType(value.noteType))
+  )
+    return undefined;
   const defaultSize = hasOwn(value, "defaultSize")
     ? parseDefaultSize(value.defaultSize)
     : undefined;
@@ -117,6 +112,7 @@ export function parseNoteTemplate(value: unknown): NoteTemplate | undefined {
   return {
     id,
     name,
+    ...(isNoteType(value.noteType) ? { noteType: value.noteType } : {}),
     ...(badge !== undefined ? { badge } : {}),
     ...(initialContent !== undefined ? { initialContent } : {}),
     style: parseTemplateStyle(value.style),
@@ -152,6 +148,7 @@ export function materializeNoteTemplate(
 ): NoteNode {
   return createAcademicNode("note", position, id, {
     content: template.initialContent ?? "",
+    ...(template.noteType ? { noteType: template.noteType } : {}),
     ...(template.badge !== undefined ? { badge: template.badge } : {}),
     style: { ...template.style },
     width: template.defaultSize?.width ?? 260,
@@ -166,10 +163,22 @@ export function applyNoteTemplate(
   const { badge: _previousBadge, ...noteWithoutBadge } = note;
   return {
     ...noteWithoutBadge,
+    ...(template.noteType ? { noteType: template.noteType } : {}),
     width: template.defaultSize?.width ?? note.width,
     height: template.defaultSize?.height ?? note.height,
     style: { ...template.style },
     ...(template.badge !== undefined ? { badge: template.badge } : {}),
+  };
+}
+
+/** Type changes never replace written content or reset the user's layout/style. */
+export function changeNoteType(note: NoteNode, noteType: NoteType): NoteNode {
+  const { badge: _badge, ...rest } = note;
+  const title = getNoteTitle(note);
+  return {
+    ...rest,
+    noteType,
+    ...(title !== undefined ? { badge: title } : {}),
   };
 }
 
@@ -186,7 +195,8 @@ export function createCustomNoteTemplate(
   const template = parseNoteTemplate({
     id: options.id,
     name: options.name,
-    ...(note.badge !== undefined ? { badge: note.badge } : {}),
+    noteType: getNoteType(note),
+    ...(getNoteTitle(note) !== undefined ? { badge: getNoteTitle(note) } : {}),
     ...(options.includeContent ? { initialContent: note.content } : {}),
     style: { ...(note.style ?? {}) },
     defaultSize: { width: note.width, height: note.height },

@@ -11,7 +11,30 @@ function initLocale() {
     typeof Localization === "undefined"
       ? ztoolkit.getGlobal("Localization")
       : Localization;
-  const l10n = new LocalizationCtor([`${config.addonRef}-addon.ftl`], true);
+  const RegistryCtor =
+    typeof L10nRegistry === "undefined"
+      ? ztoolkit.getGlobal("L10nRegistry")
+      : L10nRegistry;
+  const FileSourceCtor =
+    typeof L10nFileSource === "undefined"
+      ? ztoolkit.getGlobal("L10nFileSource")
+      : L10nFileSource;
+  // Zotero's shared source can retain old Fluent files across addon reloads.
+  // A private registry gives this addon a fresh source on every startup.
+  const registry = new RegistryCtor();
+  registry.registerSources([
+    new FileSourceCtor(
+      config.addonRef,
+      "app",
+      ["en-US", "zh-CN"],
+      `${rootURI}locale/{locale}/`,
+    ),
+  ]);
+  const l10n = new LocalizationCtor(
+    [`${config.addonRef}-addon.ftl`],
+    true,
+    registry,
+  );
   addon.data.locale = {
     current: l10n,
   };

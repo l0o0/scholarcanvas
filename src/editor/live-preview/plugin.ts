@@ -122,6 +122,8 @@ class ImageWidget extends WidgetType {
     readonly alt: string,
     readonly source: string,
     readonly documentFrom: number,
+    readonly documentTo: number,
+    readonly width?: number,
     readonly dataUrl?: string,
     readonly error?: string,
   ) {
@@ -133,6 +135,8 @@ class ImageWidget extends WidgetType {
       this.alt === other.alt &&
       this.source === other.source &&
       this.documentFrom === other.documentFrom &&
+      this.documentTo === other.documentTo &&
+      this.width === other.width &&
       this.dataUrl === other.dataUrl &&
       this.error === other.error
     );
@@ -142,6 +146,7 @@ class ImageWidget extends WidgetType {
     const wrapper = document.createElement("span");
     wrapper.className = "zmd-lp-image";
     wrapper.dataset.zmdImageFrom = String(this.documentFrom);
+    wrapper.dataset.zmdImageTo = String(this.documentTo);
     const displaySource =
       this.dataUrl || (/^https?:\/\//i.test(this.source) ? this.source : "");
     // Re-request on every render while the asset is unresolved: `assets.ts`
@@ -157,6 +162,9 @@ class ImageWidget extends WidgetType {
       const image = document.createElement("img");
       image.src = displaySource;
       image.alt = this.alt;
+      image.tabIndex = 0;
+      image.draggable = false;
+      if (this.width) image.width = this.width;
       image.loading = "lazy";
       // Remote images load inside a chrome:// document; opt out of referrer
       // leakage for tracking-pixel style references.
@@ -918,7 +926,9 @@ function buildDecorations(
       const widget = new ImageWidget(
         image.alt,
         image.source,
-        base + image.from,
+        base + image.sourceFrom,
+        base + image.sourceTo,
+        image.width,
         resolved?.dataUrl,
         resolved?.error,
       );
@@ -989,7 +999,12 @@ function buildDecorations(
       } else if (r.kind === "code") {
         ranges.push(Decoration.mark({ class: "zmd-lp-code" }).range(from, to));
       } else if (r.kind === "link") {
-        ranges.push(Decoration.mark({ class: "zmd-lp-link" }).range(from, to));
+        ranges.push(
+          Decoration.mark({
+            class: "zmd-lp-link",
+            attributes: r.href ? { "data-zmd-link": r.href } : undefined,
+          }).range(from, to),
+        );
       }
     }
   }

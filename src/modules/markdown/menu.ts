@@ -4,6 +4,7 @@ import { createMarkdownAttachment, createMarkdownForSelection } from "./create";
 import { isMarkdownAttachment } from "./detect";
 import { openMarkdownAttachment } from "./open";
 import { resolveConfiguredShortcut } from "./shortcut";
+import { openMarkdownWindow } from "./window";
 
 const registeredMenuIDs: string[] = [];
 const itemMenuCleanups = new Map<Window, () => void>();
@@ -87,6 +88,20 @@ export function registerItemContextMenu(win: _ZoteroTypes.MainWindow) {
   openItem.setAttribute("class", "menuitem-iconic");
   openItem.style.listStyleImage = `url(${icon()})`;
 
+  const windowItem = doc.createXULElement("menuitem") as HTMLElement;
+  windowItem.id = `${addon.data.config.addonRef}-item-open-md-window`;
+  windowItem.setAttribute("label", getString("more-open-window"));
+  const onOpenWindow = () => {
+    const selected = win.ZoteroPane?.getSelectedItems?.() || [];
+    if (selected.length !== 1 || !isMarkdownAttachment(selected[0])) return;
+    void openMarkdownWindow(selected[0], { opener: win }).catch((error) => {
+      ztoolkit.log("Failed to open standalone Markdown window", error);
+      new ztoolkit.ProgressWindow(addon.data.config.addonName)
+        .createLine({ text: getString("error-open-window"), type: "fail" })
+        .show();
+    });
+  };
+
   const onCreate = () => void createMarkdownForSelection();
   const onOpen = () => void openSelectedMarkdown(win);
   const onShowing = () => {
@@ -95,12 +110,14 @@ export function registerItemContextMenu(win: _ZoteroTypes.MainWindow) {
     const isMarkdown = !!one && isMarkdownAttachment(one);
     createItem.hidden = !one || isMarkdown;
     openItem.hidden = !isMarkdown;
+    windowItem.hidden = !isMarkdown;
   };
 
   createItem.addEventListener("command", onCreate);
   openItem.addEventListener("command", onOpen);
+  windowItem.addEventListener("command", onOpenWindow);
   popup.addEventListener("popupshowing", onShowing);
-  popup.append(createItem, openItem);
+  popup.append(createItem, openItem, windowItem);
 
   itemMenuCleanups.set(win, () => {
     popup.removeEventListener("popupshowing", onShowing);
@@ -108,6 +125,8 @@ export function registerItemContextMenu(win: _ZoteroTypes.MainWindow) {
     openItem.removeEventListener("command", onOpen);
     createItem.remove();
     openItem.remove();
+    windowItem.removeEventListener("command", onOpenWindow);
+    windowItem.remove();
   });
 }
 

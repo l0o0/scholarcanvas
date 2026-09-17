@@ -2,10 +2,24 @@ import type { CSSProperties, ReactNode } from "react";
 import { Handle, Position } from "@xyflow/react";
 import {
   canvasNodeSurfaceDefaults,
+  canvasNodeUiSurfaceDefaults,
+  type NoteType,
   type CanvasNodeKind,
 } from "../model/academic";
 import type { CanvasNodeStyle } from "../model/core";
-import { IconItem, IconNote, IconQuote } from "../whiteboard/icons";
+import { IconItem, NoteTypeIcon, IconQuote } from "../whiteboard/icons";
+
+export function NodeHandles() {
+  return (
+    <>
+      {[Position.Right, Position.Left, Position.Top, Position.Bottom].map(
+        (side) => (
+          <Handle key={side} id={side} type="source" position={side} />
+        ),
+      )}
+    </>
+  );
+}
 
 export function nodeSurfaceFill(
   kind: CanvasNodeKind,
@@ -78,8 +92,8 @@ export function nodeContentAlignmentStyle(
       style.verticalAlign === "top"
         ? "flex-start"
         : style.verticalAlign === "bottom"
-          ? "flex-end"
-          : "center",
+          ? "safe flex-end"
+          : "safe center",
   };
 }
 
@@ -87,39 +101,79 @@ export function CardShell(props: {
   kind: CanvasNodeKind;
   kindLabel: string;
   badge?: string;
+  noteType?: NoteType;
   selected?: boolean;
   nodeStyle?: Partial<CanvasNodeStyle>;
   children: ReactNode;
   footer?: ReactNode;
 }) {
   const nodeStyle = props.nodeStyle ?? {};
+  const light =
+    props.noteType && props.noteType !== "note"
+      ? canvasNodeUiSurfaceDefaults("note", "light", props.noteType)
+      : undefined;
+  const dark =
+    props.noteType && props.noteType !== "note"
+      ? canvasNodeUiSurfaceDefaults("note", "dark", props.noteType)
+      : undefined;
+  const surfaceStyle = light
+    ? {
+        ...light,
+        fill: "var(--zmd-note-type-fill)",
+        stroke: "var(--zmd-note-type-stroke)",
+        ...nodeStyle,
+        strokeStyle:
+          nodeStyle.strokeStyle ??
+          (nodeStyle.dashed === undefined
+            ? light.strokeStyle
+            : nodeStyle.dashed
+              ? "dashed"
+              : "solid"),
+      }
+    : nodeStyle;
   return (
     <article
       className={`zmd-board-card is-${props.kind}${props.selected ? " is-selected" : ""}`}
-      style={nodeSurfaceStyle(props.kind, nodeStyle)}
+      data-note-type={props.noteType}
+      style={
+        {
+          ...(light && dark
+            ? {
+                "--zmd-note-fill-light": light.fill,
+                "--zmd-note-fill-dark": dark.fill,
+                "--zmd-note-stroke-light": light.stroke,
+                "--zmd-note-stroke-dark": dark.stroke,
+              }
+            : {}),
+          ...nodeSurfaceStyle(props.kind, surfaceStyle),
+          ...(nodeStyle.textColor
+            ? {
+                color: nodeStyle.textColor,
+                "--zmd-card-emphasis": nodeStyle.textColor,
+              }
+            : {}),
+        } as CSSProperties
+      }
     >
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Right} />
-      <Handle type="target" position={Position.Top} />
-      <Handle type="source" position={Position.Bottom} />
+      <NodeHandles />
       <header className="zmd-board-card-header" title={props.kindLabel}>
         {props.kind === "literature" ? (
           <IconItem />
         ) : props.kind === "quote" ? (
           <IconQuote />
         ) : props.kind === "note" ? (
-          <IconNote />
+          <NoteTypeIcon type={props.noteType ?? "note"} />
         ) : null}
-        <span
-          className={
-            props.badge ? "zmd-board-note-badge" : "zmd-board-card-kind"
-          }
-        >
-          {props.badge || props.kindLabel}
-        </span>
+        <span className="zmd-board-card-kind">{props.kindLabel}</span>
+        {props.badge ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="zmd-board-note-badge">{props.badge}</span>
+          </>
+        ) : null}
       </header>
       <div
-        className="zmd-board-card-body"
+        className="zmd-board-card-body nowheel"
         style={nodeContentAlignmentStyle(nodeStyle)}
       >
         {props.children}

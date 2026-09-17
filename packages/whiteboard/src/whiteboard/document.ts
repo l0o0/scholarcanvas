@@ -1,4 +1,10 @@
-import { MarkerType, type Edge, type Viewport } from "@xyflow/react";
+import {
+  applyNodeChanges,
+  MarkerType,
+  type NodeChange,
+  type Edge,
+  type Viewport,
+} from "@xyflow/react";
 import type { CSSProperties } from "react";
 import {
   effectiveCanvasNodeTextStyle,
@@ -96,8 +102,9 @@ export function canvasDocumentToFlow(
         id: connection.id,
         source: connection.source,
         target: connection.target,
-        sourceHandle: connection.sourceHandle ?? undefined,
-        targetHandle: connection.targetHandle ?? undefined,
+        // Older documents used unnamed right-to-left handles.
+        sourceHandle: connection.sourceHandle ?? "right",
+        targetHandle: connection.targetHandle ?? "left",
         label: connection.label,
         data: { connection },
         style: {
@@ -427,4 +434,26 @@ function updateCanvasNodeText(model: CanvasNode, text: string): CanvasNode {
     default:
       return { ...model, data: { ...model.data, title: text } };
   }
+}
+
+/** Keep the explicit CSS size in step with React Flow's resize measurements. */
+export function applyCanvasNodeChanges(
+  changes: NodeChange<CanvasFlowNode>[],
+  nodes: CanvasFlowNode[],
+): CanvasFlowNode[] {
+  const resized = new Set(
+    changes.flatMap((change) =>
+      change.type === "dimensions" && change.setAttributes && change.dimensions
+        ? [change.id]
+        : [],
+    ),
+  );
+  return applyNodeChanges(changes, nodes).map((node) =>
+    resized.has(node.id)
+      ? {
+          ...node,
+          style: { ...node.style, width: node.width, height: node.height },
+        }
+      : node,
+  );
 }

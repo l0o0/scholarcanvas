@@ -5,8 +5,9 @@ import {
 
 export function resolveMarkdownCollectionID(
   pane: ZoteroPaneSelectionLike | null | undefined,
-  explicitCollectionID?: number,
+  explicitCollectionID?: number | null,
 ): number | undefined {
+  if (explicitCollectionID === null) return undefined;
   if (explicitCollectionID != null) return explicitCollectionID;
 
   const collectionID = getSelectedCollections(pane, true)[0];

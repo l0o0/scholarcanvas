@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { CanvasNodeKind } from "../model/academic";
+import type { CanvasNodeKind, NoteType } from "../model/academic";
 import type { WhiteboardLabels } from "../model/protocol";
 
 const WhiteboardLabelsContext = createContext<WhiteboardLabels | null>(null);
@@ -55,4 +55,30 @@ export function nodeKindLabel(
     case "frame":
       return labels.kindFrame;
   }
+}
+
+export function noteTypeLabel(
+  labels: WhiteboardLabels,
+  type: NoteType,
+): string {
+  return {
+    note: labels.addNote,
+    question: labels.addQuestion,
+    claim: labels.addClaim,
+    evidence: labels.addEvidence,
+    summary: labels.addSummary,
+  }[type];
+}
+
+export function noteTypePrompt(
+  labels: WhiteboardLabels,
+  type: NoteType,
+): string {
+  return {
+    note: labels.notePrompt,
+    question: labels.questionPrompt,
+    claim: labels.claimPrompt,
+    evidence: labels.evidencePrompt,
+    summary: labels.summaryPrompt,
+  }[type];
 }

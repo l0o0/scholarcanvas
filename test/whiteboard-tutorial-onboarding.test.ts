@@ -12,9 +12,9 @@ import {
 } from "../src/modules/whiteboard/tutorial.ts";
 
 const labels: TutorialCanvasLabels = {
-  title: "Bamboo Tutorial.canvas",
+  title: "Scholar Canvas Tutorial.canvas",
   welcome: "Welcome",
-  welcomeBody: "Learn Bamboo",
+  welcomeBody: "Learn Scholar Canvas",
   sourceNotice: "Your sources stay unchanged",
   addLiterature: "Add literature",
   addLiteratureBody: "Drag an item here",
@@ -23,12 +23,34 @@ const labels: TutorialCanvasLabels = {
   writeNote: "Write a note",
   writeNoteBody: "Develop a thought",
   questionBadge: "Question",
-  claimBadge: "Claim",
+  claimBadge: "Viewpoint",
   organize: "Organize",
   organizeBody: "Group related ideas",
   practice: "Practice",
   practiceBody: "Try it here",
   supports: "Supports",
+  exampleSource: "Your first source",
+  exampleSourceBody:
+    "Drag a paper from your library here. Its title and source stay together, so you can always return to the original.",
+  exampleQuote: "Make room for evidence",
+  exampleQuoteBody:
+    "Add an excerpt that matters to your question. Keep the original words, then write your interpretation in a separate note. Connect the two to make your reasoning visible.",
+  imageTitle: "Images & PDF snapshots",
+  imageBody: "Keep a visual beside your ideas.",
+  attachmentTitle: "Reading notes.md",
+  attachmentBody: "Right-click to open the Markdown attachment.",
+  attachmentContent:
+    "## Reading notes\n\n- Collect evidence\n- Ask a question\n- Write a viewpoint",
+  colorNote: "Capture a reading note.",
+  colorEvidence: "Keep a useful passage and its source.",
+  colorSummary: "Bring together agreements and differences.",
+  organizeAction: "Arrange and personalize",
+  colorQuestion: "What remains uncertain?",
+  colorClaim: "Connect evidence to your own interpretation.",
+  colorBody: "Select a card to change its fill, border, and text colors.",
+  share: "Share your thinking",
+  shareBody:
+    "Right-click the canvas to export PNG. Choose 2× or 4× for a crisp image of the whole board.",
 };
 
 const attachment = { id: 7 } as Zotero.Item;

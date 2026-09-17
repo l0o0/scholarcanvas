@@ -88,6 +88,28 @@ test("hardens rendered links and remote images", () => {
   assert.match(local, /referrerpolicy="no-referrer"/);
 });
 
+test("renders wiki links as inert, resolvable spans outside code", () => {
+  const html = renderMarkdown(
+    "[[Document|Alias]] `[[code]]`\n\n```\n[[fence]]\n```",
+  );
+  assert.match(html, /class="zmd-wikilink zmd-unresolved-link"/);
+  assert.match(html, /data-zmd-wikilink="Document"/);
+  assert.match(html, />Alias<\/span>/);
+  assert.doesNotMatch(html, /data-zmd-wikilink="code"/);
+  assert.doesNotMatch(html, /data-zmd-wikilink="fence"/);
+});
+
+test("renders only exact Zotero select links as anchors", () => {
+  assert.match(
+    renderMarkdown("[Document](zotero://select/library/items/AB12CD34)"),
+    /<a href="zotero:\/\/select\/library\/items\/AB12CD34"/,
+  );
+  assert.doesNotMatch(
+    renderMarkdown("[bad](zotero://select/library/items/AB12CD34/extra)"),
+    /<a /,
+  );
+});
+
 test("highlights supported fenced code in preview and export", () => {
   const source = "```js\nconst answer = 42;\n```";
   const html = renderMarkdown(source);
@@ -155,4 +177,46 @@ test("the shared surface tracks and cleans up preview scrolling", () => {
   assert.match(source, /rect\.top \+ rect\.height \* 0\.5/);
   assert.match(source, /unbindPreviewOutline/);
   assert.match(source, /cancelAnimationFrame/);
+});
+
+test("sized image previews and exports share dimensions and embedded assets", () => {
+  const source =
+    '<img src="assets/a &amp; b.png" alt="A &quot;quote&quot;" width="480">';
+  const result = buildStandaloneDocument({
+    source,
+    assets: { "assets/a & b.png": { dataUrl: "data:image/png;base64,abc" } },
+  });
+  assert.match(result.bodyHtml, /width="480"/);
+  assert.match(result.bodyHtml, /src="data:image\/png;base64,abc"/);
+  assert.match(result.bodyHtml, /alt="A &quot;quote&quot;"/);
+  assert.match(result.standaloneHtml, /height: auto/);
+});
+
+test("only safe image attributes render while arbitrary HTML and code remain inert", () => {
+  const html = renderMarkdown(
+    '<img src="https://example.com/a.png" width="320" onerror="alert(1)" style="position:fixed" alt="safe">\n\n<script>alert(2)</script>\n\n`<img src="assets/code.png" width="100">`',
+  );
+  assert.match(
+    html,
+    /<img src="https:\/\/example.com\/a.png" alt="safe" width="320" referrerpolicy="no-referrer">/,
+  );
+  assert.doesNotMatch(html, /<img[^>]*(?:onerror|style)=/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<img src="assets\/code.png"/);
+  for (const src of [
+    "javascript:alert(1)",
+    "jav&#97;script:alert(1)",
+    "%6aavascript:alert(1)",
+    "data:text/html,x",
+    "file:///tmp/a.png",
+  ]) {
+    assert.doesNotMatch(
+      renderMarkdown(`<img src="${src}" width="320">`),
+      /<img /,
+    );
+  }
+  assert.doesNotMatch(
+    renderMarkdown('<img src="assets/a.png" width="-20">'),
+    /width=/,
+  );
 });

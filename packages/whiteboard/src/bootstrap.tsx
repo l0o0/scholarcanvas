@@ -162,7 +162,7 @@ function boot() {
     <WhiteboardApp
       theme={theme}
       labels={deferredLabels.current}
-      initialSnapshot={pendingSnapshot ?? undefined}
+      initialSnapshot={pendingSnapshot ?? emptyCanvasDocument()}
       onReady={(next) => {
         runtime = next;
         deferredLabels.attach(next);
@@ -175,6 +175,7 @@ function boot() {
         postToParent({ type: "change", payload: { rev } });
       }}
       onSave={() => postToParent({ type: "save" })}
+      onSwitchWindow={() => postToParent({ type: "switchWindow" })}
       onSaveNoteTemplate={(template) =>
         postToParent({ type: "saveNoteTemplate", payload: { template } })
       }

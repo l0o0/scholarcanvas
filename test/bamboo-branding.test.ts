@@ -4,11 +4,11 @@ import test from "node:test";
 
 const read = (path: string) => readFile(path, "utf8");
 
-test("uses Bamboo as the sole plugin identity", async () => {
+test("uses Scholar Canvas branding with stable Bamboo compatibility identifiers", async () => {
   const pkg = JSON.parse(await read("package.json"));
 
   assert.equal(pkg.name, "bamboo");
-  assert.equal(pkg.config.addonName, "Bamboo 竹子");
+  assert.equal(pkg.config.addonName, "Scholar Canvas");
   assert.equal(pkg.config.addonID, "bamboo@@linxzh.com");
   assert.equal(pkg.config.addonRef, "bamboo");
   assert.equal(pkg.config.addonInstance, "Bamboo");
@@ -31,6 +31,7 @@ test("uses the packaged 20px SVG favicon for all plugin chrome icons", async () 
   const manifest = JSON.parse(manifestText);
   const combined = [manifestText, ...sources].join("\n");
 
+  assert.equal(manifest.name, "__addonName__ — Markdown & Whiteboard");
   assert.equal(manifest.icons["48"], "content/icons/favicon.svg");
   assert.equal(manifest.icons["96"], "content/icons/favicon.svg");
   assert.match(combined, /favicon\.svg/);
@@ -98,14 +99,14 @@ test("documents Bamboo repository and public API", async () => {
   assert.doesNotMatch(combined, /Zotero\.ZoteroMarkdown/);
 });
 
-test("current architecture docs use the Bamboo product namespace", async () => {
+test("current architecture docs describe Scholar Canvas with the stable chrome namespace", async () => {
   const docs = await Promise.all([
     read("docs/architecture.md"),
     read("docs/editor/codemirror-iframe-plan.md"),
   ]);
   const combined = docs.join("\n");
 
-  assert.match(combined, /Bamboo/);
+  assert.match(combined, /Scholar Canvas/);
   assert.doesNotMatch(combined, /chrome:\/\/zoteromarkdown/);
   assert.doesNotMatch(combined, /content\/scripts\/zoteromarkdown\.js/);
 });

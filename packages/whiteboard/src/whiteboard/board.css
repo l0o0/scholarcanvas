@@ -1,4 +1,11 @@
 .zmd-board-host {
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
   --zmd-card-padding-x: 14px;
   --zmd-card-padding-y: 12px;
   --zmd-card-header-height: 14px;
@@ -40,20 +47,35 @@
   background: var(--zmd-board-surface, #fff);
 }
 
-/* Keep handle geometry and hit areas available while hiding idle chrome. */
-.zmd-board-card .react-flow__handle {
+/* Expand the hit area without moving the endpoints or covering card content. */
+.zmd-board-host .react-flow__handle::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+}
+
+.zmd-board-host .react-flow__handle {
   opacity: 0;
 }
 
-.zmd-board-card:hover .react-flow__handle,
-.zmd-board-card.is-selected .react-flow__handle,
-.react-flow__node:focus-within .zmd-board-card .react-flow__handle,
-.react-flow:has(.react-flow__connection) .zmd-board-card .react-flow__handle {
+.zmd-board-host .react-flow__node:hover .react-flow__handle,
+.zmd-board-host .react-flow__node.selected .react-flow__handle,
+.zmd-board-host .react-flow__node:focus-within .react-flow__handle,
+.zmd-board-host .react-flow:has(.react-flow__connection) .react-flow__handle {
   opacity: 1;
 }
 
+.zmd-board-host .react-flow__handle:hover,
+.zmd-board-host .react-flow__handle.connectingfrom,
+.zmd-board-host .react-flow__handle.valid {
+  border-color: var(--zmd-board-accent, #2563eb);
+  background: var(--zmd-board-accent, #2563eb);
+  box-shadow: 0 0 0 4px var(--zmd-board-accent-soft, rgba(37, 99, 235, 0.12));
+}
+
 @media (hover: none) {
-  .zmd-board-card .react-flow__handle {
+  .zmd-board-host .react-flow__handle {
     opacity: 1;
   }
 }
@@ -61,9 +83,41 @@
 .zmd-board-host .react-flow__edge-path {
   stroke: var(--zmd-board-edge, #9ca3af);
   stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.zmd-board-host .react-flow__connection-path {
+  stroke: var(--zmd-board-accent, #2563eb);
+  stroke-width: 1.5;
+}
+
+.zmd-board-host .react-flow__edge-textbg {
+  fill: var(--zmd-board-bg, #fbfbfc);
+}
+
+.zmd-board-host .react-flow__edge-text {
+  fill: var(--zmd-board-text, #111827);
+}
+
+.zmd-board-host .react-flow__edge:hover .react-flow__edge-path,
+.zmd-board-host .react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 2.5;
+}
+
+.zmd-board-host .react-flow__edgeupdater {
+  opacity: 0;
+  fill: var(--zmd-board-surface, #fff);
+  stroke: var(--zmd-board-accent, #2563eb);
+  stroke-width: 1.5;
+}
+
+.zmd-board-host .react-flow__edge:hover .react-flow__edgeupdater,
+.zmd-board-host .react-flow__edge.selected .react-flow__edgeupdater {
+  opacity: 1;
 }
 
 .zmd-board-top-island,
+.zmd-board-side-island,
 .zmd-board-properties {
   position: absolute;
   z-index: 5;
@@ -72,7 +126,8 @@
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
 }
 
-.zmd-board-top-island button {
+.zmd-board-top-island button,
+.zmd-board-side-island button {
   appearance: none;
   display: inline-flex;
   align-items: center;
@@ -88,23 +143,28 @@
 }
 
 .zmd-board-top-island button:hover,
+.zmd-board-side-island button:hover,
 .zmd-board-properties-actions button:hover {
   background: var(--zmd-board-hover, #f3f4f6);
 }
 
-.zmd-board-top-island button.is-active {
+.zmd-board-top-island button.is-active,
+.zmd-board-side-island button.is-active {
   background: var(--zmd-board-accent-soft, rgba(37, 99, 235, 0.12));
   color: var(--zmd-board-accent, #2563eb);
 }
 
 .zmd-board-top-island {
-  left: 50%;
+  left: 80px;
+  right: 16px;
   top: 16px;
-  transform: translateX(-50%);
+  margin-inline: auto;
+  width: max-content;
+  box-sizing: border-box;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  max-width: calc(100% - 36px);
+  max-width: calc(100% - 96px);
   gap: 2px;
   padding: 4px 6px;
   border-radius: 12px;
@@ -112,6 +172,7 @@
 }
 
 .zmd-board-top-group {
+  flex: 0 0 auto;
   display: flex;
   gap: 2px;
 }
@@ -120,6 +181,52 @@
   margin-left: 4px;
   padding-left: 8px;
   border-left: 1px solid var(--zmd-board-border, #e5e7eb);
+}
+
+.zmd-board-side-island {
+  left: 16px;
+  top: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  width: 36px;
+  max-height: calc(100% - 100px);
+  overflow-y: auto;
+  border-radius: 12px;
+  scrollbar-width: thin;
+}
+
+.zmd-board-side-island > button {
+  flex: 0 0 36px;
+}
+
+.zmd-board-side-island .zmd-board-top-group {
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.zmd-board-side-island .zmd-board-toolbar-sep {
+  width: 24px;
+  height: 1px;
+  min-height: 1px;
+  margin: 4px 0;
+}
+
+.zmd-board-side-island .zmd-board-save-state {
+  max-width: 36px;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zmd-board-toolbars button:focus-visible {
+  outline: 2px solid var(--zmd-board-accent, #2563eb);
+  outline-offset: 1px;
 }
 
 .zmd-board-notice {
@@ -180,6 +287,7 @@
   right: 16px;
   top: 72px;
   width: 220px;
+  color: var(--zmd-board-text, #111827);
   padding: 12px;
   border-radius: 12px;
 }
@@ -460,6 +568,17 @@
   cursor: grab;
 }
 
+.zmd-board-host.is-hand .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
+/* Let panning start over cards, connections and their nested controls. */
+.zmd-board-host.is-hand .react-flow__viewport,
+.zmd-board-host.is-hand .react-flow__viewport *,
+.zmd-board-host.is-hand .react-flow__nodesselection-rect {
+  pointer-events: none !important;
+}
+
 .zmd-board-host.is-draw .react-flow__pane {
   cursor: crosshair;
 }
@@ -718,11 +837,13 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
-.zmd-board-card.is-literature .zmd-board-card-body > *,
-.zmd-board-card.is-quote .zmd-board-card-body > * {
+.zmd-board-card-body > * {
   flex-shrink: 0;
   min-width: 0;
 }
@@ -774,10 +895,6 @@
 .zmd-board-card.is-quote .zmd-board-card-content {
   padding-inline-start: 10px;
   border-inline-start: 2px solid var(--zmd-board-border, #b8bdc5);
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
 }
 
 .zmd-board-card-comment,
@@ -786,13 +903,9 @@
 }
 
 .zmd-board-card-comment {
-  display: -webkit-box;
-  overflow: hidden;
   min-width: 0;
   overflow-wrap: anywhere;
   font-style: italic;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
 }
 
 .zmd-board-card-count {
@@ -1087,6 +1200,7 @@
 }
 
 .zmd-board-style-group input {
+  box-sizing: border-box;
   width: 56px;
   padding: 0 6px;
 }
@@ -1096,12 +1210,14 @@
 }
 
 .zmd-board-style-group > button.is-active,
-.zmd-board-style-bar > button.is-active {
+.zmd-board-style-bar > button.is-active,
+.zmd-board-flyout > button.is-active {
   border-color: var(--zmd-board-accent, #2563eb);
   color: var(--zmd-board-accent, #2563eb);
 }
 
-.zmd-board-style-bar > button {
+.zmd-board-style-bar > button,
+.zmd-board-flyout > button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1132,6 +1248,237 @@
   box-shadow:
     0 0 0 2px #fff,
     0 0 0 4px var(--zmd-board-accent, #2563eb);
+}
+
+/* Popovers must not participate in the style toolbar's flex layout. */
+.zmd-board-flyout {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.zmd-board-popover {
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 8px);
+  left: 0;
+  box-sizing: border-box;
+  width: 252px;
+  padding: 12px;
+  border: 1px solid var(--zmd-board-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--zmd-board-surface, #fff);
+  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.12);
+  color: var(--zmd-board-text, #111827);
+}
+
+.zmd-board-popover.is-mini {
+  display: flex;
+  gap: 4px;
+  width: max-content;
+  padding: 6px;
+}
+
+.zmd-board-popover.is-align {
+  width: 164px;
+}
+
+.zmd-board-popover button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--zmd-board-border, #e5e7eb);
+  border-radius: 5px;
+  background: var(--zmd-board-surface, #fff);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.zmd-board-popover button:hover {
+  background: var(--zmd-board-hover, #f3f4f6);
+}
+
+.zmd-board-popover button.is-active {
+  border-color: var(--zmd-board-accent, #2563eb);
+}
+
+.zmd-board-popover button:focus-visible,
+.zmd-board-flyout > button:focus-visible {
+  outline: 2px solid var(--zmd-board-accent, #2563eb);
+  outline-offset: 2px;
+}
+
+.zmd-board-popover svg {
+  width: 16px;
+  height: 16px;
+}
+
+.zmd-board-color-swatch {
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1px solid var(--zmd-board-border, #e5e7eb);
+  border-radius: 3px;
+}
+
+.zmd-board-color-swatch.is-transparent,
+.zmd-board-swatches button.is-transparent {
+  background-image: conic-gradient(
+    var(--zmd-board-border, #e5e7eb) 25%,
+    transparent 0 50%,
+    var(--zmd-board-border, #e5e7eb) 0 75%,
+    transparent 0
+  );
+  background-size: 8px 8px;
+}
+
+.zmd-board-color-picker {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.zmd-board-color-picker > * {
+  min-width: 0;
+}
+
+.zmd-board-color-picker header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.zmd-board-color-picker header button {
+  font-size: 18px;
+}
+
+.zmd-board-swatches.is-palette {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  padding: 3px;
+}
+
+.zmd-board-swatches.is-palette button {
+  width: 100%;
+  height: 28px;
+  min-width: 0;
+  padding: 0;
+}
+
+.zmd-board-color-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.zmd-board-color-actions button {
+  flex: 1;
+  min-height: 30px;
+}
+
+.zmd-board-custom-color {
+  border-top: 1px solid var(--zmd-board-border, #e5e7eb);
+  padding-top: 8px;
+}
+
+.zmd-board-custom-color summary {
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.zmd-board-custom-color summary:focus-visible {
+  outline: 2px solid var(--zmd-board-accent, #2563eb);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.zmd-board-custom-color-body {
+  display: grid;
+  gap: 12px;
+  padding: 12px 0 2px;
+}
+
+.zmd-board-custom-color .react-colorful {
+  width: 100%;
+  height: 144px;
+}
+
+.zmd-board-custom-color .react-colorful__saturation {
+  border-radius: 5px 5px 0 0;
+}
+
+.zmd-board-custom-color .react-colorful__hue {
+  height: 16px;
+  border-radius: 0 0 5px 5px;
+}
+
+.zmd-board-custom-color .react-colorful__pointer {
+  width: 16px;
+  height: 16px;
+}
+
+.zmd-board-color-opacity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.zmd-board-color-opacity input {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  accent-color: var(--zmd-board-accent, #2563eb);
+}
+
+.zmd-board-color-opacity output {
+  min-width: 4ch;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.zmd-board-popover.is-align p {
+  margin: 0;
+  color: var(--zmd-board-muted, #6b7280);
+  font-size: 11px;
+}
+
+.zmd-board-color-hex {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zmd-board-color-hex input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--zmd-board-border, #e5e7eb);
+  border-radius: 5px;
+  background: var(--zmd-board-surface, #fff);
+  color: inherit;
+  font: inherit;
+}
+
+.zmd-board-align-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.zmd-board-popover.is-align .zmd-board-align-row + p {
+  margin-top: 10px;
+}
+
+.zmd-board-align-row button {
+  flex: 1;
 }
 
 .zmd-board-help-backdrop {
@@ -1432,10 +1779,31 @@ html[data-theme="dark"] .zmd-board-pdf-page,
 @media (max-width: 640px) {
   .zmd-board-top-island {
     top: 8px;
-    width: calc(100% - 16px);
-    max-width: none;
-    flex-wrap: wrap;
-    justify-content: center;
+    left: 8px;
+    right: 8px;
+    max-width: calc(100% - 16px);
+    flex-wrap: nowrap;
+  }
+
+  .zmd-board-top-island button {
+    width: 32px;
+    height: 32px;
+  }
+
+  .zmd-board-top-island .zmd-board-template-trigger {
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+  }
+
+  .zmd-board-template-trigger > span {
+    display: none;
+  }
+
+  .zmd-board-side-island {
+    left: 8px;
+    top: 56px;
+    max-height: calc(100% - 80px);
   }
 
   .zmd-board-top-group {
@@ -1451,11 +1819,138 @@ html[data-theme="dark"] .zmd-board-pdf-page,
   }
 
   .zmd-board-properties {
-    top: 138px;
-    left: 8px;
+    top: 64px;
+    left: 64px;
     right: 8px;
     width: auto;
-    max-height: calc(100% - 146px);
+    max-height: calc(100% - 72px);
     overflow-y: auto;
+  }
+}
+
+/* Export content without the editor's transient selection/hover affordances. */
+.zmd-board-host[data-exporting] .is-selected,
+.zmd-board-host[data-exporting] .selected {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.zmd-board-host[data-exporting] .zmd-board-card {
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04) !important;
+}
+
+.zmd-board-host[data-exporting] .react-flow__edge-path {
+  stroke-width: 1.5 !important;
+}
+
+.zmd-board-attachment-preview {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Frames let pointer events through their interior, but resizing stays interactive. */
+.zmd-board-host .react-flow__resize-control {
+  pointer-events: auto;
+}
+
+.zmd-board-host .zmd-board-resize-handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid var(--zmd-board-accent, #2563eb);
+  background: var(--zmd-board-surface, #fbfbfc);
+}
+
+.zmd-board-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+}
+
+.zmd-board-host[data-exporting] .zmd-board-frame.is-selected {
+  border-color: var(--zmd-board-node-stroke, var(--zmd-board-border, #d1d5db));
+}
+
+.zmd-board-note-prompt {
+  margin: 0 0 4px;
+  color: var(--zmd-board-muted, #6b7280);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.zmd-board-card-content.is-placeholder {
+  opacity: 0.65;
+}
+.zmd-board-card-header > .zmd-board-card-kind {
+  flex-shrink: 0;
+}
+.zmd-board-properties-head:has(+ .zmd-board-note-template-controls) {
+  padding-bottom: 12px;
+}
+.zmd-board-template-manager > label {
+  margin-block: 10px;
+}
+
+.zmd-board-top-island .zmd-board-template-menu button {
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  padding: 8px 10px;
+  text-align: start;
+  white-space: normal;
+}
+.zmd-board-template-menu {
+  left: auto;
+  right: 0;
+  width: 260px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+}
+.zmd-board-template-option {
+  display: grid;
+  gap: 4px;
+}
+.zmd-board-template-option small {
+  color: var(--zmd-board-muted, #6b7280);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.zmd-board-card[data-note-type] {
+  --zmd-note-type-fill: var(--zmd-note-fill-light);
+  --zmd-note-type-stroke: var(--zmd-note-stroke-light);
+  --zmd-card-emphasis: var(--zmd-board-text, #111827);
+}
+.zmd-board-host[data-theme="dark"] .zmd-board-card[data-note-type] {
+  --zmd-note-type-fill: var(--zmd-note-fill-dark);
+  --zmd-note-type-stroke: var(--zmd-note-stroke-dark);
+}
+.zmd-board-template-preview {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 32px;
+  border: 1px solid;
+  color: var(--zmd-board-text, #111827);
+  flex-shrink: 0;
+}
+.zmd-board-template-option {
+  flex: 1;
+}
+
+@media (max-width: 640px) {
+  .zmd-board-top-island .zmd-board-template {
+    position: static;
+  }
+
+  .zmd-board-top-island .zmd-board-template-menu {
+    box-sizing: border-box;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
   }
 }

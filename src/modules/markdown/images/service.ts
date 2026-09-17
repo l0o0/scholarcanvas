@@ -9,6 +9,7 @@ import {
   referencedAssets,
   replaceMarkdownRange,
   validateImageInput,
+  serializeImageReference,
 } from "./model";
 import type { ImageAssetMap } from "../editor-protocol";
 import { getString } from "../../../utils/locale";
@@ -271,7 +272,12 @@ export async function importExternalImages(
           next,
           image.from,
           image.to,
-          `![${image.alt}](${reference})`,
+          image.syntax === "html"
+            ? serializeImageReference(
+                { ...image, source: reference },
+                image.width,
+              )
+            : `![${image.alt}](${reference}${image.title ? ` "${image.title}"` : ""})`,
         );
         imported++;
       } finally {

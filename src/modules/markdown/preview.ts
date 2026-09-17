@@ -1,8 +1,9 @@
-import { normalizeAssetReference } from "./images/model";
+import { decodeImageAttribute, normalizeAssetReference } from "./images/model";
 import { getString } from "../../utils/locale";
 import type { EditorOutlineItem, ImageAssetMap } from "./editor-protocol";
 import { THEME_TOKENS, themeTokenCss } from "./theme-tokens";
 import { documentTitleCore, renderMarkdownCore } from "./preview-render-core";
+import { showImageViewer } from "./image-viewer";
 
 export interface ReadOnlyDocument {
   title: string;
@@ -49,7 +50,7 @@ export function applyAssetsToHtml(html: string, assets: ImageAssetMap): string {
   return html.replace(
     /(<img\b[^>]*\bsrc=")([^"]+)(")/gi,
     (full, prefix: string, src: string, suffix: string) => {
-      const reference = normalizeAssetReference(src);
+      const reference = normalizeAssetReference(decodeImageAttribute(src));
       const dataUrl = reference ? assets[reference]?.dataUrl : undefined;
       return dataUrl ? `${prefix}${dataUrl}${suffix}` : full;
     },
@@ -202,7 +203,7 @@ export function previewDocumentCss(): string {
 }
 .zotero-markdown-preview-inner img {
   max-width: 100%;
-  max-height: 70vh;
+  height: auto;
   object-fit: contain;
   border-radius: 8px;
 }
@@ -331,6 +332,29 @@ export function mountPreviewHtml(
 
   page.append(bar, article);
   host.appendChild(page);
+  for (const image of article.querySelectorAll("img")) {
+    image.tabIndex = 0;
+    image.title = getString("image-view-original");
+    image.style.cursor = "zoom-in";
+    const open = () =>
+      showImageViewer(image, page, {
+        original: getString("image-view-original"),
+        auto: getString("image-size-auto"),
+        close: getString("image-view-close"),
+      });
+    image.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      open();
+    });
+    image.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        open();
+      }
+    });
+  }
 }
 
 export function scrollPreviewToOutline(

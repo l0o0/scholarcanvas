@@ -11,11 +11,13 @@ import {
 } from "../packages/whiteboard/src/model/note-template.ts";
 import { createAcademicNode } from "../packages/whiteboard/src/model/academic.ts";
 
-test("built-in Question and Claim templates remain ordinary Notes", () => {
+test("five built-in card types remain Notes with a persistent role", () => {
   const templates = createBuiltinNoteTemplates({
     note: "笔记",
     question: "问题",
     claim: "观点",
+    evidence: "Evidence",
+    summary: "Summary",
   });
   assert.deepEqual(
     templates.map((template) => template.id),
@@ -23,6 +25,8 @@ test("built-in Question and Claim templates remain ordinary Notes", () => {
       BUILTIN_NOTE_TEMPLATE_IDS.note,
       BUILTIN_NOTE_TEMPLATE_IDS.question,
       BUILTIN_NOTE_TEMPLATE_IDS.claim,
+      BUILTIN_NOTE_TEMPLATE_IDS.evidence,
+      BUILTIN_NOTE_TEMPLATE_IDS.summary,
     ],
   );
 
@@ -32,7 +36,8 @@ test("built-in Question and Claim templates remain ordinary Notes", () => {
     "note-1",
   );
   assert.equal(question.kind, "note");
-  assert.equal(question.badge, "问题");
+  assert.equal(question.noteType, "question");
+  assert.equal(question.badge, undefined);
   assert.equal(question.content, "");
   assert.notEqual(question.style, templates[1]!.style);
   for (const template of templates) {
@@ -183,6 +188,7 @@ test("saving a Note captures only safe reusable values", () => {
   assert.deepEqual(template, {
     id: "custom-1",
     name: "Method",
+    noteType: "note",
     badge: "方法",
     initialContent: "Reusable prompt",
     style: { fill: "#f3f4f6", fontStyle: "italic" },

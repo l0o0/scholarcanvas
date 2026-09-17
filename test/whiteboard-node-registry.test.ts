@@ -232,7 +232,7 @@ test("quote omits the color indicator when its snapshot has no color", () => {
   assert.doesNotMatch(quote, /zmd-board-quote-color/);
 });
 
-test("academic card bodies clip long copy without clipping provenance", () => {
+test("card bodies scroll independently while provenance stays outside the scroller", () => {
   const cardRule = canvasCss.match(/\.zmd-board-card\s*\{([^}]*)\}/)?.[1];
   const bodyRule = canvasCss.match(/\.zmd-board-card-body\s*\{([^}]*)\}/)?.[1];
   const footerRule = canvasCss.match(
@@ -244,8 +244,14 @@ test("academic card bodies clip long copy without clipping provenance", () => {
   assert.match(bodyRule, /display:\s*flex/);
   assert.match(bodyRule, /flex-direction:\s*column/);
   assert.match(bodyRule, /min-height:\s*0/);
-  assert.match(bodyRule, /overflow:\s*hidden/);
+  assert.match(bodyRule, /overflow-y:\s*auto/);
+  assert.match(bodyRule, /overscroll-behavior:\s*contain/);
   assert.match(footerRule, /flex:\s*0 0 auto/);
+  for (const node of demoCanvasDocument().nodes.filter((node) =>
+    ["note", "quote", "literature"].includes(node.kind),
+  )) {
+    assert.match(renderNode(node), /class="zmd-board-card-body nowheel"/);
+  }
   for (const selector of [
     ".zmd-board-card-title",
     ".zmd-board-card-content",
@@ -312,7 +318,7 @@ test("academic source defaults reserve complete priority lines without bulk", ()
   assert.equal(demoQuote?.height, getNodeSpec("quote").defaultHeight);
 });
 
-test("academic card layout prevents fractional lines and wraps provenance", () => {
+test("academic card layout keeps full excerpts scrollable and wraps provenance", () => {
   const longToken = `doi:${"10.1234/long-provenance-token".repeat(10)}`;
   const markup = renderNode(
     createAcademicNode("quote", { x: 0, y: 0 }, "quote-long", {
@@ -342,7 +348,7 @@ test("academic card layout prevents fractional lines and wraps provenance", () =
   );
   assert.match(
     canvasCss,
-    /\.zmd-board-card\.is-literature \.zmd-board-card-body\s*>\s*\*,\s*\.zmd-board-card\.is-quote \.zmd-board-card-body\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/s,
+    /\.zmd-board-card-body\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/s,
   );
   assert.match(
     canvasCss,
@@ -352,9 +358,9 @@ test("academic card layout prevents fractional lines and wraps provenance", () =
     canvasCss,
     /\.zmd-board-card\.is-literature \.zmd-board-card-body \.zmd-board-card-meta\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*-webkit-line-clamp:\s*1/s,
   );
-  assert.match(
+  assert.doesNotMatch(
     canvasCss,
-    /\.zmd-board-card-comment\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*-webkit-line-clamp:\s*1/s,
+    /\.zmd-board-card(?:\.is-quote \.zmd-board-card-content|-comment)\s*\{[^}]*-webkit-line-clamp:/s,
   );
   assert.match(
     canvasCss,
@@ -368,8 +374,8 @@ test("renders local academic text as plain pre-wrapped content", () => {
     content: "**plain research**\nsecond line",
   });
   const markup = renderNode(model);
-  assert.match(markup, new RegExp(`title="${labels.kindNote}"`));
-  assert.match(markup, />Question</);
+  assert.match(markup, new RegExp(`title="${labels.addQuestion}"`));
+  assert.match(markup, new RegExp(`>${labels.addQuestion}<`));
   assert.match(markup, /\*\*plain research\*\*/);
   assert.match(markup, /second line/);
   assert.match(markup, /white-space:pre-wrap/);
@@ -380,9 +386,9 @@ test("an empty Academic Note renders localized display copy without changing con
   const model = createAcademicNode("note", { x: 0, y: 0 }, "empty-note");
   const markup = renderNode(model);
 
-  assert.match(markup, /Localized empty note/);
+  assert.match(markup, /localized-notePrompt/);
   assert.equal(model.content, "");
-  assert.doesNotMatch(JSON.stringify(model), /Localized empty note/);
+  assert.doesNotMatch(JSON.stringify(model), /localized-notePrompt/);
 });
 
 test("Academic cards render non-default canonical surface and text styles", () => {
@@ -415,7 +421,7 @@ test("Academic cards render non-default canonical surface and text styles", () =
   assert.match(note, /--zmd-board-node-radius:16px/);
   assert.match(
     note,
-    /class="zmd-board-card-body" style="justify-content:flex-end"/,
+    /class="zmd-board-card-body nowheel" style="justify-content:safe flex-end"/,
   );
   assert.match(
     note,
@@ -461,7 +467,7 @@ test("Frames render the same canonical surface, text, and vertical styles", () =
   assert.match(frame, /--zmd-board-node-fill:#ede9fe/);
   assert.match(frame, /--zmd-board-node-stroke-style:dotted/);
   assert.match(frame, /--zmd-board-node-radius:32px/);
-  assert.match(frame, /justify-content:center/);
+  assert.match(frame, /justify-content:safe center/);
   assert.match(
     frame,
     /<h3 style="[^"]*font-family:Menlo, monospace[^"]*font-size:18px[^"]*font-weight:bold[^"]*font-style:italic[^"]*text-decoration:line-through[^"]*text-align:center[^"]*color:#312e81[^"]*opacity:0\.75[^"]*">Styled boundary<\/h3>/,
@@ -578,20 +584,23 @@ test("Frame surface controls reflect its rendered default boundary", () => {
     createAcademicNode("note", { x: 0, y: 0 }, "note-default-style"),
   );
 
-  assert.match(frameControls, /class="is-active"[^>]*aria-label="transparent"/);
+  assert.match(
+    frameControls,
+    /class="zmd-board-color-swatch is-transparent" style="background-color:transparent"/,
+  );
   assert.match(frameControls, /<option value="1" selected="">1px<\/option>/);
   assert.doesNotMatch(
     frameControls,
-    /class="is-active" style="background:#1f2937"/,
+    /class="zmd-board-color-swatch" style="background-color:#1f2937"/,
   );
   assert.match(
     noteControls,
-    /class="is-active" style="background:#ffffff" aria-label="#ffffff"/,
+    /class="zmd-board-color-swatch" style="background-color:#ffffff"/,
   );
   assert.match(noteControls, /<option value="1" selected="">1px<\/option>/);
   assert.doesNotMatch(
     noteControls,
-    /class="is-active" style="background:#1f2937"/,
+    /class="zmd-board-color-swatch" style="background-color:#1f2937"/,
   );
 });
 
@@ -622,7 +631,7 @@ test("light surface controls retain canonical Frame and shape defaults", () => {
     assert.match(
       controls,
       new RegExp(
-        `class="is-active" style="background:${stroke}" aria-label="${stroke}"`,
+        `class="zmd-board-color-swatch" style="background-color:${stroke}"`,
       ),
       node.kind,
     );
@@ -662,13 +671,16 @@ test("unstyled renderers and controls resolve dark UI defaults without persistin
   );
   assert.match(
     noteControls,
-    /class="is-active" style="background:#3d4452" aria-label="#3d4452"/,
+    /class="zmd-board-color-swatch" style="background-color:#3d4452"/,
   );
   assert.match(
     noteControls,
-    /class="is-active" style="background:#1a1d24" aria-label="#1a1d24"/,
+    /class="zmd-board-color-swatch" style="background-color:#1a1d24"/,
   );
-  assert.match(frameControls, /class="is-active"[^>]*aria-label="transparent"/);
+  assert.match(
+    frameControls,
+    /class="zmd-board-color-swatch is-transparent" style="background-color:transparent"/,
+  );
   assert.equal(text.style, undefined);
   assert.equal(note.style, undefined);
   assert.equal(frame.style, undefined);
@@ -832,4 +844,29 @@ test("stroke labels constrain long tokens and preserve explicit lines", async (t
 test("lists only Zotero picker nodes when filtered as library", () => {
   const library = listNodeSpecs("library").map((spec) => spec.kind);
   assert.deepEqual(library, ["item", "pdf", "attachment"]);
+});
+
+test("cards and shapes have four distinct handles that can each start a connection", () => {
+  const models = [
+    createAcademicNode("note", { x: 0, y: 0 }, "note"),
+    ...(["rect", "ellipse", "text", "line", "arrow"] as const).map((kind) =>
+      createBasicNode(kind, { x: 0, y: 0 }, kind),
+    ),
+  ];
+  for (const model of models) {
+    const markup = renderNode(model);
+    const ids = [...markup.matchAll(/data-handleid="([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    assert.deepEqual(
+      ids.sort(),
+      ["bottom", "left", "right", "top"],
+      model.kind,
+    );
+    assert.equal(
+      (markup.match(/data-id="[^"]+-source"/g) ?? []).length,
+      4,
+      model.kind,
+    );
+  }
 });

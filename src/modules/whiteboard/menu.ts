@@ -6,6 +6,7 @@ import {
 import { isWhiteboardAttachment } from "./detect";
 import { openWhiteboardAttachment, recentWhiteboardIDs } from "./open";
 import { createExampleWhiteboard } from "./tutorial";
+import { openWhiteboardWindow } from "./tab";
 
 const itemCleanups = new Map<Window, () => void>();
 
@@ -129,6 +130,22 @@ export function registerWhiteboardMenus(win: _ZoteroTypes.MainWindow) {
     openItem.setAttribute("label", getString("menuitem-open-whiteboard"));
     openItem.setAttribute("class", "menuitem-iconic");
     openItem.style.listStyleImage = `url(${icon()})`;
+    const windowItem = doc.createXULElement("menuitem") as HTMLElement;
+    windowItem.id = `${addon.data.config.addonRef}-item-open-canvas-window`;
+    windowItem.setAttribute("label", getString("more-open-window"));
+    const onOpenWindow = () => {
+      const selected = win.ZoteroPane?.getSelectedItems?.() || [];
+      if (selected.length !== 1 || !isWhiteboardAttachment(selected[0])) return;
+      void openWhiteboardWindow(selected[0], { win }).catch((error) => {
+        ztoolkit.log("Failed to open standalone Canvas window", error);
+        new ztoolkit.ProgressWindow(addon.data.config.addonName)
+          .createLine({
+            text: getString("whiteboard-open-failed"),
+            type: "fail",
+          })
+          .show();
+      });
+    };
     const onOpen = () => {
       const selected = win.ZoteroPane?.getSelectedItems?.() || [];
       const canvas = selected.find(isWhiteboardAttachment);
@@ -139,12 +156,16 @@ export function registerWhiteboardMenus(win: _ZoteroTypes.MainWindow) {
       openItem.hidden = !(
         selected.length === 1 && isWhiteboardAttachment(selected[0])
       );
+      windowItem.hidden = openItem.hidden;
     };
     openItem.addEventListener("command", onOpen);
+    windowItem.addEventListener("command", onOpenWindow);
     itemPopup.addEventListener("popupshowing", onShowing);
-    itemPopup.append(openItem);
+    itemPopup.append(openItem, windowItem);
     cleanups.push(() => {
       itemPopup.removeEventListener("popupshowing", onShowing);
+      windowItem.removeEventListener("command", onOpenWindow);
+      windowItem.remove();
       openItem.remove();
     });
   }

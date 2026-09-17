@@ -42,3 +42,60 @@ test("Help example menu registers once and is removed on window cleanup", () => 
     window.close();
   }
 });
+
+test("standalone window commands are shown only for one matching attachment", async () => {
+  const { registerItemContextMenu, unregisterItemContextMenu } =
+    await import("../src/modules/markdown/menu.ts");
+  const window = new Window();
+  window.document.body.innerHTML =
+    '<menupopup id="zotero-itemmenu"></menupopup>';
+  Object.assign(window.document, {
+    createXULElement: window.document.createElement.bind(window.document),
+  });
+  let selected: unknown[] = [];
+  Object.assign(window, { ZoteroPane: { getSelectedItems: () => selected } });
+  const saved = new Map<string, PropertyDescriptor | undefined>();
+  for (const [key, value] of Object.entries({
+    addon: { data: { config: { addonRef: "bamboo" } } },
+    ztoolkit: { log: () => {} },
+    Zotero: { Attachments: { LINK_MODE_LINKED_URL: 3 } },
+  })) {
+    saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { configurable: true, value });
+  }
+  const win = window as unknown as _ZoteroTypes.MainWindow;
+  try {
+    registerWhiteboardMenus(win);
+    registerItemContextMenu(win);
+    const popup = window.document.getElementById("zotero-itemmenu")!;
+    const md = window.document.getElementById("bamboo-item-open-md-window")!;
+    const canvas = window.document.getElementById(
+      "bamboo-item-open-canvas-window",
+    )!;
+    for (const extension of ["md", "canvas", "pdf"]) {
+      const item = {
+        isAttachment: () => true,
+        attachmentFilename: `file.${extension}`,
+      };
+      selected = [item];
+      popup.dispatchEvent(new window.Event("popupshowing"));
+      assert.equal(md.hidden, extension !== "md");
+      assert.equal(canvas.hidden, extension !== "canvas");
+      selected = [item, item];
+      popup.dispatchEvent(new window.Event("popupshowing"));
+      assert.equal(md.hidden, true);
+      assert.equal(canvas.hidden, true);
+    }
+    unregisterWhiteboardMenus(win);
+    unregisterItemContextMenu(win);
+    assert.equal(popup.children.length, 0);
+  } finally {
+    unregisterWhiteboardMenus(win);
+    unregisterItemContextMenu(win);
+    for (const [key, value] of saved) {
+      if (value) Object.defineProperty(globalThis, key, value);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+    window.close();
+  }
+});

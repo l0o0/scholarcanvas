@@ -1,5 +1,16 @@
 export type AcademicRelation = "related" | "supports" | "contradicts";
 
+export type ConnectionSide = "top" | "right" | "bottom" | "left";
+
+export function isConnectionSide(value: unknown): value is ConnectionSide {
+  return (
+    value === "top" ||
+    value === "right" ||
+    value === "bottom" ||
+    value === "left"
+  );
+}
+
 export interface CanvasConnectionBase {
   id: string;
   source: string;

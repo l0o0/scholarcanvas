@@ -1,6 +1,75 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
+import { getString, initLocale } from "../src/utils/locale.ts";
+
+test("addon reload reads new translations without reusing Zotero's shared Fluent cache", (t) => {
+  let fileMessages = { "bamboo-whiteboard-color-custom": "Old translation" };
+  const registries: Registry[] = [];
+  class Source {
+    messages = { ...fileMessages };
+    constructor(
+      readonly name: string,
+      _meta: string,
+      readonly locales: string[],
+      readonly path: string,
+    ) {}
+  }
+  class Registry {
+    sources: Source[] = [];
+    constructor() {
+      registries.push(this);
+    }
+    registerSources(sources: Source[]) {
+      this.sources = sources;
+    }
+  }
+  class Locale {
+    constructor(
+      _ids: string[],
+      _sync: boolean,
+      readonly registry: Registry,
+    ) {}
+    formatMessagesSync(requests: { id: keyof typeof fileMessages }[]) {
+      return requests.map(({ id }) => ({
+        value: this.registry.sources[0].messages[id] ?? null,
+        attributes: null,
+      }));
+    }
+  }
+  const globals = {
+    addon: { data: {} },
+    rootURI: "file:///plugin/",
+    ztoolkit: {
+      getGlobal: (name: string) =>
+        ({
+          Localization: Locale,
+          L10nRegistry: Registry,
+          L10nFileSource: Source,
+        })[name],
+      log: () => {},
+    },
+  };
+  for (const [key, value] of Object.entries(globals)) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key);
+    Object.defineProperty(globalThis, key, { configurable: true, value });
+    t.after(() => {
+      if (previous) Object.defineProperty(globalThis, key, previous);
+      else Reflect.deleteProperty(globalThis, key);
+    });
+  }
+  initLocale();
+  assert.equal(getString("whiteboard-color-custom"), "Old translation");
+  fileMessages = { "bamboo-whiteboard-color-custom": "Updated translation" };
+  initLocale();
+  assert.equal(getString("whiteboard-color-custom"), "Updated translation");
+  assert.notEqual(registries[0], registries[1]);
+  assert.equal(
+    registries[1].sources[0].path,
+    "file:///plugin/locale/{locale}/",
+  );
+  assert.deepEqual(registries[1].sources[0].locales, ["en-US", "zh-CN"]);
+});
 
 const hostKeys = [
   "whiteboard-add-item",
@@ -12,6 +81,7 @@ const hostKeys = [
   "whiteboard-close",
   "whiteboard-stroke",
   "whiteboard-background",
+  "whiteboard-transparent",
   "whiteboard-style",
   "whiteboard-solid",
   "whiteboard-dashed",
@@ -32,6 +102,9 @@ const hostKeys = [
   "whiteboard-weight-bold",
   "whiteboard-colors-common",
   "whiteboard-colors-recent",
+  "whiteboard-color-opacity",
+  "whiteboard-color-custom",
+  "whiteboard-color-reset",
   "whiteboard-shortcut-select",
   "whiteboard-shortcut-hand",
   "whiteboard-shortcut-rect",
@@ -130,6 +203,24 @@ const tutorialLabels = [
   ["practice", "whiteboard-tutorial-practice"],
   ["practiceBody", "whiteboard-tutorial-practice-body"],
   ["supports", "whiteboard-tutorial-supports"],
+  ["exampleSource", "whiteboard-tutorial-example-source"],
+  ["exampleSourceBody", "whiteboard-tutorial-example-source-body"],
+  ["exampleQuote", "whiteboard-tutorial-example-quote"],
+  ["exampleQuoteBody", "whiteboard-tutorial-example-quote-body"],
+  ["imageTitle", "whiteboard-tutorial-image-title"],
+  ["imageBody", "whiteboard-tutorial-image-body"],
+  ["attachmentTitle", "whiteboard-tutorial-attachment-title"],
+  ["attachmentBody", "whiteboard-tutorial-attachment-body"],
+  ["attachmentContent", "whiteboard-tutorial-attachment-content"],
+  ["colorNote", "whiteboard-tutorial-color-note"],
+  ["colorSummary", "whiteboard-tutorial-color-summary"],
+  ["organizeAction", "whiteboard-tutorial-organize-action"],
+  ["colorEvidence", "whiteboard-tutorial-color-evidence"],
+  ["colorQuestion", "whiteboard-tutorial-color-question"],
+  ["colorClaim", "whiteboard-tutorial-color-claim"],
+  ["colorBody", "whiteboard-tutorial-color-body"],
+  ["share", "whiteboard-tutorial-share"],
+  ["shareBody", "whiteboard-tutorial-share-body"],
 ] as const;
 
 test("both host locales define every whiteboard chrome label", () => {
@@ -165,10 +256,10 @@ test("both host locales define the complete tutorial label set", () => {
 
 test("the Chinese tutorial uses the UI term for Claim", () => {
   const source = readFileSync("addon/locale/zh-CN/addon.ftl", "utf8");
-  assert.match(source, /^whiteboard-tutorial-claim-badge = 主张$/m);
+  assert.match(source, /^whiteboard-tutorial-claim-badge = 观点$/m);
   assert.match(
     source,
-    /^whiteboard-tutorial-write-note-body = 从问题或主张模板开始，然后继续编辑。$/m,
+    /^whiteboard-tutorial-write-note-body = 打开顶部“笔记”菜单，选择卡片类型，再点击画布开始写作。$/m,
   );
   assert.doesNotMatch(source, /^whiteboard-tutorial-.*论点/m);
 });

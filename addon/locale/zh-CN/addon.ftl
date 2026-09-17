@@ -1,5 +1,5 @@
-startup-begin = Bamboo 竹子加载中
-startup-finish = Bamboo 竹子已就绪
+startup-begin = Scholar Canvas加载中
+startup-finish = Scholar Canvas已就绪
 menuitem-create-md = 新建 Markdown…
 menuitem-create-standalone-md = 新建独立 Markdown…
 menuitem-create-item-md = 新建条目 Markdown…
@@ -20,28 +20,29 @@ whiteboard-unsaved-title = 未保存的白板
 whiteboard-unsaved-prompt = 白板有未保存的更改，关闭前要保存吗？
 whiteboard-pdf-page-title = PDF 页面
 whiteboard-pdf-page-prompt = 要把哪一页截取为卡片图片？
-whiteboard-tutorial-title = Bamboo 学术白板.canvas
-menuitem-create-example-whiteboard = Bamboo：创建示例白板
+whiteboard-tutorial-title = Scholar Canvas 学术白板.canvas
+menuitem-create-example-whiteboard = Scholar Canvas：创建示例白板
 whiteboard-tutorial-welcome = 欢迎
 whiteboard-tutorial-welcome-body = 沿着这条路径，把阅读变成相互连接的思考。
-whiteboard-tutorial-source-notice = 示例卡片来自你的文库；Bamboo 不会修改来源条目。
+whiteboard-tutorial-source-notice = 示例卡片来自你的文库；Scholar Canvas 不会修改来源条目。
 whiteboard-tutorial-add-literature = 添加文献
-whiteboard-tutorial-add-literature-body = 把 Zotero 条目拖到画布上。
+whiteboard-tutorial-add-literature-body = 点击顶部“添加文献”，或把 Zotero 条目拖到画布上。
 whiteboard-tutorial-browse-quotes = 浏览引文
 whiteboard-tutorial-browse-quotes-body = 打开文献卡片并添加有用的摘录。
 whiteboard-tutorial-write-note = 写笔记
-whiteboard-tutorial-write-note-body = 从问题或主张模板开始，然后继续编辑。
+whiteboard-tutorial-write-note-body = 打开顶部“笔记”菜单，选择卡片类型，再点击画布开始写作。
 whiteboard-tutorial-question-badge = 问题
-whiteboard-tutorial-claim-badge = 主张
-whiteboard-tutorial-organize = 整理
-whiteboard-tutorial-organize-body = 用框架归拢相关卡片。
-whiteboard-tutorial-practice = 练习
-whiteboard-tutorial-practice-body = 再拖入一个 Zotero 条目并继续构建。
+whiteboard-tutorial-claim-badge = 观点
+whiteboard-tutorial-organize = 五种卡片，一条思路
+whiteboard-tutorial-organize-body = 选中卡片或分组框，拖动四角控制点调整大小。双击卡片边框修改填充色与边框；双击正文编辑文字。
+whiteboard-tutorial-practice = 动手试一试
+whiteboard-tutorial-practice-body = 打开“开始写作.md”完成练习。用观点卡片表达自己的理解，再用总结卡片归纳共识、分歧和下一步。
+
 whiteboard-tutorial-supports = 支持
 whiteboard-add-item = 添加文献
 whiteboard-add-note = 笔记
 whiteboard-add-question = 问题
-whiteboard-add-claim = 主张
+whiteboard-add-claim = 观点
 whiteboard-add-frame = 框架
 whiteboard-add-pdf = PDF
 whiteboard-add-file = 附件
@@ -54,12 +55,21 @@ whiteboard-kind-literature = 文献
 whiteboard-kind-quote = 引文
 whiteboard-kind-note = 笔记
 whiteboard-note-empty = 空笔记
-whiteboard-badge = 标签
-whiteboard-apply-template = 应用模板
-whiteboard-choose-template = 选择模板
+whiteboard-badge = 标题（可选）
+whiteboard-add-evidence = 证据
+whiteboard-add-summary = 总结
+whiteboard-note-type = 卡片类型
+whiteboard-note-prompt = 记下想法或阅读心得。
+whiteboard-question-prompt = 我想弄清楚什么？
+whiteboard-claim-prompt = 我的看法是什么？为什么？
+whiteboard-evidence-prompt = 哪段原文、数据或案例值得保留？
+whiteboard-summary-prompt = 有哪些共识、分歧和待解问题？
+whiteboard-edit-note-body = 编辑正文
+whiteboard-apply-template = 套用模板
+whiteboard-choose-template = 选择要套用的模板…
 whiteboard-save-as-template = 保存为模板
 whiteboard-template-name = 模板名称
-whiteboard-include-template-content = 包含当前内容
+whiteboard-include-template-content = 包含正文
 whiteboard-custom-templates = 自定义模板
 whiteboard-no-custom-templates = 暂无自定义模板
 whiteboard-rename-template = 重命名模板
@@ -148,6 +158,7 @@ whiteboard-shortcuts-title = 快捷键导航
 whiteboard-close = 关闭
 whiteboard-stroke = 描边
 whiteboard-background = 背景
+whiteboard-transparent = 透明
 whiteboard-style = 样式
 whiteboard-solid = 实线
 whiteboard-dashed = 虚线
@@ -168,6 +179,9 @@ whiteboard-weight-regular = 常规
 whiteboard-weight-bold = 粗体
 whiteboard-colors-common = 常用自定义颜色
 whiteboard-colors-recent = 最近使用颜色
+whiteboard-color-opacity = 不透明度
+whiteboard-color-custom = 自定义颜色
+whiteboard-color-reset = 恢复默认
 whiteboard-shortcut-select = 选择
 whiteboard-shortcut-hand = 平移画布
 whiteboard-shortcut-rect = 绘制矩形
@@ -176,7 +190,7 @@ whiteboard-shortcut-arrow = 绘制箭头
 whiteboard-shortcut-line = 绘制直线
 whiteboard-shortcut-text = 添加文字
 whiteboard-shortcut-question = 添加问题
-whiteboard-shortcut-claim = 添加主张
+whiteboard-shortcut-claim = 添加观点
 whiteboard-shortcut-frame = 添加框架
 whiteboard-shortcut-eraser = 擦除
 whiteboard-shortcut-constrain = 绘制时锁定比例或角度
@@ -185,7 +199,7 @@ whiteboard-shortcut-delete = 删除选中内容
 whiteboard-shortcut-undo = 撤销
 whiteboard-shortcut-redo = 重做
 menuitem-open-whiteboard = 打开白板
-prefs-title = Bamboo 竹子
+prefs-title = Scholar Canvas
 
 sidebar-section-label =
     .label = Markdown
@@ -203,6 +217,13 @@ sidebar-saved = 已保存
 sidebar-unsaved = 有未保存修改
 sidebar-save-failed = 保存失败
 sidebar-attachment-gone = 附件已不存在
+document-link-unresolved = 无法解析文档链接
+document-link-unsupported = 不支持此链接类型
+document-link-ambiguous = 有多个文档匹配，请选择一个（{ $count }）
+document-link-choose = 选择 Scholar Canvas 文档
+document-link-kind-markdown = Markdown 文档
+document-link-kind-canvas = Canvas 白板
+document-link-kind-regular = Zotero 条目
 markdown-outline-title = 目录
 markdown-outline-toggle = 切换目录
 markdown-outline-empty = 无目录
@@ -336,3 +357,137 @@ error-image-too-large = 图片不能超过 15 MB。
 error-attachment-directory = 无法定位附件目录。
 export-html-title = 导出 HTML
 settings-shortcut-edit-aria = 编辑快捷键
+
+whiteboard-tutorial-image-title = 图片与 PDF 快照
+
+whiteboard-tutorial-image-body = 把图像放在想法旁边。
+
+whiteboard-tutorial-attachment-title = 开始写作.md
+
+whiteboard-tutorial-attachment-body = 右键打开，完成三个写作练习。
+
+whiteboard-tutorial-attachment-content = # 开始写作
+
+    这份文件就是你的练习本。用三个小练习，把阅读材料变成自己的笔记，再回到白板连接想法。
+
+    ## 1. 写下一句话总结
+
+    把下面的文字替换成你刚读到的一个观点。选中文字后，可以用工具栏加粗；也可以输入 `**重点**`。
+
+    我的总结：**在这里写下你对阅读材料的理解。**
+
+    > 这是一句示范引文。用引用块保留原文，把自己的解释写在引用块外。
+
+    - 材料：写下文献标题。
+    - 证据：记录页码或摘录位置。
+    - 追问：还有什么需要确认？
+
+    上面的标题、列表和引用都可以直接编辑。切换到源码模式，可以看到 `##`、`-` 和 `>` 如何组织内容。
+
+    链接也能放进笔记，例如 [Zotero 网站](https://www.zotero.org/)。它的语法是 `[显示文字](网址)`，你可以换成自己的资料链接。
+
+    ## 2. 添加一个待办事项
+
+    在下面补充一个具体的阅读动作。`- [ ]` 表示未完成，`- [x]` 表示已完成，也可以用工具栏插入任务列表。
+
+    - [x] 打开 Markdown 练习本
+    - [ ] 在这里写下下一步要做的事
+    - [ ] 回到白板，连接一条证据与一张观点卡片
+
+    ## 3. 插入一张图片
+
+    把光标放在下一段，点击工具栏的“插入图片”，选择一张 PNG、JPEG、GIF 或 WebP 图片。也可以粘贴剪贴板中的图片。
+
+    在这里插入图片，并在下方写一句图像说明。
+
+    在 Live 模式下，单击图片，拖拽四角等比例调整大小；也可选择“小 / 中 / 大”或输入像素宽度。“自适应”恢复自动显示，图片不会超出正文宽度。调整只影响当前位置的排版，原始图片不变，一次撤销即可恢复整次拖拽。
+
+    点击图片工具条的“查看原图”，或在阅读预览中单击图片，可以临时放大查看细节。
+
+    插入的图片会保存在这份附件的本地资源目录中。下面只是语法示意，不会加载图片；完成插入后，可以在源码中查看实际路径。
+
+    ```markdown
+    ![图像说明](assets/my-figure.png)
+    ```
+
+    调整尺寸后，源码会保存为带宽度的图片标记，阅读预览与 HTML 导出也会保留尺寸：
+
+    ```html
+    <img src="assets/my-figure.png" alt="图像说明" width="480">
+    ```
+
+    ## 编辑与保存
+
+    - **实时预览（Live）**：一边写作，一边查看排版效果。
+    - **查看源码**：打开编辑器的“更多操作 → 模式 → 源码”，查看原始 Markdown；选择 Live 可切回来。
+    - **自动保存**：修改会自动保存，可以从底部状态栏确认保存状态；也可按 Ctrl+S（macOS 为 Cmd+S）立即保存。
+
+    ## 认识五种卡片
+
+    打开顶部“笔记”菜单，查看颜色、形状和用途预览，选好类型后点击画布创建卡片。
+
+    | 类型 | 适合记录 | 默认外观 |
+    | --- | --- | --- |
+    | 笔记 | 随手想法、阅读心得 | 素色、柔和圆角 |
+    | 问题 | 想弄清楚的疑问 | 暖黄、圆角虚线 |
+    | 观点 | 自己的理解与理由 | 浅绿、清晰轮廓 |
+    | 证据 | 原文、数据、案例与出处 | 浅蓝、方正边角 |
+    | 总结 | 共识、分歧和下一步 | 淡紫、圆角 |
+
+    选中卡片后，右侧“卡片类型”会显示当前类型。切换类型会保留正文、标题、尺寸和手动样式；默认配色与边角随类型变化。标题可以留空，空卡片会给出写作提示。
+
+    “自定义模板”是可重复使用的起点，展开后可以保存自己的卡片模板。套用模板不会替换已经写好的正文。
+
+    ## 回到白板，整理与分享
+
+    1. 切回示例白板标签页。
+    2. 用“观点”卡片写下你对材料的理解，用“总结”卡片归纳共识、分歧和下一步。
+    3. 从文献卡片添加相关摘录，用连线连接证据与观点。
+    4. 选中卡片或分组框，拖动四角缩放。双击卡片边框修改外观，双击正文编辑文字。
+    5. 点击左侧工具栏“导出 PNG”（默认 2×），或右键画布空白处选择 1×、2×、4×，保存整张白板。
+
+    将鼠标移到卡片边缘，从任意一侧的圆点拖向另一张卡片的圆点，吸附高亮后松开。移动卡片时，连线会保持在选定的一侧。想调整关系时，将鼠标移到连线上，拖动端点即可重新连接；拖到空白处松开会保留原连接。
+
+    你可以继续修改这份练习本，把它用作自己的阅读笔记。
+
+whiteboard-tutorial-color-evidence = 记录有用的原文、数据或案例，并注明出处。
+
+whiteboard-tutorial-color-question = 我想弄清楚什么？还有哪些细节需要确认？
+
+whiteboard-tutorial-color-claim = 写下自己的看法，并说明为什么这样理解。
+
+whiteboard-tutorial-color-body = 选中卡片，右侧会显示当前类型。切换类型保留正文和手动样式；标题可以留空，自定义模板在折叠区域中。
+
+whiteboard-tutorial-share = 分享你的思考
+
+whiteboard-tutorial-share-body = 点击左侧“导出 PNG”默认导出 2× 图片；右键画布空白处可选 1×、2×、4×，保留卡片配色和图片，清晰分享整张白板。
+
+whiteboard-exporting = 正在生成 PNG…
+whiteboard-export-render-failed = PNG 生成失败。请检查图片是否已加载，或尝试较低分辨率。
+
+whiteboard-tutorial-example-source = 第一份阅读材料
+
+whiteboard-tutorial-example-source-body = 从文库拖入一篇文献。标题与来源保留在同一张卡片上，方便随时回到原文。
+
+whiteboard-tutorial-example-quote = 给证据留一个位置
+
+whiteboard-tutorial-example-quote-body = 添加一段与问题相关的摘录。保留原文，在另一张笔记中写下自己的理解，再用连线让思考过程清晰可见。
+
+whiteboard-tutorial-organize-action = 调整与整理
+
+whiteboard-tutorial-color-note = 随手记下一段阅读心得，稍后再整理。
+
+whiteboard-tutorial-color-summary = 归纳共识、分歧与下一步，形成阶段性认识。
+
+more-open-window = 在独立窗口打开
+more-open-tab = 返回 Zotero 标签页
+
+image-size-toolbar = 图片大小
+image-size-width = 宽度
+image-size-small = 小
+image-size-medium = 中
+image-size-large = 大
+image-size-auto = 自适应
+image-view-original = 查看原图
+image-view-close = 关闭图片
+image-size-resize = 调整图片大小（方向键微调，Shift 加大步长）

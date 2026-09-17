@@ -1,15 +1,16 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ColorPicker } from "./ColorPicker";
+import { colorPalette } from "./color";
 import type { CanvasNodeStyle } from "../model/core";
 import {
   canvasNodeUiSurfaceDefaults,
-  canvasThemePalette,
+  getNoteType,
   type CanvasNodeKind,
 } from "../model/academic";
 import type { WhiteboardLabels } from "../model/protocol";
 import type { WhiteboardTheme } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 
-const STROKES = ["#1f2937", "#2563eb", "#dc2626", "#059669", "#d97706"];
-const FILLS = ["transparent", "#ffffff", "#f3f4f6", "#dbeafe"];
 const WIDTHS = [1, 2, 4];
 const RADII = [0, 8, 16, 32];
 
@@ -31,14 +32,44 @@ export function StyleBar(props: {
     patch: Partial<CanvasNodeStyle> & { width?: number; height?: number },
   ) => void;
 }) {
+  const [menu, setMenu] = useState<"stroke" | "fill" | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const closeMenu = useCallback(() => {
+    barRef.current
+      ?.querySelector<HTMLButtonElement>(`[data-color-target="${menu}"]`)
+      ?.focus();
+    setMenu(null);
+  }, [menu]);
+  useEffect(() => {
+    if (!menu) return;
+    const onDown = (event: PointerEvent) => {
+      if (!barRef.current?.contains(event.target as Node)) setMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeMenu();
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [menu, closeMenu]);
   const { node } = props;
   const model = node.data.model;
   const style = model.style ?? {};
   const kind = model.kind;
-  const defaults = canvasNodeUiSurfaceDefaults(kind, props.theme);
-  const palette = canvasThemePalette(props.theme);
+  const defaults = canvasNodeUiSurfaceDefaults(
+    kind,
+    props.theme,
+    model.kind === "note" ? getNoteType(model) : undefined,
+  );
   const stroke = style.stroke || defaults.stroke;
-  const fill = style.fill || defaults.fill;
+  const fill =
+    style.fillStyle === "none" ? "transparent" : style.fill || defaults.fill;
   const strokeWidth = style.strokeWidth ?? defaults.strokeWidth;
   const radius = style.radius ?? defaults.radius;
   const dashed =
@@ -49,39 +80,88 @@ export function StyleBar(props: {
   const height = Math.round(node.height ?? 80);
   const showFill = supportsFillStyle(kind);
   const showRadius = supportsRadiusStyle(kind);
-  const strokes = [
-    defaults.stroke,
-    ...STROKES.filter((color) => color !== defaults.stroke),
-  ];
-  const fills = [
-    defaults.fill,
-    ...FILLS.filter((color) => color !== defaults.fill),
-  ];
 
   return (
     <div
+      ref={barRef}
       className="zmd-board-style-bar"
       style={{ left: props.left, top: props.top }}
       onPointerDown={(event) => event.stopPropagation()}
     >
+      {(["stroke", "fill"] as const)
+        .filter((target) => target === "stroke" || showFill)
+        .map((target) => {
+          const color = target === "stroke" ? stroke : fill;
+          const title =
+            target === "stroke" ? props.labels.stroke : props.labels.background;
+          return (
+            <span className="zmd-board-flyout" key={target}>
+              <button
+                type="button"
+                data-color-target={target}
+                title={title}
+                aria-haspopup="dialog"
+                aria-expanded={menu === target}
+                className={menu === target ? "is-active" : ""}
+                onClick={() => setMenu(menu === target ? null : target)}
+              >
+                <span
+                  className={`zmd-board-color-swatch${color === "transparent" ? " is-transparent" : ""}`}
+                  style={{ backgroundColor: color }}
+                  aria-hidden="true"
+                />
+                {title}
+                <span aria-hidden="true">⌄</span>
+              </button>
+              {menu === target ? (
+                <div
+                  className="zmd-board-popover is-color"
+                  role="dialog"
+                  aria-label={title}
+                >
+                  <ColorPicker
+                    title={title}
+                    labels={props.labels}
+                    color={color}
+                    presets={colorPalette(
+                      target === "fill"
+                        ? props.theme === "light"
+                        : props.theme === "dark",
+                    )}
+                    defaultColor={defaults[target]}
+                    allowTransparent={target === "fill"}
+                    onReset={() =>
+                      props.onChange(
+                        target === "stroke"
+                          ? { stroke: undefined }
+                          : { fill: undefined, fillStyle: undefined },
+                      )
+                    }
+                    onChange={(next) =>
+                      props.onChange(
+                        target === "stroke"
+                          ? { stroke: next }
+                          : {
+                              fill: next,
+                              fillStyle:
+                                next === "transparent"
+                                  ? "none"
+                                  : style.fillStyle === "hatch"
+                                    ? "hatch"
+                                    : "solid",
+                            },
+                      )
+                    }
+                    onClose={closeMenu}
+                  />
+                </div>
+              ) : null}
+            </span>
+          );
+        })}
       <label className="zmd-board-style-group">
-        <span>{props.labels.stroke}</span>
-        <span className="zmd-board-swatches">
-          {strokes.map((color) => (
-            <button
-              key={color}
-              type="button"
-              className={stroke === color ? "is-active" : ""}
-              style={{ background: color }}
-              aria-label={color}
-              onClick={() => props.onChange({ stroke: color })}
-            />
-          ))}
-        </span>
-      </label>
-      <label className="zmd-board-style-group">
-        <span>{strokeWidth}px</span>
         <select
+          aria-label={props.labels.stroke}
           value={strokeWidth}
           onChange={(event) =>
             props.onChange({ strokeWidth: Number(event.target.value) })
@@ -94,31 +174,6 @@ export function StyleBar(props: {
           ))}
         </select>
       </label>
-      {showFill ? (
-        <label className="zmd-board-style-group">
-          <span>{props.labels.background}</span>
-          <span className="zmd-board-swatches">
-            {fills.map((color) => (
-              <button
-                key={color}
-                type="button"
-                className={fill === color ? "is-active" : ""}
-                style={{
-                  background: color === "transparent" ? palette.surface : color,
-                  backgroundImage:
-                    color === "transparent"
-                      ? `linear-gradient(45deg,${palette.border} 25%,transparent 25%),linear-gradient(-45deg,${palette.border} 25%,transparent 25%)`
-                      : undefined,
-                  backgroundSize:
-                    color === "transparent" ? "8px 8px" : undefined,
-                }}
-                aria-label={color}
-                onClick={() => props.onChange({ fill: color })}
-              />
-            ))}
-          </span>
-        </label>
-      ) : null}
       <label className="zmd-board-style-group">
         <span>{props.labels.style}</span>
         <button
@@ -143,11 +198,13 @@ export function StyleBar(props: {
               props.onChange({ radius: Number(event.target.value) })
             }
           >
-            {RADII.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
+            {Array.from(new Set([...RADII, radius]))
+              .sort((a, b) => a - b)
+              .map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
           </select>
         </label>
       ) : null}

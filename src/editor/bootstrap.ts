@@ -34,7 +34,12 @@ import {
 } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
-import { bracketMatching, foldGutter, foldKeymap } from "@codemirror/language";
+import {
+  bracketMatching,
+  foldGutter,
+  foldKeymap,
+  syntaxTree,
+} from "@codemirror/language";
 import {
   searchKeymap,
   highlightSelectionMatches,
@@ -47,6 +52,7 @@ import {
   isEditorProtocolMessage,
   type EditorDocChange,
   type EditorInitPayload,
+  type EditorLinkCandidate,
   type EditorMode,
   type EditorOutlineItem,
   type EditorSurface,
@@ -58,9 +64,11 @@ import { clampOutlinePosition, extractEditorOutline } from "./outline";
 import { codeSyntaxHighlighting, editorThemeExtension } from "./theme";
 import { resolveCodeMirrorLanguage } from "./code-languages";
 import { imageDebug } from "./image-debug";
+import { imageControls } from "./image-controls";
 import { MAX_IMAGE_BYTES } from "../modules/markdown/images/model";
 import {
   livePreviewWhen,
+  parseInlineL2,
   setLiveImageAssets,
   setLiveTableCellEdit,
   setLiveTableSelection,
@@ -153,6 +161,11 @@ interface EditorRuntime {
   outlineTimer: number | null;
   outlineFrame: number | null;
   activeOutlineID: string | null;
+  linkSearchRequestID: number;
+  linkSearchQuery: string;
+  removeLinkCompletion: (() => void) | null;
+  linkCompletionCandidates: EditorLinkCandidate[];
+  linkCompletionIndex: number;
 }
 
 const runtime: EditorRuntime = {
@@ -175,6 +188,11 @@ const runtime: EditorRuntime = {
   outlineTimer: null,
   outlineFrame: null,
   activeOutlineID: null,
+  linkSearchRequestID: 0,
+  linkSearchQuery: "",
+  removeLinkCompletion: null,
+  linkCompletionCandidates: [],
+  linkCompletionIndex: 0,
 };
 
 const editorChannel =
@@ -198,6 +216,199 @@ function activateImageLine(image: HTMLElement) {
   editor.dispatch({ selection: { anchor: line.from } });
   editor.focus();
   return true;
+}
+
+interface ActiveWikiQuery {
+  from: number;
+  to: number;
+  query: string;
+}
+
+function isCodeSyntaxAt(view: EditorView, position: number): boolean {
+  let node: any = syntaxTree(view.state).resolveInner(position, -1);
+  while (node) {
+    if (/^(?:FencedCode|CodeBlock|InlineCode|CodeText)$/.test(node.name)) {
+      return true;
+    }
+    node = node.parent;
+  }
+  return false;
+}
+
+function sourceLinkAt(view: EditorView, position: number): string | null {
+  const line = view.state.doc.lineAt(position);
+  if (isCodeSyntaxAt(view, position)) return null;
+  const offset = position - line.from;
+  const range = parseInlineL2(line.text).find(
+    (candidate) =>
+      candidate.kind === "link" &&
+      candidate.href &&
+      offset >= candidate.from &&
+      offset <= candidate.to,
+  );
+  return range?.href || null;
+}
+
+function activeWikiQuery(view: EditorView): ActiveWikiQuery | null {
+  const position = view.state.selection.main.head;
+  const line = view.state.doc.lineAt(position);
+  if (isCodeSyntaxAt(view, position)) return null;
+  const offset = position - line.from;
+  const before = line.text.slice(0, offset);
+  const open = before.lastIndexOf("[[");
+  if (open < 0 || (open > 0 && line.text[open - 1] === "!")) return null;
+  // A completed wiki link is no longer a completion query.
+  if (line.text.indexOf("]]", open + 2) >= 0) return null;
+  const raw = before.slice(open + 2);
+  if (raw.includes("]") || raw.includes("\n")) return null;
+  // Do not activate inside inline code, including an unfinished code span.
+  if (
+    parseInlineL2(line.text).some(
+      (range) =>
+        range.kind === "code" && offset >= range.from && offset <= range.to,
+    ) ||
+    (before.match(/`/g)?.length || 0) % 2 === 1
+  ) {
+    return null;
+  }
+  const separator = raw.indexOf("|");
+  const query = (separator < 0 ? raw : raw.slice(0, separator)).trim();
+  return { from: line.from + open, to: position, query };
+}
+
+function clearLinkCompletion() {
+  runtime.removeLinkCompletion?.();
+  runtime.removeLinkCompletion = null;
+  runtime.linkCompletionCandidates = [];
+  runtime.linkCompletionIndex = 0;
+}
+
+function escapedMarkdownLabel(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]");
+}
+
+function completeLinkCandidate(candidate: EditorLinkCandidate) {
+  const view = runtime.view;
+  const active = view && activeWikiQuery(view);
+  if (!view || !active || view.state.readOnly) return;
+  const insert = `[${escapedMarkdownLabel(candidate.title)}](${candidate.href})`;
+  view.dispatch({
+    changes: { from: active.from, to: active.to, insert },
+    selection: { anchor: active.from + insert.length },
+  });
+  clearLinkCompletion();
+  view.focus();
+}
+
+function showLinkCompletion(
+  view: EditorView,
+  results: readonly EditorLinkCandidate[],
+) {
+  clearLinkCompletion();
+  if (!results.length) return;
+  runtime.linkCompletionCandidates = [...results];
+  runtime.linkCompletionIndex = 0;
+  const popup = document.createElement("div");
+  popup.className = "zmd-link-completion";
+  popup.setAttribute("role", "listbox");
+  Object.assign(popup.style, {
+    position: "fixed",
+    zIndex: "1000",
+    maxWidth: "min(420px, calc(100vw - 24px))",
+    maxHeight: "260px",
+    overflow: "auto",
+    padding: "4px",
+    borderRadius: "6px",
+    backgroundColor: "var(--zmd-menu-bg, var(--material-background, #fff))",
+    border: "1px solid var(--zmd-menu-border, var(--material-border, #ccc))",
+    color: "var(--zmd-menu-text, inherit)",
+    boxShadow: "0 6px 18px rgb(0 0 0 / 20%)",
+  });
+  for (const candidate of results) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("role", "option");
+    button.textContent = `${candidate.title} · ${candidate.kindLabel || candidate.kind} [${candidate.key}]`;
+    Object.assign(button.style, {
+      display: "block",
+      width: "100%",
+      padding: "5px 8px",
+      border: "0",
+      borderRadius: "4px",
+      background: "transparent",
+      color: "var(--zmd-menu-text, inherit)",
+      textAlign: "start",
+      cursor: "pointer",
+    });
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => completeLinkCandidate(candidate));
+    popup.appendChild(button);
+  }
+  view.dom.appendChild(popup);
+  const buttons = Array.from(
+    popup.querySelectorAll<HTMLButtonElement>("button"),
+  );
+  const updateActive = () => {
+    buttons.forEach((button, index) => {
+      const active = index === runtime.linkCompletionIndex;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", String(active));
+      button.style.backgroundColor = active
+        ? "var(--zmd-menu-hover, Highlight)"
+        : "transparent";
+      if (active) button.scrollIntoView({ block: "nearest" });
+    });
+  };
+  const onKeydown = (event: KeyboardEvent) => {
+    if (!runtime.linkCompletionCandidates.length) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      runtime.linkCompletionIndex =
+        (runtime.linkCompletionIndex + delta + buttons.length) % buttons.length;
+      updateActive();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      completeLinkCandidate(
+        runtime.linkCompletionCandidates[runtime.linkCompletionIndex],
+      );
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      clearLinkCompletion();
+    }
+  };
+  view.dom.addEventListener("keydown", onKeydown, true);
+  updateActive();
+  const active = activeWikiQuery(view);
+  const coords = active ? view.coordsAtPos(active.to) : null;
+  if (coords) {
+    popup.style.left = `${Math.max(8, coords.left)}px`;
+    const below = coords.bottom + 4;
+    popup.style.top = `${below + 270 < window.innerHeight ? below : Math.max(8, coords.top - 270)}px`;
+  }
+  runtime.removeLinkCompletion = () => {
+    view.dom.removeEventListener("keydown", onKeydown, true);
+    popup.remove();
+  };
+}
+
+function requestLinkSearch(view: EditorView) {
+  const active = activeWikiQuery(view);
+  clearLinkCompletion();
+  runtime.linkSearchRequestID += 1;
+  const requestId = runtime.linkSearchRequestID;
+  runtime.linkSearchQuery = active?.query || "";
+  if (!active) return;
+  postToParent({
+    type: "linkSearch",
+    payload: { requestId, query: active.query },
+  });
 }
 
 function bindImageDoubleClick(host: HTMLElement) {
@@ -796,6 +1007,8 @@ function postToParent(message: {
     | "change"
     | "snapshot"
     | "resolveAsset"
+    | "linkSearch"
+    | "openLink"
     | "save"
     | "error"
     | "pasteImage"
@@ -899,6 +1112,7 @@ function buildExtensions(
     drawSelection(),
     dropCursor(),
     history(),
+    imageControls(init.imageLabels),
     bracketMatching(),
     highlightSelectionMatches(),
     EditorView.lineWrapping,
@@ -1039,6 +1253,9 @@ function buildExtensions(
         }
       }
       if (update.viewportChanged) scheduleActiveOutline(update.view);
+      if (update.docChanged || update.selectionSet) {
+        requestLinkSearch(update.view);
+      }
       if (!update.docChanged) return;
       scheduleOutlineUpdate(update.view);
       if (
@@ -1103,6 +1320,20 @@ function buildExtensions(
         event.preventDefault();
         return true;
       },
+      click(event, editorView) {
+        const mouse = event as MouseEvent;
+        if (!mouse.ctrlKey && !mouse.metaKey) return false;
+        const position = editorView.posAtCoords({
+          x: mouse.clientX,
+          y: mouse.clientY,
+        });
+        if (position == null) return false;
+        const href = sourceLinkAt(editorView, position);
+        if (!href) return false;
+        postToParent({ type: "openLink", payload: { href } });
+        mouse.preventDefault();
+        return true;
+      },
       paste(event) {
         return forwardImageFile([...(event.clipboardData?.files || [])], event);
       },
@@ -1115,6 +1346,7 @@ function buildExtensions(
 
 function applyMode(mode: EditorMode) {
   if (!runtime.view) return;
+  clearLinkCompletion();
   runtime.mode = mode === "source" ? "source" : "live";
   runtime.view.dispatch({
     effects: [
@@ -1236,6 +1468,7 @@ function createOrResetEditor(init: EditorInitPayload) {
       runtime.outlineTimer = null;
     }
     runtime.removeImageDoubleClickListener?.();
+    clearLinkCompletion();
     runtime.removeTableCellListeners?.();
     cancelTableDrag();
     runtime.activeTableCell = null;
@@ -1249,6 +1482,10 @@ function createOrResetEditor(init: EditorInitPayload) {
   }
 
   runtime.docRev = 0;
+  // Bump rather than reset: an in-flight response from a previous document
+  // must never match the first request of this freshly initialized editor.
+  runtime.linkSearchRequestID += 1;
+  runtime.linkSearchQuery = "";
   runtime.imageAssets = {};
   runtime.tableSelection = null;
   runtime.tableContextSelection = null;
@@ -1529,6 +1766,14 @@ function handleParentMessage(data: ParentToEditorMessage) {
       });
       break;
     }
+    case "linkSearchResults": {
+      if (!runtime.view) return;
+      if (data.payload.requestId !== runtime.linkSearchRequestID) return;
+      const active = activeWikiQuery(runtime.view);
+      if (!active || active.query !== data.payload.query) return;
+      showLinkCompletion(runtime.view, data.payload.results);
+      break;
+    }
     case "destroy": {
       if (runtime.outlineTimer != null) {
         window.clearTimeout(runtime.outlineTimer);
@@ -1540,7 +1785,9 @@ function handleParentMessage(data: ParentToEditorMessage) {
       }
       runtime.outlineItems = [];
       runtime.activeOutlineID = null;
+      runtime.linkSearchRequestID += 1;
       runtime.removeImageDoubleClickListener?.();
+      clearLinkCompletion();
       runtime.removeTableCellListeners?.();
       cancelTableDrag();
       runtime.activeTableCell = null;
@@ -1576,6 +1823,7 @@ const PARENT_TO_EDITOR_TYPES = new Set([
   "setImageAssets",
   "requestSnapshot",
   "assetResolved",
+  "linkSearchResults",
   "destroy",
 ]);
 

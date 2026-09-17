@@ -8,6 +8,7 @@ import type { WhiteboardLabels } from "../model/protocol";
 import type { WhiteboardTheme } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 import { ColorPicker } from "./ColorPicker";
+import { colorPalette } from "./color";
 import {
   IconAlignTextCenter,
   IconAlignTextLeft,
@@ -40,7 +41,9 @@ export function isEditableControl(target: EventTarget | null): boolean {
     return false;
   }
   return Boolean(
-    (target as Element).closest("select, option, input, textarea"),
+    (target as Element).closest(
+      'select, option, input, textarea, summary, [role="slider"]',
+    ),
   );
 }
 
@@ -168,6 +171,11 @@ export function TextStyleBar(props: {
               title={props.labels.color}
               labels={props.labels}
               color={color}
+              defaultColor={canvasThemePalette(props.theme).text}
+              presets={colorPalette(props.theme === "dark")}
+              onReset={() =>
+                props.onChange({ textColor: undefined, textOpacity: undefined })
+              }
               opacity={effective.textOpacity}
               onChange={(next) => props.onChange({ textColor: next })}
               onOpacityChange={(next) => props.onChange({ textOpacity: next })}

@@ -11,7 +11,11 @@ export interface WhiteboardSession {
   tabID: string;
   canvasId: string;
   itemID: number;
-  win: _ZoteroTypes.MainWindow;
+  win: Window;
+  surface?: "tab" | "window";
+  transitioning?: boolean;
+  closePromise?: Promise<boolean>;
+  closeHost?: () => void;
   path: string;
   title: string;
   saveCoordinator?: WhiteboardSaveCoordinator;

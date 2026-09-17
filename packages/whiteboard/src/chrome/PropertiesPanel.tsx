@@ -1,3 +1,4 @@
+import type { NoteType } from "../model/academic";
 import type { WhiteboardLabels } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
 import { nodeKindLabel } from "./labels";
@@ -21,6 +22,7 @@ export function PropertiesPanel(props: {
   onDelete: (nodeId: string) => void;
   noteTemplates?: NoteTemplate[];
   onBadgeChange?: (nodeId: string, badge: string) => void;
+  onTypeChange?: (nodeId: string, type: NoteType) => void;
   onApplyTemplate?: (nodeId: string, templateId: string) => void;
   onSaveTemplate?: (
     nodeId: string,
@@ -63,8 +65,14 @@ export function PropertiesPanel(props: {
   return (
     <aside className="zmd-board-properties" aria-label={labels.selection}>
       <header className="zmd-board-properties-head">
-        <span className="zmd-board-card-kind">{kindLabel}</span>
-        <h2>{flowNodeText(node) || kindLabel}</h2>
+        {model.kind === "note" ? (
+          <h2>{kindLabel}</h2>
+        ) : (
+          <>
+            <span className="zmd-board-card-kind">{kindLabel}</span>
+            <h2>{flowNodeText(node) || kindLabel}</h2>
+          </>
+        )}
         {subtitle ? <p>{subtitle}</p> : null}
         {hasSource ? (
           <p
@@ -80,6 +88,7 @@ export function PropertiesPanel(props: {
           labels={labels}
           note={model}
           templates={props.noteTemplates}
+          onTypeChange={(type) => props.onTypeChange?.(node.id, type)}
           onBadgeChange={(badge) => props.onBadgeChange?.(node.id, badge)}
           onApply={(templateId) => props.onApplyTemplate?.(node.id, templateId)}
           onSave={(name, includeContent) =>
@@ -95,7 +104,9 @@ export function PropertiesPanel(props: {
       <div className="zmd-board-properties-actions">
         <button type="button" onClick={() => props.onEdit(node.id)}>
           <IconEdit />
-          <span>{labels.editText}</span>
+          <span>
+            {model.kind === "note" ? labels.editNoteBody : labels.editText}
+          </span>
         </button>
         {hasSource ? (
           <button type="button" onClick={() => props.onOpen(node)}>

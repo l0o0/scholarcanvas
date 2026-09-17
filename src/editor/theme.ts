@@ -378,7 +378,7 @@ function createLivePreviewStyles(
     ".zmd-lp-image img": {
       display: "block",
       maxWidth: "100%",
-      maxHeight: "32rem",
+      height: "auto",
       objectFit: "contain",
       borderRadius: "4px",
     },

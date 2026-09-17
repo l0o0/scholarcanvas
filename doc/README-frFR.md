@@ -1,4 +1,6 @@
-# Bamboo 竹子
+# Scholar Canvas
+
+**Markdown & Whiteboard for Zotero**
 
 Documentation principale :
 

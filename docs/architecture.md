@@ -1,6 +1,6 @@
 # Architecture
 
-Bamboo is a Zotero chrome plugin with isolated `chrome://bamboo` CodeMirror and
+Scholar Canvas is a Zotero chrome plugin with isolated `chrome://bamboo` CodeMirror and
 whiteboard iframes. The active iframe owns its canonical document; Zotero-side
 code owns sessions, files, chrome UI, and all access to Zotero data.
 
@@ -111,10 +111,16 @@ deletes the tutorial, and sample discovery never mutates source Zotero Items.
 
 ## Note templates
 
-Note is the only persisted user-authored academic thought kind. Question and
-Claim are built-in Note templates that copy a badge, typed canvas style, and
-default size into an ordinary Note. Custom templates use the same closed model
-and may optionally provide starter content for newly created Notes.
+Note remains the persisted user-authored academic node kind. Its optional
+`noteType` records Note, Question, Viewpoint (`claim` for compatibility), Evidence,
+or Summary. A missing type is interpreted from recognized legacy badges, otherwise
+as Note; custom badges serve as optional titles. Switching type preserves body,
+source, geometry, and explicit styles. Default appearance and localized prompts
+follow the type, with prompts never stored as body text.
+
+Built-in templates create typed Notes. Custom templates can retain a type, title,
+style, dimensions, and optional starter body. Applying a custom template is a
+one-time action, not an ongoing binding, and never replaces existing body text.
 
 The iframe owns selection and editing UI, while a host repository stores custom
 templates in the current Zotero user library through `SyncedSettings`. Template

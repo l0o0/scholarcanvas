@@ -5,6 +5,8 @@ import {
   stripFrontmatter,
 } from "./frontmatter";
 import { highlightFencedCode } from "./code-highlight";
+import { parseDocumentLink } from "./document-link-shared";
+import { parseHtmlImage } from "./images/model";
 
 const MarkdownItCtor: typeof MarkdownIt =
   typeof MarkdownIt === "function"
@@ -12,6 +14,9 @@ const MarkdownItCtor: typeof MarkdownIt =
     : (MarkdownIt as unknown as { default: typeof MarkdownIt }).default;
 
 function isSafeLinkUrl(url: string): boolean {
+  // Zotero links are persisted in one exact canonical form. Do not trim here,
+  // otherwise renderer and navigation would disagree about malformed URIs.
+  if (parseDocumentLink(url)) return true;
   const value = url.trim();
   if (/^(https?:|mailto:)/i.test(value)) return true;
   if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return false;
@@ -32,6 +37,62 @@ const md = new MarkdownItCtor({
     return highlightFencedCode(source, info) || "";
   },
 });
+
+// Sized images have one small HTML vocabulary. Keep general HTML disabled.
+md.inline.ruler.before("html_inline", "zmd_sized_image", (state, silent) => {
+  if (state.src[state.pos] !== "<") return false;
+  const image = parseHtmlImage(state.src, state.pos);
+  if (!image || !md.validateLink(image.source)) return false;
+  if (!silent) {
+    const token = state.push("zmd_sized_image", "img", 0);
+    token.attrSet("src", image.source);
+    token.attrSet("alt", image.alt);
+    if (image.title) token.attrSet("title", image.title);
+    if (image.width) token.attrSet("width", String(image.width));
+    token.attrSet("referrerpolicy", "no-referrer");
+  }
+  state.pos = image.to;
+  return true;
+});
+md.renderer.rules.zmd_sized_image = (tokens, idx, options, _env, self) =>
+  self.renderToken(tokens, idx, options);
+
+// Wiki links are rendered as inert spans first. The host resolves their title
+// against the current Zotero library when clicked; keeping lookup out of this
+// worker-safe renderer prevents stale/local item IDs from entering HTML.
+md.inline.ruler.before("link", "zmd_wikilink", (state, silent) => {
+  const start = state.pos;
+  if (
+    state.src.charCodeAt(start) !== 0x5b ||
+    state.src.charCodeAt(start + 1) !== 0x5b ||
+    (start > 0 && state.src.charCodeAt(start - 1) === 0x21)
+  ) {
+    return false;
+  }
+  const end = state.src.indexOf("]]", start + 2);
+  if (end <= start + 2) return false;
+  const raw = state.src.slice(start + 2, end);
+  const pipe = raw.indexOf("|");
+  const name = (pipe < 0 ? raw : raw.slice(0, pipe)).trim();
+  const label = (pipe < 0 ? raw : raw.slice(pipe + 1)).trim();
+  if (!name || !label || name.includes("\n") || label.includes("\n")) {
+    return false;
+  }
+  if (!silent) {
+    state.pushPending();
+    const token = state.push("zmd_wikilink", "span", 0);
+    token.content = label;
+    token.attrSet("data-zmd-wikilink", name);
+  }
+  state.pos = end + 2;
+  return true;
+});
+
+md.renderer.rules.zmd_wikilink = (tokens, index) => {
+  const token = tokens[index];
+  const name = String(token.attrGet("data-zmd-wikilink") || "");
+  return `<span class="zmd-wikilink zmd-unresolved-link" role="link" tabindex="0" data-zmd-wikilink="${escapeHtml(name)}">${escapeHtml(token.content)}</span>`;
+};
 
 md.validateLink = isSafeLinkUrl;
 

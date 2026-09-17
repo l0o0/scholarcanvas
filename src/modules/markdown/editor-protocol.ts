@@ -1,3 +1,5 @@
+import { parseDocumentLink } from "./document-link-shared";
+
 /**
  * postMessage protocol between the Zotero tab (parent) and the
  * chrome:// editor iframe (CodeMirror host).
@@ -33,6 +35,17 @@ export interface ImageAssetMap {
   [reference: string]: { dataUrl?: string; error?: string };
 }
 
+/** Serializable metadata shown by the [[…]] completion popup. */
+export interface EditorLinkCandidate {
+  key: string;
+  libraryID: number;
+  groupID?: number;
+  title: string;
+  kind: "markdown" | "canvas" | "regular";
+  kindLabel?: string;
+  href: string;
+}
+
 export interface EditorInitPayload {
   doc: string;
   readOnly: boolean;
@@ -42,6 +55,19 @@ export interface EditorInitPayload {
   mode?: EditorMode;
   /** Layout density for the editor host. */
   surface?: EditorSurface;
+  imageLabels?: EditorImageLabels;
+}
+
+export interface EditorImageLabels {
+  toolbar: string;
+  width: string;
+  small: string;
+  medium: string;
+  large: string;
+  auto: string;
+  original: string;
+  close: string;
+  resize: string;
 }
 
 export interface EditorDocChange {
@@ -149,6 +175,15 @@ export type ParentToEditorMessage = (
         error?: string;
       };
     }
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "linkSearchResults";
+      payload: {
+        requestId: number;
+        query: string;
+        results: EditorLinkCandidate[];
+      };
+    }
   | { source: typeof EDITOR_MESSAGE_SOURCE; type: "destroy" }
 ) &
   EditorProtocolMessage;
@@ -186,6 +221,16 @@ export type EditorToParentMessage = (
       type: "resolveAsset";
       payload: { requestId: number; reference: string };
     }
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "linkSearch";
+      payload: { requestId: number; query: string };
+    }
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "openLink";
+      payload: { href: string };
+    }
   | { source: typeof EDITOR_MESSAGE_SOURCE; type: "save" }
   | {
       source: typeof EDITOR_MESSAGE_SOURCE;
@@ -220,7 +265,98 @@ export function isEditorProtocolMessage(
 ): data is ParentToEditorMessage | EditorToParentMessage {
   if (!data || typeof data !== "object") return false;
   const msg = data as { source?: string; type?: string };
-  return msg.source === EDITOR_MESSAGE_SOURCE && typeof msg.type === "string";
+  if (msg.source !== EDITOR_MESSAGE_SOURCE || typeof msg.type !== "string") {
+    return false;
+  }
+  return isLinkMessagePayloadValid(data as Record<string, unknown>);
+}
+
+function isLinkMessagePayloadValid(data: Record<string, unknown>): boolean {
+  if (data.type === "openLink") {
+    const payload = data.payload;
+    return (
+      !!payload &&
+      typeof payload === "object" &&
+      typeof (payload as { href?: unknown }).href === "string" &&
+      (payload as { href: string }).href.length > 0 &&
+      (payload as { href: string }).href.length <= 4096
+    );
+  }
+  if (data.type === "linkSearch") {
+    const payload = data.payload as {
+      requestId?: unknown;
+      query?: unknown;
+    };
+    return (
+      !!payload &&
+      typeof payload === "object" &&
+      validRequestID(payload.requestId) &&
+      typeof payload.query === "string" &&
+      payload.query.length <= 512
+    );
+  }
+  if (data.type === "linkSearchResults") {
+    const payload = data.payload as {
+      requestId?: unknown;
+      query?: unknown;
+      results?: unknown;
+    };
+    return (
+      !!payload &&
+      typeof payload === "object" &&
+      validRequestID(payload.requestId) &&
+      typeof payload.query === "string" &&
+      payload.query.length <= 512 &&
+      Array.isArray(payload.results) &&
+      payload.results.length <= 24 &&
+      payload.results.every(isEditorLinkCandidate)
+    );
+  }
+  return true;
+}
+
+function validRequestID(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isEditorLinkCandidate(value: unknown): value is EditorLinkCandidate {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<EditorLinkCandidate>;
+  const reference =
+    typeof candidate.href === "string"
+      ? parseDocumentLink(candidate.href)
+      : null;
+  const hrefMatchesCandidate =
+    reference !== null &&
+    reference.key === candidate.key &&
+    ((candidate.groupID === undefined && reference.scope === "library") ||
+      (typeof candidate.groupID === "number" &&
+        reference.scope === "group" &&
+        reference.groupID === candidate.groupID));
+  return (
+    typeof candidate.key === "string" &&
+    /^[A-Za-z0-9]{8}$/.test(candidate.key) &&
+    typeof candidate.libraryID === "number" &&
+    Number.isSafeInteger(candidate.libraryID) &&
+    candidate.libraryID > 0 &&
+    (candidate.groupID === undefined ||
+      (typeof candidate.groupID === "number" &&
+        Number.isSafeInteger(candidate.groupID) &&
+        candidate.groupID > 0)) &&
+    typeof candidate.title === "string" &&
+    candidate.title.length > 0 &&
+    candidate.title.length <= 1000 &&
+    (candidate.kindLabel === undefined ||
+      (typeof candidate.kindLabel === "string" &&
+        candidate.kindLabel.length > 0 &&
+        candidate.kindLabel.length <= 100)) &&
+    (candidate.kind === "markdown" ||
+      candidate.kind === "canvas" ||
+      candidate.kind === "regular") &&
+    typeof candidate.href === "string" &&
+    candidate.href.length <= 4096 &&
+    hrefMatchesCandidate
+  );
 }
 
 /** Apply non-overlapping original-document changes from last to first. */

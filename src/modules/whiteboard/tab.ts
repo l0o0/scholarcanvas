@@ -36,6 +36,8 @@ import { ProgressiveSourceScheduler } from "./source-scheduler";
 import { sourceCacheKey } from "../../../packages/whiteboard/src/whiteboard/sourceState";
 import { getZoteroNoteTemplateRepository } from "./template-repository";
 
+import { injectWhiteboardStyles } from "./styles";
+
 const AUTOSAVE_MS = 800;
 
 function logAcademicDiagnostic(message: string, detail: object) {
@@ -80,10 +82,7 @@ function applyShellTheme(root: HTMLElement | undefined, dark: boolean) {
   root.classList.toggle("theme-light", !dark);
 }
 
-function bindSessionTheme(
-  win: _ZoteroTypes.MainWindow,
-  session: WhiteboardSession,
-) {
+function bindSessionTheme(win: Window, session: WhiteboardSession) {
   session.unbindTheme?.();
   const sync = () => {
     const theme = resolveEditorTheme(win);
@@ -118,11 +117,16 @@ function attachmentTitle(item: Zotero.Item) {
 
 function refreshTabTitle(session: WhiteboardSession) {
   const dirty = isDirty(session) ? " *" : "";
-  const { tab } = session.win.Zotero_Tabs._getTab(session.tabID) || {};
+  if (session.surface === "window") {
+    session.win.document.title = `${session.title}${dirty} · Scholar Canvas`;
+    return;
+  }
+  const tabs = (session.win as _ZoteroTypes.MainWindow).Zotero_Tabs;
+  const { tab } = tabs._getTab(session.tabID) || {};
   if (!tab) return;
   tab.title = `${session.title}${dirty}`;
   try {
-    (session.win.Zotero_Tabs as any)._update?.();
+    (tabs as any)._update?.();
   } catch {
     // ignore
   }
@@ -663,7 +667,9 @@ async function handleExportFile(
       getString("whiteboard-export-title"),
       "save",
       [[`${payload.format.toUpperCase()} (*.${extension})`, `*.${extension}`]],
-      `whiteboard.${extension}`,
+      Zotero.File.getValidFileName(
+        `${session.title.replace(/\.canvas$/i, "") || "whiteboard"}.${extension}`,
+      ),
       session.win,
     ).open();
     if (!picked) return;
@@ -792,7 +798,7 @@ function promptUnsaved(win: Window): "save" | "discard" {
 }
 
 function mountWhiteboardUI(
-  win: _ZoteroTypes.MainWindow,
+  win: Window,
   container: HTMLElement,
   session: WhiteboardSession,
   initialSnapshot: CanvasDocument,
@@ -871,6 +877,9 @@ function mountWhiteboardUI(
     snapshot: initialSnapshot,
     templates: templateRepository.list(),
     labels: {
+      switchWindow: getString(
+        session.surface === "window" ? "more-open-tab" : "more-open-window",
+      ),
       canvas: getString("whiteboard-canvas"),
       selection: getString("whiteboard-selection"),
       select: getString("whiteboard-select"),
@@ -879,6 +888,15 @@ function mountWhiteboardUI(
       addNote: getString("whiteboard-add-note"),
       addQuestion: getString("whiteboard-add-question"),
       addClaim: getString("whiteboard-add-claim"),
+      addEvidence: getString("whiteboard-add-evidence"),
+      addSummary: getString("whiteboard-add-summary"),
+      noteType: getString("whiteboard-note-type"),
+      notePrompt: getString("whiteboard-note-prompt"),
+      questionPrompt: getString("whiteboard-question-prompt"),
+      claimPrompt: getString("whiteboard-claim-prompt"),
+      evidencePrompt: getString("whiteboard-evidence-prompt"),
+      summaryPrompt: getString("whiteboard-summary-prompt"),
+      editNoteBody: getString("whiteboard-edit-note-body"),
       addFrame: getString("whiteboard-add-frame"),
       addPdf: getString("whiteboard-add-pdf"),
       addFile: getString("whiteboard-add-file"),
@@ -987,6 +1005,8 @@ function mountWhiteboardUI(
       saving: getString("whiteboard-save-saving"),
       saveFailed: getString("whiteboard-save-failed-short"),
       exportPng: getString("whiteboard-export-png"),
+      exporting: getString("whiteboard-exporting"),
+      exportRenderFailed: getString("whiteboard-export-render-failed"),
       exportSvg: getString("whiteboard-export-svg"),
       exportMarkdown: getString("whiteboard-export-markdown"),
       more: getString("whiteboard-more"),
@@ -994,6 +1014,7 @@ function mountWhiteboardUI(
       close: getString("whiteboard-close"),
       stroke: getString("whiteboard-stroke"),
       background: getString("whiteboard-background"),
+      transparent: getString("whiteboard-transparent"),
       style: getString("whiteboard-style"),
       solid: getString("whiteboard-solid"),
       dashed: getString("whiteboard-dashed"),
@@ -1014,6 +1035,9 @@ function mountWhiteboardUI(
       weightBold: getString("whiteboard-weight-bold"),
       commonColors: getString("whiteboard-colors-common"),
       recentColors: getString("whiteboard-colors-recent"),
+      opacity: getString("whiteboard-color-opacity"),
+      customColor: getString("whiteboard-color-custom"),
+      resetColor: getString("whiteboard-color-reset"),
       shortcutSelect: getString("whiteboard-shortcut-select"),
       shortcutHand: getString("whiteboard-shortcut-hand"),
       shortcutRect: getString("whiteboard-shortcut-rect"),
@@ -1034,7 +1058,17 @@ function mountWhiteboardUI(
     onChange(rev) {
       session.saveCoordinator?.markChanged(rev);
       refreshTabTitle(session);
-      scheduleAutosave(session);
+      if (!session.transitioning) scheduleAutosave(session);
+    },
+    onSwitchWindow() {
+      const item = Zotero.Items.get(session.itemID);
+      if (item)
+        void openWhiteboardSurface(item, {
+          surface: session.surface === "window" ? "tab" : "window",
+        }).catch((error) => {
+          ztoolkit.log("Failed to switch Canvas window", error);
+          toast(getString("whiteboard-open-failed"));
+        });
     },
     onSave() {
       void saveSession(session);
@@ -1127,53 +1161,83 @@ function mountWhiteboardUI(
   bindSessionTheme(win, session);
 }
 
-export async function openWhiteboardTab(
+type SurfaceOptions = {
+  win?: _ZoteroTypes.MainWindow;
+  surface?: "tab" | "window";
+};
+
+// Serialize openings and transfers per attachment, including rapid double clicks.
+const openings = new Map<number, Promise<string | null>>();
+
+export function openWhiteboardTab(
   item: Zotero.Item,
   options: { win?: _ZoteroTypes.MainWindow } = {},
 ): Promise<string | null> {
-  if (!isWhiteboardAttachment(item)) return null;
-  const win =
-    options.win ||
-    (Zotero.getMainWindow() as _ZoteroTypes.MainWindow | undefined);
-  if (!win) {
-    ztoolkit.log("No main window for whiteboard tab");
-    return null;
+  // Opening an attachment again focuses its current surface.
+  return openWhiteboardSurface(item, options);
+}
+
+export function openWhiteboardWindow(
+  item: Zotero.Item,
+  options: { win?: _ZoteroTypes.MainWindow } = {},
+): Promise<string | null> {
+  return openWhiteboardSurface(item, { ...options, surface: "window" });
+}
+
+function openWhiteboardSurface(item: Zotero.Item, options: SurfaceOptions) {
+  const previous = openings.get(item.id) ?? Promise.resolve();
+  const opening = previous
+    .catch(() => undefined)
+    .then(() => mountWhiteboardSurface(item, options));
+  openings.set(item.id, opening);
+  void opening
+    .finally(() => {
+      if (openings.get(item.id) === opening) openings.delete(item.id);
+    })
+    .catch(() => undefined);
+  return opening;
+}
+
+function focusWhiteboard(session: WhiteboardSession) {
+  session.win.focus();
+  if (session.surface !== "window") {
+    (session.win as _ZoteroTypes.MainWindow).Zotero_Tabs.select(session.tabID);
   }
+  session.editor?.focus();
+}
 
-  ensureDOMGlobals(win);
-
-  const existing = whiteboardRegistry.findByItem(item.id);
-  if (existing) {
-    const existingWin = existing.win;
-    const tabInfo = existingWin.Zotero_Tabs._getTab(existing.tabID);
-    if (tabInfo?.tab) {
-      if (existingWin !== win) {
-        try {
-          existingWin.focus();
-        } catch {
-          // ignore
-        }
-      }
-      try {
-        existingWin.Zotero_Tabs.select(existing.tabID);
-      } catch {
-        existingWin.Zotero_Tabs.select(existing.tabID);
-      }
-      existing.editor?.focus();
+async function mountWhiteboardSurface(
+  item: Zotero.Item,
+  options: SurfaceOptions,
+) {
+  if (!isWhiteboardAttachment(item)) return null;
+  let existing = whiteboardRegistry.findByItem(item.id);
+  if (existing?.closePromise) await existing.closePromise;
+  existing = whiteboardRegistry.findByItem(item.id);
+  if (existing && !existing.win.closed) {
+    if (!options.surface || options.surface === (existing.surface ?? "tab")) {
+      focusWhiteboard(existing);
       return existing.tabID;
     }
-    whiteboardRegistry.unregister(existing.tabID);
+  } else if (existing) {
+    disposeWhiteboardSession(existing);
+    existing = undefined;
   }
-
-  const path = await item.getFilePathAsync();
-  if (!path) {
-    toast(getString("whiteboard-open-failed"));
-    return null;
+  const mainWin = options.win || Zotero.getMainWindow();
+  if (!mainWin) return null;
+  const surface = options.surface ?? "tab";
+  let session: WhiteboardSession | undefined;
+  let closeHost: (() => void) | undefined;
+  if (existing) {
+    existing.transitioning = true;
+    if (existing.view) existing.view.root.inert = true;
   }
-
-  let parsed;
   try {
-    parsed = await readCanvasFile(path);
+    // Force a snapshot to include viewport changes and edits awaiting autosave.
+    await existing?.saveCoordinator?.request({ force: true });
+    const path = await item.getFilePathAsync();
+    if (!path) throw new Error(getString("whiteboard-open-failed"));
+    const parsed = await readCanvasFile(path);
     for (const issue of parsed.issues) {
       ztoolkit.log("Canvas parse issue", {
         code: issue.code,
@@ -1181,101 +1245,169 @@ export async function openWhiteboardTab(
         message: issue.message,
       });
     }
-  } catch (error) {
-    ztoolkit.log("Failed to read whiteboard file", error);
-    toast(getString("whiteboard-open-failed"));
-    return null;
-  }
-
-  const canvasId = newCanvasId();
-  const title = attachmentTitle(item);
-  const { id: tabID, container } = win.Zotero_Tabs.add({
-    type: WHITEBOARD_TAB_TYPE,
-    title,
-    data: { itemID: item.id, canvasId },
-    select: false,
-    onClose: () => {
-      void closeWhiteboardSession(tabID);
-    },
-  });
-
-  const host = container as unknown as HTMLElement;
-  host.classList.add("zotero-whiteboard-tab-content");
-  try {
-    host.setAttribute("flex", "1");
-  } catch {
-    // ignore
-  }
-
-  const session: WhiteboardSession = {
-    tabID,
-    canvasId,
-    itemID: item.id,
-    win,
-    path,
-    title,
-  };
-  whiteboardRegistry.register(session);
-
-  try {
-    mountWhiteboardUI(win, host, session, parsed.document);
-  } catch (error) {
-    ztoolkit.log("Failed to mount whiteboard", error);
-    whiteboardRegistry.unregister(tabID);
-    try {
-      win.Zotero_Tabs.close(tabID);
-    } catch {
-      // ignore
+    const canvasId = newCanvasId();
+    const title = attachmentTitle(item);
+    let win: Window = mainWin;
+    let tabID: string;
+    let host: HTMLElement;
+    if (surface === "window") {
+      const opened = mainWin.openDialog(
+        `chrome://${addon.data.config.addonRef}/content/whiteboardWindow.xhtml`,
+        "_blank",
+        "chrome,dialog=no,centerscreen,resizable,width=1200,height=800,minwidth=640,minheight=480",
+      );
+      if (!opened) throw new Error(getString("whiteboard-open-failed"));
+      win = opened;
+      const onClose = (event: Event) => {
+        event.preventDefault();
+        if (session && !session.transitioning) {
+          void closeWhiteboardSession(session.tabID).catch((error) => {
+            ztoolkit.log("Failed to close Canvas window", error);
+          });
+        }
+      };
+      win.addEventListener("close", onClose);
+      closeHost = () => {
+        win.removeEventListener("close", onClose);
+        if (!win.closed) win.close();
+      };
+      await new Promise<void>((resolve, reject) => {
+        if (win.document.getElementById("bamboo-whiteboard-window-root")) {
+          resolve();
+          return;
+        }
+        const timer = mainWin.setTimeout(() => {
+          win.removeEventListener("load", loaded);
+          reject(new Error(getString("whiteboard-open-failed")));
+        }, 8000);
+        const loaded = () => {
+          mainWin.clearTimeout(timer);
+          resolve();
+        };
+        win.addEventListener("load", loaded, { once: true });
+      });
+      const root = win.document.getElementById("bamboo-whiteboard-window-root");
+      if (!root) throw new Error(getString("whiteboard-open-failed"));
+      host = root;
+      tabID = `whiteboard-window-${canvasId}`;
+      injectWhiteboardStyles(win);
+    } else {
+      const tab = mainWin.Zotero_Tabs.add({
+        type: WHITEBOARD_TAB_TYPE,
+        title,
+        data: { itemID: item.id, canvasId },
+        select: false,
+        onClose: () => {
+          void closeWhiteboardSession(tab.id);
+        },
+      });
+      tabID = tab.id;
+      host = tab.container as unknown as HTMLElement;
+      closeHost = () => mainWin.Zotero_Tabs.close(tabID);
     }
-    throw error;
-  }
-
-  try {
-    win.Zotero_Tabs.select(tabID);
-  } catch (error) {
-    ztoolkit.log("select whiteboard tab failed", error);
+    ensureDOMGlobals(win);
+    host.classList.add("zotero-whiteboard-tab-content");
+    host.setAttribute("flex", "1");
+    session = {
+      tabID,
+      canvasId,
+      itemID: item.id,
+      win,
+      path,
+      title,
+      surface,
+      transitioning: true,
+      closeHost,
+    };
+    mountWhiteboardUI(win, host, session, parsed.document);
+    session.view!.root.inert = true;
+    // A failed iframe load must leave the original editor intact.
+    await new Promise<void>((resolve, reject) => {
+      const timer = mainWin.setTimeout(
+        () => reject(new Error("Canvas editor load timeout")),
+        10000,
+      );
+      session!
+        .editor!.ready.then(resolve, reject)
+        .finally(() => mainWin.clearTimeout(timer));
+    });
+    if (existing) {
+      // Acquire once more after loading, in case an in-flight source operation completed.
+      await existing.saveCoordinator?.request({ force: true });
+      session.editor!.loadSnapshot(
+        (await existing.editor!.requestSnapshot()).snapshot,
+      );
+      disposeWhiteboardSession(existing);
+      existing.closeHost?.();
+    }
+    whiteboardRegistry.register(session);
+    session.transitioning = false;
+    session.view!.root.inert = false;
     refreshTabTitle(session);
-    win.Zotero_Tabs.select(tabID);
+    focusWhiteboard(session);
+    return tabID;
+  } catch (error) {
+    if (session) disposeWhiteboardSession(session);
+    closeHost?.();
+    ztoolkit.log("Failed to open whiteboard", error);
+    throw error;
+  } finally {
+    if (existing) {
+      existing.transitioning = false;
+      if (existing.view) existing.view.root.inert = false;
+    }
   }
-  win.setTimeout(() => session.editor?.focus(), 50);
-
-  return tabID;
 }
 
-export async function closeWhiteboardSession(tabID: string): Promise<boolean> {
-  const session = whiteboardRegistry.get(tabID);
-  if (!session || session.closing) return true;
-  if (session.autosaveTimer) {
-    session.win.clearTimeout(session.autosaveTimer);
-    session.autosaveTimer = undefined;
-  }
-  if (isDirty(session)) {
-    const choice = promptUnsaved(session.win);
-    if (choice === "save") {
-      const saved = await saveSession(session);
-      if (!saved) return false;
-      try {
-        await session.saveCoordinator?.flush();
-      } catch {
-        return false;
-      }
-    }
-  } else {
-    try {
-      await session.saveCoordinator?.flush();
-    } catch {
-      return false;
-    }
-  }
+function disposeWhiteboardSession(session: WhiteboardSession) {
   session.closing = true;
+  if (session.autosaveTimer) session.win.clearTimeout(session.autosaveTimer);
   session.unbindTheme?.();
   session.unsubscribeTemplates?.();
   session.unsubscribeTemplates = undefined;
   session.sourceScheduler?.dispose();
   session.sourceScheduler = undefined;
   session.editor?.destroy();
-  whiteboardRegistry.unregister(tabID);
-  return true;
+  session.view?.root.remove();
+  whiteboardRegistry.unregister(session.tabID);
+}
+
+export function closeWhiteboardSession(tabID: string): Promise<boolean> {
+  const session = whiteboardRegistry.get(tabID);
+  if (!session || session.closing) return Promise.resolve(true);
+  if (session.transitioning) return Promise.resolve(false);
+  if (session.closePromise) return session.closePromise;
+  const closing = (async () => {
+    if (session.autosaveTimer) {
+      session.win.clearTimeout(session.autosaveTimer);
+      session.autosaveTimer = undefined;
+    }
+    if (session.view) session.view.root.inert = true;
+    try {
+      if (session.surface === "window") {
+        // Native close is cancelled until this final snapshot is safely on disk.
+        await session.saveCoordinator?.request({ force: true });
+      } else if (isDirty(session)) {
+        if (promptUnsaved(session.win) === "save") {
+          await session.saveCoordinator?.request({ force: true });
+        }
+      } else {
+        await session.saveCoordinator?.flush();
+      }
+      disposeWhiteboardSession(session);
+      if (session.surface === "window") session.closeHost?.();
+      return true;
+    } catch (error) {
+      ztoolkit.log("Failed to close whiteboard", error);
+      toast(getString("whiteboard-save-failed"));
+      return false;
+    } finally {
+      session.closePromise = undefined;
+      if (session.view) session.view.root.inert = false;
+    }
+  })();
+  session.closePromise = closing;
+  return closing;
 }
 
 export async function closeWhiteboardsForWindow(win: Window) {
@@ -1287,6 +1419,7 @@ export async function closeWhiteboardsForWindow(win: Window) {
 }
 
 export async function closeAllWhiteboards() {
+  await Promise.allSettled([...openings.values()]);
   await Promise.all(
     whiteboardRegistry
       .all()
@@ -1295,6 +1428,7 @@ export async function closeAllWhiteboards() {
 }
 
 export async function flushAllWhiteboards(): Promise<void> {
+  await Promise.allSettled([...openings.values()]);
   await Promise.all(
     whiteboardRegistry
       .all()

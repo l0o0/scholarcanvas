@@ -208,6 +208,7 @@ export function createWhiteboardEditor(
     templates?: NoteTemplate[];
     onChange?: (rev: number) => void;
     onSave?: () => void;
+    onSwitchWindow?: () => void;
     onSaveNoteTemplate?: (template: NoteTemplate) => void;
     onDeleteNoteTemplate?: (templateId: string) => void;
     onError?: (message: string) => void;
@@ -286,7 +287,7 @@ export function createWhiteboardEditor(
   iframe.className = "zmd-whiteboard-iframe";
   iframe.setAttribute(
     "src",
-    `${whiteboardPageURL()}?channel=${encodeURIComponent(channel)}`,
+    `${whiteboardPageURL()}?channel=${encodeURIComponent(channel)}&v=${Date.now()}`,
   );
   Object.assign(iframe.style, {
     border: "none",
@@ -391,6 +392,9 @@ export function createWhiteboardEditor(
         }
         break;
       }
+      case "switchWindow":
+        options.onSwitchWindow?.();
+        break;
       case "save":
         options.onSave?.();
         break;

@@ -31,12 +31,21 @@ const cache = new Map<
 const CACHE_LIMIT = 2500;
 
 function parseLine(text: string, active: boolean): CachedLineParse {
-  const images = parseMarkdownImages(text);
+  const inlines = parseInlineL2(text);
+  const images = parseMarkdownImages(text).filter(
+    (image) =>
+      !inlines.some(
+        (range) =>
+          range.kind === "code" &&
+          range.from <= image.from &&
+          range.to >= image.to,
+      ),
+  );
   return {
     heading: parseAtxHeading(text),
     list: parseListPrefix(text),
     quote: parseBlockQuotePrefix(text),
-    inlines: parseInlineL2(text),
+    inlines,
     imagePlans: planLiveImageDecorations(text, active, images),
     images,
   };

@@ -81,6 +81,8 @@ import { getString } from "../../utils/locale";
 import type { EditorOutlineItem, EditorTheme } from "./editor-protocol";
 import { mountOutlineSidebar } from "./outline-sidebar";
 import { documentSyncRegistry } from "./document-sync";
+import { navigateDocumentLink, searchDocumentLinks } from "./document-links";
+import { switchMarkdownSurface } from "./window";
 
 const AUTOSAVE_MS = 800;
 const TITLE_SYNC_MS = 1000;
@@ -1009,11 +1011,26 @@ function mountEditorUI(
     { mount: root, about: markdownSettingsAbout() },
   );
   view.previewEl.addEventListener("click", (event) => {
-    const anchor = (event.target as Element | null)?.closest?.("a");
-    const href = anchor?.getAttribute("href");
-    if (!href || !/^https?:/i.test(href)) return;
+    const target = event.target as Element | null;
+    const anchor = target?.closest?.("a");
+    const wiki = target?.closest?.("[data-zmd-wikilink]");
+    const href =
+      anchor?.getAttribute("href") ||
+      (wiki?.getAttribute("data-zmd-wikilink")
+        ? `[[${wiki.getAttribute("data-zmd-wikilink") || ""}]]`
+        : null);
+    if (!href) return;
     event.preventDefault();
-    Zotero.launchURL(href);
+    navigateDocumentLink(item, win, href);
+  });
+  view.previewEl.addEventListener("keydown", (event) => {
+    if ((event as KeyboardEvent).key !== "Enter") return;
+    const target = event.target as Element | null;
+    const wiki = target?.closest?.("[data-zmd-wikilink]");
+    const name = wiki?.getAttribute("data-zmd-wikilink");
+    if (!name) return;
+    event.preventDefault();
+    navigateDocumentLink(item, win, `[[${name}]]`);
   });
   bindTablePicker(session);
   mountMoreMenu(session);
@@ -1083,6 +1100,8 @@ function mountEditorUI(
         return Promise.resolve({ error: getString("error-attachment-gone") });
       return resolveImageAssetEntry(item, reference);
     },
+    onLinkSearch: (query) => searchDocumentLinks(item, query),
+    onOpenLink: (href) => navigateDocumentLink(item, win, href),
   });
   ztoolkit.log("[Bamboo][EditorDebug] tab-editor-created", {
     tabID: session.tabID,
@@ -1211,7 +1230,11 @@ function mountMoreMenu(session: OpenSession) {
       button.type = "button";
       button.className = "zotero-markdown-more-menu-item";
       button.dataset.menuAction = item.action;
-      button.append(moreMenuLabel(item.action));
+      button.append(
+        item.action === "open-window" && session.surface === "window"
+          ? getString("more-open-tab")
+          : moreMenuLabel(item.action),
+      );
       if (item.shortcut) {
         const shortcut = menu.ownerDocument.createElement("span");
         shortcut.className = "zotero-markdown-more-menu-shortcut";
@@ -1263,6 +1286,16 @@ function mountMoreMenu(session: OpenSession) {
       ?.closest?.("[data-menu-action]")
       ?.getAttribute("data-menu-action") as MoreMenuAction | null;
     if (!action) return;
+    if (action === "open-window") {
+      close();
+      void switchMarkdownSurface(session).catch((error) => {
+        ztoolkit.log("Failed to switch Markdown window", error);
+        new ztoolkit.ProgressWindow(addon.data.config.addonName)
+          .createLine({ text: getString("error-open-window"), type: "fail" })
+          .show();
+      });
+      return;
+    }
     if (action === "mode") {
       const opening = !!modeMenu?.hidden;
       if (modeMenu) modeMenu.hidden = !opening;

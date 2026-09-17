@@ -1019,3 +1019,29 @@ test("serializes the canonical JSON Canvas format", () => {
   assert.equal(encoded.version, 1);
   assert.equal((encoded.bamboo as Record<string, unknown>).schemaVersion, 2);
 });
+
+test("connection sides survive JSON Canvas import, changing endpoints, and export", () => {
+  const file = canvasDocumentToFile(document, { now: NOW });
+  file.edges = [
+    {
+      id: "sides",
+      fromNode: "lit-1",
+      toNode: "quote-1",
+      fromSide: "bottom",
+      toSide: "top",
+      label: "支持",
+    },
+  ];
+  const parsed = canvasFileToDocument(file).document;
+  assert.equal(parsed.connections[0].sourceHandle, "bottom");
+  assert.equal(parsed.connections[0].targetHandle, "top");
+  parsed.connections[0].targetHandle = "right";
+  const saved = canvasDocumentToFile(parsed, { now: NOW });
+  assert.equal(saved.edges[0].fromSide, "bottom");
+  assert.equal(saved.edges[0].toSide, "right");
+  assert.equal(saved.edges[0].label, "支持");
+  assert.deepEqual(
+    canvasFileToDocument(saved).document.connections,
+    parsed.connections,
+  );
+});

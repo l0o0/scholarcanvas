@@ -1,10 +1,14 @@
-# Bamboo 竹子
+# Scholar Canvas
+
+**Markdown & Whiteboard for Zotero**
+
+Zotero 中的 Markdown 编辑器与可视化白板
 
 [![Zotero compatibility](https://img.shields.io/badge/Zotero-9%2F10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![version](https://img.shields.io/badge/version-0.1.7-blue?style=flat-square)](https://github.com/l0o0/bamboo/releases)
 [![license](https://img.shields.io/badge/license-AGPL--3.0-orange?style=flat-square)](../LICENSE)
 
-**Bamboo 竹子让 Zotero 原生支持 Markdown。** 把 `.md` 文件当作一等公民附件——在 Zotero 内打开、编辑、预览、创建。
+**在 Zotero 中书写 Markdown，用可视化白板连接文献与想法。** 创建、编辑和预览原生 `.md` 附件，并在 `.canvas` 白板上组织文献、摘录和笔记。
 
 [English](../README.md) | [简体中文](README-zhCN.md)
 
@@ -14,7 +18,7 @@
 
 Zotero 擅长文献收集与组织。在 AI 时代，**纯 Markdown 文件**才是知识工具之间的通用货币（Obsidian、大模型、静态站点、Git）。
 
-[Better Notes](https://github.com/windingwind/zotero-better-notes) 大幅增强了 Zotero 自带的 **Note**，但那仍然是 Zotero 笔记，不是磁盘上的原生 `.md` 文件。**Bamboo 竹子**补上这块短板：与 Better Notes **互补**、不触碰 Note，让 Markdown 文件成为 Obsidian 与 AI 工作流里直接可用的纯文本。
+[Better Notes](https://github.com/windingwind/zotero-better-notes) 大幅增强了 Zotero 自带的 **Note**，但那仍然是 Zotero 笔记，不是磁盘上的原生 `.md` 文件。**Scholar Canvas** 补上这块短板：与 Better Notes **互补**、不触碰 Note，让 Markdown 文件成为 Obsidian 与 AI 工作流里直接可用的纯文本。
 
 ---
 
@@ -29,6 +33,17 @@ Zotero 擅长文献收集与组织。在 AI 时代，**纯 Markdown 文件**才�
 - 偏好设置中可关闭打开拦截
 - 烤肉串菜单提供文档信息、安全重命名、打开所在文件夹和插件设置
 - 可将 Markdown 外链图片导入当前附件的 `assets/` 目录，支持离线使用
+- 在 Live 模式下拖拽图片四角调整大小，也可选择预设尺寸或输入像素宽度；通过图片工具条或阅读预览查看原图
+- **多屏使用**：Markdown 和 Canvas 均可通过 **更多 → 在独立窗口打开** 或附件右键菜单打开独立窗口，拖到另一块屏幕编辑。通过 **更多 → 返回 Zotero 标签页** 移回主窗口；切换与关闭前会保存内容。
+
+### Canvas 白板
+
+- 新建空白白板，或从 Zotero 分类创建白板
+- 将文献拖入画布，从来源卡片中浏览并添加摘录
+- 创建笔记、问题、观点、证据和总结卡片，按写作提示开始记录，通过分组框和连线组织想法
+- 以 `.canvas` 附件保存白板，并在 Zotero 内重新打开
+- 通过内置示例学习操作：包含离线图片、可编辑的 Markdown 附件和配色示范
+- 以 1×、2× 或 4× 导出整张白板为 PNG，保留卡片、图片、颜色和连线标签
 
 ### 规划中
 
@@ -67,7 +82,24 @@ pnpm run build
 以及修改 Markdown 专属设置。**导入外链图片**会下载 `http(s)` 图片到当前
 附件的 `assets/` 目录，并把 Markdown 引用改为本地路径，文档离线时也能正常显示。
 
+在 **Live** 模式中，单击图片显示大小工具条。拖拽四角可等比例缩放，也可选择 **小 / 中 / 大** 或输入像素宽度。**自适应** 恢复原始尺寸，并限制在正文宽度内。同一图片的不同引用可独立设置大小，原始附件不变；一次撤销即可恢复整次拖拽。
+
+尺寸以 `<img src="assets/figure.png" alt="图像说明" width="480">` 保存到 `.md` 文件中，阅读预览和 HTML 导出会保留宽度，窄窗口中自动适配正文。工具条的 **查看原图** 或阅读预览中的单击图片，会打开临时查看窗口，可在自适应与 100% 之间切换，不改变笔记排版。
+
 也可以把已有 `.md` 拖进 Zotero（或添加链接附件），双击同样由本插件打开。
+
+---
+
+### 白板
+
+1. 选择 **工具 → 新建白板…** 或 **从分类新建白板…**。
+2. 将 Zotero 条目拖入画布，浏览摘录并添加笔记。
+3. 用分组框整理相关卡片，通过连线梳理论证关系。
+4. 从 **工具 → 最近白板** 或 `.canvas` 附件重新打开白板。
+
+选择 **帮助 → Scholar Canvas：创建示例白板** 可生成新版教程和一份 **开始写作.md** 练习本，带你完成一句话总结、待办事项和插图三个练习，了解 Live / 源码模式与保存方式，再回到白板连接证据并导出分享。已有示例白板会保留。
+
+分享时，点击工具栏的 **导出 PNG** 按钮（2×），或右键画布空白处选择 **导出 PNG · 1× / 2× / 4×**。图片包含整张白板及留白，沿用当前主题，不包含编辑控件。超大图片会提示尝试较低分辨率，不会静默降低清晰度。
 
 ---
 
@@ -108,7 +140,7 @@ pnpm start          # 构建并启动 Zotero，支持热重载
 
 ## 设置
 
-**编辑 → 设置 → Bamboo 竹子**
+**编辑 → 设置 → Scholar Canvas**
 
 - **使用 Markdown 编辑器打开 .md 附件** — 关闭后，`.md` 恢复为系统默认程序打开
 
@@ -116,7 +148,9 @@ pnpm start          # 构建并启动 Zotero，支持热重载
 
 ## 供其他插件调用的 API
 
-Bamboo 竹子在 `Zotero.Bamboo.api.markdown` 暴露进程内 API，供其他插件 / MCP 桥接层在 Zotero 内创建与编辑 `.md` 文档。所有方法均为异步、JSON 友好，失败时抛出 `MarkdownApiError`（`error.code` 稳定不变）。
+Scholar Canvas 原名 Bamboo。为兼容已有更新与集成，仓库地址、XPI 文件名、插件 ID、偏好设置键和 `Zotero.Bamboo` API 命名空间继续沿用原有名称。
+
+Scholar Canvas 在 `Zotero.Bamboo.api.markdown` 暴露进程内 API，供其他插件 / MCP 桥接层在 Zotero 内创建与编辑 `.md` 文档。所有方法均为异步、JSON 友好，失败时抛出 `MarkdownApiError`（`error.code` 稳定不变）。
 
 ```js
 const md = Zotero.Bamboo.api.markdown;
@@ -165,7 +199,7 @@ await md.closeTab(tabID);
 ## 常见问题
 
 **会取代 Better Notes 吗？**  
-不会。Better Notes 增强 Zotero Note；本插件只处理真正的 **Markdown 文件**附件。可以同时安装。
+不会。Better Notes 增强 Zotero Note；Scholar Canvas 管理真正的 **Markdown 文件**和 **Canvas 白板**附件。可以同时安装。
 
 **文件存在哪里？**
 

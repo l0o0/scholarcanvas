@@ -5,6 +5,7 @@ import {
   type TutorialCanvasLabels,
   type TutorialCanvasSample,
 } from "../../../packages/whiteboard/src/model";
+import { createMarkdownAttachment } from "../markdown/create";
 import { getString } from "../../utils/locale";
 import { getPref, setPref } from "../../utils/prefs";
 import { createWhiteboardAttachment } from "./create";
@@ -293,15 +294,39 @@ function productionOnboardingDependencies(): TutorialOnboardingDependencies {
     markCompleted: () => setPref("whiteboardTutorialCreated", true),
     labels: tutorialLabels,
     selectSample: selectTutorialSample,
-    create: (document, filename) =>
-      createWhiteboardAttachment(null, {
-        document,
+    create: async (document, filename) => {
+      const demo = document.nodes.find(
+        (node) => node.id === "tutorial-attachment",
+      );
+      if (!demo || demo.kind !== "attachment")
+        throw new Error("Missing tutorial attachment");
+      const markdown = await createMarkdownAttachment(null, {
+        open: false,
+        silent: true,
         libraryID: Zotero.Libraries.userLibraryID,
-        collections: [],
-        filename,
-        select: false,
-        reportError: false,
-      }),
+        collectionID: null,
+        initialContent: demo.data.preview,
+      });
+      if (!markdown) throw new Error("Could not create tutorial Markdown");
+      try {
+        markdown.setField("title", demo.data.title);
+        await markdown.saveTx({ skipSelect: true });
+        demo.data.attachmentID = markdown.id;
+        const canvas = await createWhiteboardAttachment(null, {
+          document,
+          libraryID: Zotero.Libraries.userLibraryID,
+          collections: [],
+          filename,
+          select: false,
+          reportError: false,
+        });
+        if (!canvas) throw new Error("Could not create tutorial whiteboard");
+        return canvas;
+      } catch (error) {
+        await Zotero.Items.trashTx(markdown.id);
+        throw error;
+      }
+    },
     open: openWhiteboardAttachment,
     log: (message, error) => ztoolkit.log(message, error),
   };
@@ -326,5 +351,23 @@ function tutorialLabels(): TutorialCanvasLabels {
     practice: getString("whiteboard-tutorial-practice"),
     practiceBody: getString("whiteboard-tutorial-practice-body"),
     supports: getString("whiteboard-tutorial-supports"),
+    exampleSource: getString("whiteboard-tutorial-example-source"),
+    exampleSourceBody: getString("whiteboard-tutorial-example-source-body"),
+    exampleQuote: getString("whiteboard-tutorial-example-quote"),
+    exampleQuoteBody: getString("whiteboard-tutorial-example-quote-body"),
+    imageTitle: getString("whiteboard-tutorial-image-title"),
+    imageBody: getString("whiteboard-tutorial-image-body"),
+    attachmentTitle: getString("whiteboard-tutorial-attachment-title"),
+    attachmentBody: getString("whiteboard-tutorial-attachment-body"),
+    attachmentContent: getString("whiteboard-tutorial-attachment-content"),
+    colorNote: getString("whiteboard-tutorial-color-note"),
+    colorSummary: getString("whiteboard-tutorial-color-summary"),
+    organizeAction: getString("whiteboard-tutorial-organize-action"),
+    colorEvidence: getString("whiteboard-tutorial-color-evidence"),
+    colorQuestion: getString("whiteboard-tutorial-color-question"),
+    colorClaim: getString("whiteboard-tutorial-color-claim"),
+    colorBody: getString("whiteboard-tutorial-color-body"),
+    share: getString("whiteboard-tutorial-share"),
+    shareBody: getString("whiteboard-tutorial-share-body"),
   };
 }

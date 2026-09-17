@@ -35,3 +35,17 @@ test("invalid or empty first selections do not create collection membership", ()
     undefined,
   );
 });
+
+test("explicit library-root creation ignores the current collection", () => {
+  assert.equal(
+    resolveMarkdownCollectionID(
+      {
+        getSelectedCollections() {
+          throw new Error("must not inspect selection");
+        },
+      },
+      null,
+    ),
+    undefined,
+  );
+});

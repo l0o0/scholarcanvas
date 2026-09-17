@@ -101,7 +101,53 @@ export interface QuoteNode extends CanvasNodeBase<"quote"> {
   snapshot: QuoteSnapshot;
 }
 
+export const NOTE_TYPES = [
+  "note",
+  "question",
+  "claim",
+  "evidence",
+  "summary",
+] as const;
+export type NoteType = (typeof NOTE_TYPES)[number];
+
+export function isNoteType(value: unknown): value is NoteType {
+  return NOTE_TYPES.some((type) => type === value);
+}
+
+// Older cards stored their role in the visible badge. Explicit types always win.
+const LEGACY_NOTE_TYPES: Record<string, NoteType> = {
+  Note: "note",
+  "\u7b14\u8bb0": "note",
+  Question: "question",
+  "\u95ee\u9898": "question",
+  Claim: "claim",
+  Viewpoint: "claim",
+  "\u4e3b\u5f20": "claim",
+  "\u89c2\u70b9": "claim",
+  Evidence: "evidence",
+  "\u8bc1\u636e": "evidence",
+  Summary: "summary",
+  "\u603b\u7ed3": "summary",
+};
+
+export function getNoteType(note: NoteNode): NoteType {
+  return note.noteType ?? legacyNoteType(note) ?? "note";
+}
+
+export function getNoteTitle(note: NoteNode): string | undefined {
+  return note.noteType === undefined && legacyNoteType(note)
+    ? undefined
+    : note.badge;
+}
+
+function legacyNoteType(note: NoteNode): NoteType | undefined {
+  return note.badge && Object.hasOwn(LEGACY_NOTE_TYPES, note.badge)
+    ? LEGACY_NOTE_TYPES[note.badge]
+    : undefined;
+}
+
 export interface NoteNode extends CanvasNodeBase<"note"> {
+  noteType?: NoteType;
   content: string;
   badge?: string;
   source?: NoteSource;
@@ -167,9 +213,50 @@ export function canvasThemePalette(theme: WhiteboardTheme): CanvasThemePalette {
       };
 }
 
+// Low-chroma paper colors distinguish roles without competing with the text.
+const NOTE_TYPE_SURFACES = {
+  question: {
+    fill: "oklch(96% 0.045 88)",
+    stroke: "oklch(68% 0.10 85)",
+    radius: 16,
+    strokeWidth: 1,
+    strokeStyle: "dashed",
+  },
+  claim: {
+    fill: "oklch(95% 0.032 148)",
+    stroke: "oklch(61% 0.08 150)",
+    radius: 8,
+    strokeWidth: 2,
+    strokeStyle: "solid",
+  },
+  evidence: {
+    fill: "oklch(96% 0.028 240)",
+    stroke: "oklch(66% 0.075 240)",
+    radius: 4,
+    strokeWidth: 1,
+    strokeStyle: "solid",
+  },
+  summary: {
+    fill: "oklch(95% 0.028 300)",
+    stroke: "oklch(66% 0.075 300)",
+    radius: 12,
+    strokeWidth: 1,
+    strokeStyle: "solid",
+  },
+} satisfies Record<Exclude<NoteType, "note">, CanvasNodeSurfaceDefaults>;
+const DARK_NOTE_TYPE_COLORS = {
+  question: { fill: "oklch(27% 0.028 88)", stroke: "oklch(65% 0.08 85)" },
+  claim: { fill: "oklch(27% 0.024 148)", stroke: "oklch(63% 0.065 150)" },
+  evidence: { fill: "oklch(27% 0.028 240)", stroke: "oklch(65% 0.07 240)" },
+  summary: { fill: "oklch(27% 0.028 300)", stroke: "oklch(66% 0.07 300)" },
+};
+
 export function canvasNodeSurfaceDefaults(
   kind: CanvasNodeKind,
+  noteType?: NoteType,
 ): CanvasNodeSurfaceDefaults {
+  if (kind === "note" && noteType && noteType !== "note")
+    return { ...NOTE_TYPE_SURFACES[noteType] };
   if (kind === "frame") {
     return {
       stroke: "#d1d5db",
@@ -205,9 +292,12 @@ export function canvasNodeSurfaceDefaults(
 export function canvasNodeUiSurfaceDefaults(
   kind: CanvasNodeKind,
   theme: WhiteboardTheme,
+  noteType?: NoteType,
 ): CanvasNodeSurfaceDefaults {
-  const defaults = canvasNodeSurfaceDefaults(kind);
+  const defaults = canvasNodeSurfaceDefaults(kind, noteType);
   if (theme === "light") return defaults;
+  if (kind === "note" && noteType && noteType !== "note")
+    return { ...defaults, ...DARK_NOTE_TYPE_COLORS[noteType] };
   const palette = canvasThemePalette(theme);
   if (kind === "frame") {
     return { ...defaults, stroke: palette.border };
@@ -309,6 +399,7 @@ export interface QuoteNodeOptions {
 }
 
 export interface NoteNodeOptions {
+  noteType?: NoteType;
   content?: string;
   badge?: string;
   style?: CanvasNodeStyle;
@@ -372,6 +463,9 @@ export function createAcademicNode(
         width: (options as NoteNodeOptions | undefined)?.width ?? 260,
         height: (options as NoteNodeOptions | undefined)?.height ?? 152,
         content: (options as NoteNodeOptions | undefined)?.content ?? "",
+        ...((options as NoteNodeOptions | undefined)?.noteType
+          ? { noteType: (options as NoteNodeOptions).noteType }
+          : {}),
         ...((options as NoteNodeOptions | undefined)?.badge !== undefined
           ? { badge: (options as NoteNodeOptions).badge }
           : {}),

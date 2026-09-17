@@ -46,17 +46,55 @@ function parseInline(
       }
     }
 
+    // Wiki links [[name]] / [[name|label]]. Image wikilinks are handled by
+    // the image parser and must never become document navigation links.
+    if (
+      opts.link &&
+      line[i] === "[" &&
+      line[i + 1] === "[" &&
+      (i === 0 || line[i - 1] !== "!")
+    ) {
+      const close = line.indexOf("]]", i + 2);
+      if (close > i + 2) {
+        const raw = line.slice(i + 2, close);
+        const separator = raw.indexOf("|");
+        const labelStart = separator < 0 ? i + 2 : i + 2 + separator + 1;
+        const label = separator < 0 ? raw : raw.slice(separator + 1);
+        if (raw.trim() && label.trim()) {
+          out.push({ from: i, to: i + 2, kind: "mark" });
+          if (labelStart > i + 2) {
+            out.push({ from: i + 2, to: labelStart, kind: "mark" });
+          }
+          out.push({
+            from: labelStart,
+            to: close,
+            kind: "link",
+            href: line.slice(i, close + 2),
+          });
+          out.push({ from: close, to: close + 2, kind: "mark" });
+          i = close + 2;
+          continue;
+        }
+      }
+    }
+
     // Links [text](url)
     if (opts.link && line[i] === "[") {
-      const closeBracket = line.indexOf("]", i + 1);
+      const closeBracket = findUnescaped(line, "]", i + 1);
       if (
         closeBracket > i &&
+        (i === 0 || line[i - 1] !== "!") &&
         line[closeBracket + 1] === "(" &&
-        line.indexOf(")", closeBracket + 2) !== -1
+        findUnescaped(line, ")", closeBracket + 2) !== -1
       ) {
-        const closeParen = line.indexOf(")", closeBracket + 2);
+        const closeParen = findUnescaped(line, ")", closeBracket + 2);
         out.push({ from: i, to: i + 1, kind: "mark" }); // [
-        out.push({ from: i + 1, to: closeBracket, kind: "link" });
+        out.push({
+          from: i + 1,
+          to: closeBracket,
+          kind: "link",
+          href: line.slice(closeBracket + 2, closeParen),
+        });
         out.push({ from: closeBracket, to: closeParen + 1, kind: "mark" }); // ](url)
         i = closeParen + 1;
         continue;
@@ -123,4 +161,21 @@ function parseInline(
     i++;
   }
   return out;
+}
+
+/** Find a delimiter that is not escaped by an odd run of backslashes. */
+function findUnescaped(line: string, delimiter: string, from: number): number {
+  for (let index = from; index < line.length; index++) {
+    if (line[index] !== delimiter) continue;
+    let slashes = 0;
+    for (
+      let previous = index - 1;
+      previous >= 0 && line[previous] === "\\";
+      previous--
+    ) {
+      slashes++;
+    }
+    if (slashes % 2 === 0) return index;
+  }
+  return -1;
 }

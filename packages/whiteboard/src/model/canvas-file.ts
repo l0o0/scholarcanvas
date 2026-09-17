@@ -1,6 +1,6 @@
 import type { AcademicNode } from "./academic";
 import type { CanvasNode } from "./academic";
-import type { CanvasConnection } from "./connection";
+import { isConnectionSide, type CanvasConnection } from "./connection";
 import {
   CANVAS_DOCUMENT_VERSION,
   CanvasDocumentError,
@@ -357,6 +357,7 @@ function payloadSchema(kind: unknown): PayloadSchema | undefined {
         ...common,
         content: true,
         badge: true,
+        noteType: true,
         source: {
           library: LIBRARY_SCHEMA,
           noteKey: true,
@@ -599,6 +600,12 @@ function toCanvasEdge(connection: CanvasConnection): CanvasFileEdge {
     id: connection.id,
     fromNode: connection.source,
     toNode: connection.target,
+    ...(isConnectionSide(connection.sourceHandle)
+      ? { fromSide: connection.sourceHandle }
+      : {}),
+    ...(isConnectionSide(connection.targetHandle)
+      ? { toSide: connection.targetHandle }
+      : {}),
     ...(connection.label !== undefined ? { label: connection.label } : {}),
     ...(connection.color !== undefined ? { color: connection.color } : {}),
     bamboo: {
@@ -760,6 +767,8 @@ function decodeEdge(value: unknown): unknown {
     "id",
     "fromNode",
     "toNode",
+    "fromSide",
+    "toSide",
     "label",
     "color",
     "bamboo",
@@ -788,10 +797,14 @@ function decodeEdge(value: unknown): unknown {
     ...(bamboo?.relation !== undefined ? { relation: bamboo.relation } : {}),
     ...(bamboo?.sourceHandle !== undefined
       ? { sourceHandle: bamboo.sourceHandle }
-      : {}),
+      : isConnectionSide(raw.fromSide)
+        ? { sourceHandle: raw.fromSide }
+        : {}),
     ...(bamboo?.targetHandle !== undefined
       ? { targetHandle: bamboo.targetHandle }
-      : {}),
+      : isConnectionSide(raw.toSide)
+        ? { targetHandle: raw.toSide }
+        : {}),
     ...(raw.label !== undefined ? { label: raw.label } : {}),
     ...(raw.color !== undefined ? { color: raw.color } : {}),
     ...(bamboo?.dashed !== undefined ? { dashed: bamboo.dashed } : {}),

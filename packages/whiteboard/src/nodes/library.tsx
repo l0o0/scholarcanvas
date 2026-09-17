@@ -83,6 +83,14 @@ export function AttachmentNode({ data, selected }: NodeProps<CanvasFlowNode>) {
       {model.data.subtitle ? (
         <p className="zmd-board-card-meta">{model.data.subtitle}</p>
       ) : null}
+      {model.data.preview ? (
+        <p
+          className="zmd-board-attachment-preview"
+          style={nodeTextStyle(model.style ?? {})}
+        >
+          {model.data.preview}
+        </p>
+      ) : null}
     </CardShell>
   );
 }

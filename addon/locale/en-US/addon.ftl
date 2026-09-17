@@ -1,5 +1,5 @@
-startup-begin = Bamboo 竹子 is loading
-startup-finish = Bamboo 竹子 is ready
+startup-begin = Scholar Canvas is loading
+startup-finish = Scholar Canvas is ready
 menuitem-create-md = New Markdown…
 menuitem-create-standalone-md = New Standalone Markdown…
 menuitem-create-item-md = New Item Markdown…
@@ -20,28 +20,29 @@ whiteboard-unsaved-title = Unsaved board
 whiteboard-unsaved-prompt = This board has unsaved changes. Save before closing?
 whiteboard-pdf-page-title = PDF Page
 whiteboard-pdf-page-prompt = Which page should be snapshotted as the card image?
-whiteboard-tutorial-title = Bamboo Academic Whiteboard.canvas
-menuitem-create-example-whiteboard = Bamboo: Create Example Whiteboard
+whiteboard-tutorial-title = Scholar Canvas Academic Whiteboard.canvas
+menuitem-create-example-whiteboard = Scholar Canvas: Create Example Whiteboard
 whiteboard-tutorial-welcome = Welcome
 whiteboard-tutorial-welcome-body = Follow this path to turn reading into connected thinking.
-whiteboard-tutorial-source-notice = Sample cards come from your library; Bamboo does not change the source items.
+whiteboard-tutorial-source-notice = Sample cards come from your library; Scholar Canvas does not change the source items.
 whiteboard-tutorial-add-literature = Add Literature
-whiteboard-tutorial-add-literature-body = Drag a Zotero item onto the canvas.
+whiteboard-tutorial-add-literature-body = Click Add literature above, or drag a Zotero item onto the canvas.
 whiteboard-tutorial-browse-quotes = Browse Quotes
 whiteboard-tutorial-browse-quotes-body = Open the literature card and add useful excerpts.
 whiteboard-tutorial-write-note = Write a Note
-whiteboard-tutorial-write-note-body = Start with a Question or Claim template, then edit it.
+whiteboard-tutorial-write-note-body = Open the Note menu above, choose a card type, then click the canvas to start writing.
 whiteboard-tutorial-question-badge = Question
-whiteboard-tutorial-claim-badge = Claim
-whiteboard-tutorial-organize = Organize
-whiteboard-tutorial-organize-body = Group related cards in a Frame.
-whiteboard-tutorial-practice = Practice
-whiteboard-tutorial-practice-body = Drag in another Zotero item and keep building.
+whiteboard-tutorial-claim-badge = Viewpoint
+whiteboard-tutorial-organize = Five card types, one line of thought
+whiteboard-tutorial-organize-body = Drag the corner handles to resize a card or Frame. Double-click a card border to change its fill and outline; double-click its body to edit text.
+whiteboard-tutorial-practice = Try it yourself
+whiteboard-tutorial-practice-body = Open Start writing.md and complete the exercises. Put your interpretation in a Viewpoint card, then use a Summary card to collect agreements, differences, and next steps.
+
 whiteboard-tutorial-supports = supports
 whiteboard-add-item = Add literature
 whiteboard-add-note = Note
 whiteboard-add-question = Question
-whiteboard-add-claim = Claim
+whiteboard-add-claim = Viewpoint
 whiteboard-add-frame = Frame
 whiteboard-add-pdf = PDF
 whiteboard-add-file = File
@@ -54,12 +55,21 @@ whiteboard-kind-literature = Literature
 whiteboard-kind-quote = Quote
 whiteboard-kind-note = Note
 whiteboard-note-empty = Empty note
-whiteboard-badge = Badge
+whiteboard-badge = Title (optional)
+whiteboard-add-evidence = Evidence
+whiteboard-add-summary = Summary
+whiteboard-note-type = Card type
+whiteboard-note-prompt = Capture a thought or reading note.
+whiteboard-question-prompt = What do I want to understand?
+whiteboard-claim-prompt = What is my view, and why?
+whiteboard-evidence-prompt = Which passage, data, or example matters?
+whiteboard-summary-prompt = What agrees, what differs, and what remains open?
+whiteboard-edit-note-body = Edit body
 whiteboard-apply-template = Apply template
-whiteboard-choose-template = Choose a template
+whiteboard-choose-template = Choose a template to apply…
 whiteboard-save-as-template = Save as template
 whiteboard-template-name = Template name
-whiteboard-include-template-content = Include current content
+whiteboard-include-template-content = Include body text
 whiteboard-custom-templates = Custom templates
 whiteboard-no-custom-templates = No custom templates
 whiteboard-rename-template = Rename template
@@ -148,6 +158,7 @@ whiteboard-shortcuts-title = Keyboard shortcuts
 whiteboard-close = Close
 whiteboard-stroke = Stroke
 whiteboard-background = Background
+whiteboard-transparent = Transparent
 whiteboard-style = Style
 whiteboard-solid = Solid
 whiteboard-dashed = Dashed
@@ -168,6 +179,9 @@ whiteboard-weight-regular = Regular
 whiteboard-weight-bold = Bold
 whiteboard-colors-common = Common custom colors
 whiteboard-colors-recent = Recently used colors
+whiteboard-color-opacity = Opacity
+whiteboard-color-custom = Custom color
+whiteboard-color-reset = Restore default
 whiteboard-shortcut-select = Select
 whiteboard-shortcut-hand = Pan canvas
 whiteboard-shortcut-rect = Draw rectangle
@@ -176,7 +190,7 @@ whiteboard-shortcut-arrow = Draw arrow
 whiteboard-shortcut-line = Draw line
 whiteboard-shortcut-text = Add text
 whiteboard-shortcut-question = Add question
-whiteboard-shortcut-claim = Add claim
+whiteboard-shortcut-claim = Add viewpoint
 whiteboard-shortcut-frame = Add frame
 whiteboard-shortcut-eraser = Erase
 whiteboard-shortcut-constrain = Constrain ratio or angle while drawing
@@ -185,7 +199,7 @@ whiteboard-shortcut-delete = Delete selection
 whiteboard-shortcut-undo = Undo
 whiteboard-shortcut-redo = Redo
 menuitem-open-whiteboard = Open Whiteboard
-prefs-title = Bamboo 竹子
+prefs-title = Scholar Canvas
 
 sidebar-section-label =
     .label = Markdown
@@ -203,6 +217,13 @@ sidebar-saved = Saved
 sidebar-unsaved = Unsaved changes
 sidebar-save-failed = Save failed
 sidebar-attachment-gone = Attachment no longer exists
+document-link-unresolved = Document link could not be resolved
+document-link-unsupported = This link type is not supported
+document-link-ambiguous = Multiple documents match; choose one ({ $count })
+document-link-choose = Choose a Scholar Canvas document
+document-link-kind-markdown = Markdown
+document-link-kind-canvas = Canvas
+document-link-kind-regular = Zotero item
 markdown-outline-title = Outline
 markdown-outline-toggle = Toggle outline
 markdown-outline-empty = Outline is empty
@@ -336,3 +357,137 @@ error-image-too-large = Images must be 15 MB or smaller.
 error-attachment-directory = Could not locate the attachment directory.
 export-html-title = Export HTML
 settings-shortcut-edit-aria = Edit shortcut
+
+whiteboard-tutorial-image-title = Images & PDF snapshots
+
+whiteboard-tutorial-image-body = Keep a visual beside your ideas.
+
+whiteboard-tutorial-attachment-title = Start writing.md
+
+whiteboard-tutorial-attachment-body = Right-click to open. Try three writing exercises.
+
+whiteboard-tutorial-attachment-content = # Start writing
+
+    This file is your practice notebook. Complete three short exercises, then return to the whiteboard to connect what you have learned.
+
+    ## 1. Write a one-sentence summary
+
+    Replace the sentence below with an idea from your reading. Select words and use the toolbar to make them bold, or type `**important words**`.
+
+    My summary: **Write your own interpretation of the reading here.**
+
+    > This is an example quotation. Keep the original words in a quote block and write your interpretation outside it.
+
+    - Source: add the paper title.
+    - Evidence: record a page number or passage location.
+    - Question: what still needs checking?
+
+    The headings, lists, and quotation above are editable. Switch to Source mode to see how `##`, `-`, and `>` organize the text.
+
+    You can also add links, such as the [Zotero website](https://www.zotero.org/). The syntax is `[link text](URL)`; replace it with a link to your own material.
+
+    ## 2. Add a task
+
+    Add a specific next step below. `- [ ]` marks an unfinished task and `- [x]` marks a completed one. You can also insert a task list from the toolbar.
+
+    - [x] Open the Markdown practice notebook
+    - [ ] Write your next reading action here
+    - [ ] Return to the whiteboard and connect evidence to a Viewpoint card
+
+    ## 3. Insert an image
+
+    Place the cursor in the next paragraph, click the toolbar's Insert image button, and choose a PNG, JPEG, GIF, or WebP image. You can also paste an image from the clipboard.
+
+    Insert your image here and write a short caption below it.
+
+    In Live mode, click the image and drag a corner to resize proportionally, choose Small / Medium / Large, or enter a pixel width. Auto restores automatic sizing within the reading column. Each occurrence keeps its own size, the original file stays unchanged, and one undo reverses a complete drag.
+
+    Use View original on the image toolbar, or click an image in reading preview, to inspect details in a temporary viewer.
+
+    Inserted images are saved in this attachment's local assets directory. The following is a syntax example, not a loaded image. After inserting your image, inspect its actual path in Source mode.
+
+    ```markdown
+    ![Image description](assets/my-figure.png)
+    ```
+
+    After resizing, the source uses an image tag with a width. Reading preview and HTML export keep that size:
+
+    ```html
+    <img src="assets/my-figure.png" alt="Image description" width="480">
+    ```
+
+    ## Editing and saving
+
+    - **Live preview**: write and see the formatting as you work.
+    - **View the source**: open the editor's More actions → Mode → Source menu to inspect the Markdown. Choose Live to switch back.
+    - **Autosave**: edits save automatically. Check the bottom status bar, or press Ctrl+S (Cmd+S on macOS) to save immediately.
+
+    ## Meet the five card types
+
+    Open the Note menu above to preview each type's appearance and purpose. Choose a type, then click the canvas to create a card.
+
+    | Type | What to capture | Default appearance |
+    | --- | --- | --- |
+    | Note | Thoughts and reading notes | Neutral, soft corners |
+    | Question | What you want to understand | Amber, rounded dashed outline |
+    | Viewpoint | Your interpretation and reasoning | Green, stronger outline |
+    | Evidence | Passages, data, examples, and sources | Blue, square corners |
+    | Summary | Agreements, differences, and next steps | Lavender, rounded corners |
+
+    Select a card to see its current Card type on the right. Switching types keeps its body, title, dimensions, and custom styling; default colors and corners follow the type. Titles are optional, and empty cards show a writing prompt.
+
+    Custom templates are reusable starting points. Expand that section to save your own card template. Applying a template preserves an existing card's body text.
+
+    ## Back to the whiteboard: organize and share
+
+    1. Switch back to the example whiteboard tab.
+    2. Use a Viewpoint card for your interpretation and a Summary card for agreements, differences, and next steps.
+    3. Add a relevant excerpt from a literature card, then connect the evidence to your viewpoint.
+    4. Select a card or Frame and drag its corner handles to resize. Double-click a card border to change its appearance, or its body to edit text.
+    5. Use the left toolbar's Export PNG button (2× by default), or right-click empty canvas space to choose 1×, 2×, or 4× and save the whole board.
+
+    Hover a card edge and drag a connection dot from any side to a dot on another card. Release when the target highlights. Moving a card keeps the chosen connection sides. To reconnect a line, hover over it and drag either endpoint; releasing on empty space keeps the original connection.
+
+    Keep editing this notebook and make it your own reading record.
+
+whiteboard-tutorial-color-evidence = Keep a relevant passage, data point, or example with its source.
+
+whiteboard-tutorial-color-question = What do I want to understand? What still needs checking?
+
+whiteboard-tutorial-color-claim = State your interpretation and explain why you think it holds.
+
+whiteboard-tutorial-color-body = Select a card to see its type on the right. Switching types keeps the body and custom styling. Titles are optional; custom templates live in their own section.
+
+whiteboard-tutorial-share = Share your thinking
+
+whiteboard-tutorial-share-body = Export from the left toolbar at 2×, or right-click empty canvas space to choose 1×, 2×, or 4×. Share the whole board with its colors and images intact.
+
+whiteboard-exporting = Rendering PNG…
+whiteboard-export-render-failed = Could not render PNG. Check that images have loaded, or try a lower resolution.
+
+whiteboard-tutorial-example-source = Your first source
+
+whiteboard-tutorial-example-source-body = Drag a paper from your library here. Its title and source stay together, so you can always return to the original.
+
+whiteboard-tutorial-example-quote = Make room for evidence
+
+whiteboard-tutorial-example-quote-body = Add an excerpt that matters to your question. Keep the original words, then write your interpretation in a separate note. Connect the two to make your reasoning visible.
+
+whiteboard-tutorial-organize-action = Arrange and personalize
+
+whiteboard-tutorial-color-note = Capture a reading note or a thought to revisit later.
+
+whiteboard-tutorial-color-summary = Bring together agreements, differences, and the next question to explore.
+
+more-open-window = Open in standalone window
+more-open-tab = Return to Zotero tab
+
+image-size-toolbar = Image size
+image-size-width = Width
+image-size-small = Small
+image-size-medium = Medium
+image-size-large = Large
+image-size-auto = Auto
+image-view-original = View original
+image-view-close = Close image
+image-size-resize = Resize image (arrow keys, Shift for larger steps)

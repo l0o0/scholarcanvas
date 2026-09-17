@@ -27,6 +27,8 @@ function renderToolbar(selectedNodeCount: number, selectedEdgeCount: number) {
         note: "Note",
         question: "Question",
         claim: "Claim",
+        evidence: "Evidence",
+        summary: "Summary",
       }),
       activeNoteTemplateId: "bamboo.note",
       onSelectNoteTemplate: () => {},
@@ -54,10 +56,10 @@ function commandGroup(markup: string, command: string) {
     ?.find((group) => group.includes(`title="${command}"`));
 }
 
-test("toolbar keeps conditional command sets together and wraps when constrained", () => {
+test("toolbar keeps the top row compact and puts conditional commands on the side", () => {
   const base = css.match(/\.zmd-board-top-island\s*\{([^}]*)\}/)?.[1];
   assert.ok(base, "missing base toolbar rule");
-  assert.match(base, /flex-wrap:\s*wrap/);
+  assert.match(base, /flex-wrap:\s*nowrap/);
 
   const compact = css.match(
     /@media \(max-width: 640px\) \{([\s\S]+)\}\s*$/,
@@ -65,18 +67,18 @@ test("toolbar keeps conditional command sets together and wraps when constrained
   assert.ok(compact, "missing narrow-toolbar media query");
   assert.match(
     compact,
-    /\.zmd-board-top-island\s*\{[^}]*width:\s*calc\(100% - 16px\)/s,
+    /\.zmd-board-top-island\s*\{[^}]*max-width:\s*calc\(100% - 16px\)/s,
   );
-  assert.match(compact, /\.zmd-board-top-island\s*\{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(compact, /\.zmd-board-top-island\s*\{[^}]*flex-wrap:\s*nowrap/s);
   assert.match(compact, /\.zmd-board-top-group\s*\{[^}]*flex:\s*0 0 auto/s);
-  assert.match(compact, /\.zmd-board-properties\s*\{[^}]*top:\s*138px/s);
+  assert.match(compact, /\.zmd-board-properties\s*\{[^}]*top:\s*64px/s);
   assert.match(
     compact,
-    /\.zmd-board-properties\s*\{[^}]*left:\s*8px[^}]*right:\s*8px/s,
+    /\.zmd-board-properties\s*\{[^}]*left:\s*64px[^}]*right:\s*8px/s,
   );
   assert.match(
     compact,
-    /\.zmd-board-properties\s*\{[^}]*width:\s*auto[^}]*max-height:\s*calc\(100% - 146px\)[^}]*overflow-y:\s*auto/s,
+    /\.zmd-board-properties\s*\{[^}]*width:\s*auto[^}]*max-height:\s*calc\(100% - 72px\)[^}]*overflow-y:\s*auto/s,
   );
 
   const nodeGroup = commandGroup(renderToolbar(3, 0), "alignLeft");
@@ -154,6 +156,8 @@ test("toolbar exposes Literature as its only library acquisition tool", () => {
         note: "Note",
         question: "Question",
         claim: "Claim",
+        evidence: "Evidence",
+        summary: "Summary",
       }),
       activeNoteTemplateId: "bamboo.note",
       onSelectNoteTemplate: () => {},

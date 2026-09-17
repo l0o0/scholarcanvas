@@ -63,3 +63,54 @@ test("does not accept another tab's outline update", () => {
     false,
   );
 });
+
+test("validates document-link bridge payloads and candidates", () => {
+  assert.equal(
+    isEditorProtocolMessageForChannel(
+      {
+        source: EDITOR_MESSAGE_SOURCE,
+        channel: "tab-1:item-101",
+        type: "openLink",
+        payload: { href: "zotero://select/library/items/AB12CD34" },
+      },
+      "tab-1:item-101",
+    ),
+    true,
+  );
+  assert.equal(
+    isEditorProtocolMessageForChannel(
+      {
+        source: EDITOR_MESSAGE_SOURCE,
+        channel: "tab-1:item-101",
+        type: "linkSearch",
+        payload: { requestId: -1, query: "x" },
+      },
+      "tab-1:item-101",
+    ),
+    false,
+  );
+  assert.equal(
+    isEditorProtocolMessageForChannel(
+      {
+        source: EDITOR_MESSAGE_SOURCE,
+        channel: "tab-1:item-101",
+        type: "linkSearchResults",
+        payload: {
+          requestId: 1,
+          query: "x",
+          results: [
+            {
+              key: "AB12CD34",
+              libraryID: 1,
+              title: "Doc",
+              kind: "markdown",
+              href: "javascript:alert(1)",
+            },
+          ],
+        },
+      },
+      "tab-1:item-101",
+    ),
+    false,
+  );
+});

@@ -1,11 +1,19 @@
 import { useState } from "react";
-import type { NoteNode } from "../model/academic";
+import {
+  NOTE_TYPES,
+  getNoteType,
+  getNoteTitle,
+  isNoteType,
+  type NoteType,
+  type NoteNode,
+} from "../model/academic";
 import {
   BUILTIN_NOTE_TEMPLATE_IDS,
   NOTE_TEMPLATE_LIMITS,
   type NoteTemplate,
 } from "../model/note-template";
 import type { WhiteboardLabels } from "../model/protocol";
+import { noteTypeLabel, noteTypePrompt } from "./labels";
 import { IconCopy, IconTrash } from "../whiteboard/icons";
 
 const BUILTIN_IDS = new Set<string>(Object.values(BUILTIN_NOTE_TEMPLATE_IDS));
@@ -15,6 +23,7 @@ export function NoteTemplateControls(props: {
   note: NoteNode;
   templates: NoteTemplate[];
   onBadgeChange: (badge: string) => void;
+  onTypeChange: (type: NoteType) => void;
   onApply: (templateId: string) => void;
   onSave: (name: string, includeContent: boolean) => void;
   onRename: (templateId: string, name: string) => void;
@@ -31,33 +40,55 @@ export function NoteTemplateControls(props: {
   return (
     <section className="zmd-board-note-template-controls">
       <label>
-        <span>{labels.badge}</span>
-        <input
-          type="text"
-          value={note.badge ?? ""}
-          maxLength={NOTE_TEMPLATE_LIMITS.badge}
-          onChange={(event) => props.onBadgeChange(event.currentTarget.value)}
-        />
-      </label>
-      <label>
-        <span>{labels.applyTemplate}</span>
+        <span>{labels.noteType}</span>
         <select
-          value=""
+          aria-label={labels.noteType}
+          value={getNoteType(note)}
           onChange={(event) => {
-            const templateId = event.currentTarget.value;
-            if (templateId) props.onApply(templateId);
+            const type = event.currentTarget.value;
+            if (isNoteType(type)) props.onTypeChange(type);
           }}
         >
-          <option value="">{labels.chooseTemplate}</option>
-          {templates.map((template) => (
-            <option key={template.id} value={template.id}>
-              {template.name}
+          {NOTE_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {noteTypeLabel(labels, type)}
             </option>
           ))}
         </select>
       </label>
+      <p className="zmd-board-note-prompt">
+        {noteTypePrompt(labels, getNoteType(note))}
+      </p>
+      <label>
+        <span>{labels.badge}</span>
+        <input
+          type="text"
+          value={getNoteTitle(note) ?? ""}
+          maxLength={NOTE_TEMPLATE_LIMITS.badge}
+          onChange={(event) => props.onBadgeChange(event.currentTarget.value)}
+        />
+      </label>
       <details className="zmd-board-template-manager">
         <summary>{labels.customTemplates}</summary>
+        {customTemplates.length ? (
+          <label>
+            <span>{labels.applyTemplate}</span>
+            <select
+              value=""
+              onChange={(event) => {
+                if (event.currentTarget.value)
+                  props.onApply(event.currentTarget.value);
+              }}
+            >
+              <option value="">{labels.chooseTemplate}</option>
+              {customTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <div className="zmd-board-template-save">
           <label>
             <span>{labels.templateName}</span>

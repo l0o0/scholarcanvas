@@ -1,5 +1,6 @@
 export {
   openWhiteboardTab,
+  openWhiteboardWindow,
   closeAllWhiteboards,
   closeWhiteboardsForWindow,
   flushAllWhiteboards,

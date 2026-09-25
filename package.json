@@ -1,7 +1,7 @@
 {
   "name": "scholarcanvas",
   "type": "module",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Markdown & Whiteboard for Zotero — edit Markdown files and connect literature, notes, and ideas on a visual canvas.",
   "config": {
     "addonName": "Scholar Canvas",

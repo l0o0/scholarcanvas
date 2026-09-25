@@ -66,3 +66,10 @@ export function buildDocumentLink(target: {
 export function documentLinkTitle(value: string): string {
   return value.trim().replace(/^(?:zmd-)+/i, "");
 }
+
+/** Canonical PDF/annotation links; reject arbitrary Zotero protocol commands. */
+export function isPdfDocumentLink(value: string): boolean {
+  return /^zotero:\/\/open-pdf\/(?:library|groups\/[1-9][0-9]*)\/items\/[A-Za-z0-9]{8}(?:\?(?:page=[1-9][0-9]*(?:&annotation=[A-Za-z0-9]{8})?|annotation=[A-Za-z0-9]{8}))?$/.test(
+    value,
+  );
+}

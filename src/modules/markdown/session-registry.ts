@@ -14,6 +14,8 @@ export interface SessionView {
   outlineSidebarEl: HTMLElement;
   outlineListEl: HTMLElement;
   outlineToggleEl: HTMLButtonElement;
+  backlinksSidebarEl: HTMLElement;
+  backlinksToggleEl: HTMLButtonElement;
   workspaceEl: HTMLElement;
   metaEl: HTMLElement;
   saveStatusEl: HTMLElement;
@@ -38,6 +40,7 @@ export interface OpenSession {
   outlineActiveID?: string | null;
   outlineExpanded?: boolean;
   outlineSidebar?: OutlineSidebarHandle;
+  fileRevision?: { content: string };
   savedAt?: Date;
   autosaveTimer?: number;
   imageRefreshTimer?: number;
@@ -56,6 +59,7 @@ export interface OpenSession {
   documentSyncRefresh?: Promise<void>;
   unbindDocumentSync?: () => void;
   unbindPreviewOutline?: () => void;
+  unbindBacklinks?: () => void;
   modal?: MarkdownModalController;
 }
 

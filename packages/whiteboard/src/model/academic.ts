@@ -17,6 +17,12 @@ export interface LiteratureSource {
   itemKey: string;
 }
 
+/** Stable identity for a Zotero file attachment. Numeric item ids are runtime-only. */
+export interface AttachmentSource {
+  library: ZoteroLibraryRef;
+  attachmentKey: string;
+}
+
 export interface QuoteSource extends LiteratureSource {
   attachmentKey: string;
   annotationKey: string;
@@ -39,6 +45,14 @@ export function literatureSourceIdentity(source: LiteratureSource): string {
     "literature",
     ...sourceLibraryIdentity(source.library),
     source.itemKey,
+  ]);
+}
+
+export function attachmentSourceIdentity(source: AttachmentSource): string {
+  return JSON.stringify([
+    "attachment",
+    ...sourceLibraryIdentity(source.library),
+    source.attachmentKey,
   ]);
 }
 
@@ -77,6 +91,14 @@ export interface LiteratureSnapshot {
   publicationTitle?: string;
   tags?: string[];
   annotationCount?: number;
+}
+
+export type AttachmentAvailability = "available" | "not-downloaded";
+
+export interface AttachmentSnapshot {
+  filename: string;
+  contentType?: string;
+  availability: AttachmentAvailability;
 }
 
 export interface QuoteSnapshot {

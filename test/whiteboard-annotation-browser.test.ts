@@ -376,7 +376,6 @@ test("only a selected Literature exposes the lazy annotation action", () => {
       labels,
       node,
       sourceState: { status: "resolved" },
-      onEdit: () => undefined,
       onOpen: () => undefined,
       onRefreshSource: () => undefined,
       onViewAnnotations: () => requests++,

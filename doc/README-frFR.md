@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../docs/icons/scholar-canvas-logo.png" alt="Scholar Canvas — Read · Organize · Think" width="640" />
+</p>
+
 # Scholar Canvas
 
 **Markdown & Whiteboard for Zotero**

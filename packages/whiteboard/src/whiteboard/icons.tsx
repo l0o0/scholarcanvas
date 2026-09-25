@@ -153,9 +153,21 @@ export const IconRect = () => (
   </Icon>
 );
 
+export const IconRoundedRect = () => (
+  <Icon>
+    <rect width="18" height="16" x="3" y="4" rx="6" />
+  </Icon>
+);
+
 export const IconEllipse = () => (
   <Icon>
     <circle cx="12" cy="12" r="10" />
+  </Icon>
+);
+
+export const IconDiamond = () => (
+  <Icon>
+    <path d="m12 3 9 9-9 9-9-9 9-9Z" />
   </Icon>
 );
 
@@ -408,3 +420,66 @@ export function NoteTypeIcon({ type }: { type: NoteType }) {
       return <IconNote />;
   }
 }
+
+export function IconStrokePreview({
+  dashed = false,
+  width = 2,
+  start = false,
+  end = false,
+}: {
+  dashed?: boolean;
+  width?: number;
+  start?: boolean;
+  end?: boolean;
+}) {
+  return (
+    <svg
+      width="28"
+      height="20"
+      viewBox="0 0 40 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d={`M${start ? 8 : 3} 12H${end ? 32 : 37}`}
+        stroke="currentColor"
+        strokeWidth={width}
+        strokeDasharray={dashed ? "5 4" : undefined}
+      />
+      {start ? <path d="M2 12l8-5v10Z" fill="currentColor" /> : null}
+      {end ? <path d="M38 12l-8-5v10Z" fill="currentColor" /> : null}
+    </svg>
+  );
+}
+
+export function IconCorners({ radius }: { radius: number }) {
+  return (
+    <Icon>
+      <rect x="4" y="4" width="16" height="16" rx={Math.min(8, radius / 4)} />
+    </Icon>
+  );
+}
+
+export const IconProperties = () => (
+  <Icon>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M15 4v16M6 8h5M6 12h3" />
+  </Icon>
+);
+
+export const IconPalette = () => (
+  <Icon>
+    <path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.4-3.4c-.8-.8-.2-2.1.9-2.1H17a4 4 0 0 0 4-4A8.5 8.5 0 0 0 12 3Z" />
+    <circle cx="7" cy="11" r="1" />
+    <circle cx="10" cy="7" r="1" />
+    <circle cx="15" cy="7" r="1" />
+  </Icon>
+);
+
+export const IconStrokeWeight = () => (
+  <Icon>
+    <path d="M4 5h16" strokeWidth="1" />
+    <path d="M4 11h16" strokeWidth="2" />
+    <path d="M4 18h16" strokeWidth="4" />
+  </Icon>
+);

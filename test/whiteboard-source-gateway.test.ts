@@ -218,7 +218,7 @@ test("acquires regular items with native group keys and a normalized snapshot", 
   });
 });
 
-test("classifies notes and annotations but rejects attachments and other kinds", () => {
+test("classifies notes, annotations, and file attachments while rejecting other kinds", () => {
   const parent = item("regular", { key: "PARENT" });
   const note = item("note", {
     key: "NOTE",
@@ -258,10 +258,15 @@ test("classifies notes and annotations but rejects attachments and other kinds",
     },
     snapshot: { text: "Evidence" },
   });
-  assert.throws(
-    () => gateway.acquireItem(attachment as Zotero.Item),
-    /unsupported/i,
-  );
+  assert.deepEqual(gateway.acquireItem(attachment as Zotero.Item), {
+    kind: "attachment",
+    source: { library: { type: "user" }, attachmentKey: "PDF" },
+    snapshot: {
+      filename: "PDF",
+      contentType: "application/pdf",
+      availability: "available",
+    },
+  });
   assert.throws(
     () => gateway.acquireItem(other as Zotero.Item),
     /unsupported/i,

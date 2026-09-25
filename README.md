@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/icons/scholar-canvas-logo.png" alt="Scholar Canvas — Read · Organize · Think" width="640" />
+</p>
+
 # Scholar Canvas
 
 **Markdown & Whiteboard for Zotero**
@@ -22,47 +26,56 @@ Zotero is excellent for collecting and organizing research. In the AI era, **pla
 
 ## Features
 
-- **Open** `.md` / `.markdown` attachments in a main-window **tab** (not the system app)
-- **Edit** in a fast built-in editor — line numbers, Tab indentation, word/char counts, and toolbar shortcuts for common Markdown syntax (bold, italic, headings, links)
-- **Preview** rendered Markdown (toggle Edit / Preview)
-- **Autosave** (debounced) + **Ctrl/Cmd+S**
-- **New Markdown…** from the item context menu (stored attachment by default)
-- Supports **stored** and **linked** attachments
-- Preference to enable/disable intercepting open
-- Kebab menu with document info, safe renaming, folder reveal, and plugin settings
-- Import remote Markdown images into the note's local `assets/` directory for offline use
-- Resize images in Live mode using corner handles, size presets, or an exact pixel width; view originals from the image toolbar or reading preview
-- **Multiple monitors**: open Markdown and Canvas in a resizable standalone window from **More → Open in standalone window** or the attachment context menu. Use **More → Return to Zotero tab** to move back. Changes are saved before switching or closing.
+### Markdown notes
+
+- **Native files**: create and open `.md` attachments in a Zotero tab or standalone window; supports stored and linked files.
+- **Three modes**: Live editing, Source editing, and read-only preview, with an outline, word counts, formatting shortcuts, and editable tables.
+- **Linked notes**: Obsidian-style `[[file|alias]]` links, heading completion, and a right-hand backlinks sidebar, alongside the outline on the left. Duplicate filenames are distinguished with the Markdown attachment's item key in portable exports.
+- **Full-text search**: search saved notes in the current library by title, filename, and body, then open a result at the matching text.
+- **Math and footnotes**: `$…$`, `$$…$$`, fenced `math` blocks, and `[^name]` footnotes render in reading preview, HTML export, and Canvas note cards. Editing modes preserve their source syntax.
+- **Images**: insert local images, import remote images for offline use, resize each occurrence, and view originals.
+- **Portable export**: export notes with local images and either Wikilinks or standard Markdown links for Obsidian and other tools. Also export individual notes as HTML or PDF.
+- **PDF annotations → Markdown**: select text excerpts and comments from a paper or PDF, then create a note with page labels and links back to the source annotations; supports personal and group libraries.
 
 ### Canvas whiteboards
 
-- Create a blank whiteboard or start from a Zotero collection
-- Drag literature onto the canvas and add useful excerpts from source cards
-- Create Note, Question, Viewpoint, Evidence, and Summary cards with writing prompts; group cards in Frames and connect ideas
-- Save boards as `.canvas` attachments and reopen them inside Zotero
-- Learn with an example whiteboard featuring an offline image, an editable Markdown attachment, and color styling
-- Export the whole board as PNG at 1×, 2×, or 4×, preserving rendered cards, images, colors, and connection labels
+- Create a blank `.canvas` whiteboard or start from a Zotero collection; drag in literature, PDF attachments, and other sources.
+- Browse source annotations and connect Note, Question, Viewpoint, Evidence, and Summary cards with labeled, styled connections.
+- Read Markdown directly on note cards, including headings, lists, code, links, math, and footnotes; edit the underlying text in place.
+- Group cards in Frames; copy a whole selection, including group members and internal connections, and paste it into another whiteboard. Undo/redo applies to the whole paste.
+- Arrange only selected cards or groups; arranging the entire board requires confirmation.
+- Find cards by title or content with **Ctrl/Cmd+F**, and jump between matches.
+- Export boards as PNG at 1×, 2×, or 4×, SVG, or Markdown. PNG captures the rendered board; SVG uses the existing text-based export layout.
+- Learn with an example whiteboard featuring an offline image, an editable Markdown attachment, and hands-on exercises.
+
+### Saving and workspace
+
+- Debounced Markdown autosave and **Ctrl/Cmd+S**, with external file conflict detection for Markdown and Canvas.
+- **Local history** for saved versions and conflicting drafts. Preview a version and save a recovery copy without overwriting the current file.
+- **Workspace restore**: reopen previously open Markdown/Canvas tabs or windows. Markdown remembers its mode, cursor, and scroll position; Canvas retains its saved viewport.
+- **Multiple monitors**: move documents between Zotero tabs and resizable standalone windows, saving before switching or closing.
+
+Local history contains document text/card data, not image or PDF files, and stays on this device. Annotation conversion includes text and comments, not image-only excerpts. Cross-board paste preserves source references rather than copying source files or relative image assets.
+
+See [link and export conventions](docs/obsidian-links.md), [save protection and recovery](docs/file-safety.md), and [feature usage and boundaries](docs/markdown-canvas-release-features.md) (the latter two guides are in Chinese).
 
 ### Planned
 
-- Wiki-links `[[...]]` and in-library jump
-- YAML frontmatter ↔ Zotero fields
-- Export PDF annotations / highlights → `.md`
-- Auto-reload when a linked file changes externally
-- Session restore for Markdown tabs
+- Bidirectional YAML frontmatter ↔ Zotero field synchronization
+- Automatic reload when an externally edited linked file changes; current conflict detection prevents silent overwrites
 
 ---
 
 ## Install
 
-Download the latest `bamboo-v{version}.xpi` from [Releases](https://github.com/l0o0/bamboo/releases), then in Zotero: **Tools → Plugins → gear → Install Plugin From File…** and restart if prompted.
+Download the latest `scholarcanvas-v{version}.xpi` from [Releases](https://github.com/l0o0/bamboo/releases), then in Zotero: **Tools → Plugins → gear → Install Plugin From File…** and restart if prompted.
 
 ### Development build
 
 ```bash
 pnpm install
 pnpm run build
-# XPI: .scaffold/build/bamboo-v{version}.xpi
+# XPI: .scaffold/build/scholarcanvas-v{version}.xpi
 ```
 
 ---
@@ -72,7 +85,7 @@ pnpm run build
 1. Select a library item → right-click → **New Markdown…**  
    A stored `.md` attachment is created and opened.
 2. Edit in the tab. Changes autosave; use **Ctrl/Cmd+S** to save immediately.
-3. Click **Preview** to render; **Edit** to return to source.
+3. Use **Live** or **Source** for editing; choose read-only preview from **More → Mode** to read the rendered document.
 4. Double-click any `.md` attachment later to reopen the editor.
 5. Or right-click a `.md` attachment → **Open with Markdown Editor**.
 
@@ -88,6 +101,14 @@ Sizes are saved in the `.md` file as `<img src="assets/figure.png" alt="Descript
 
 Drag existing `.md` files into Zotero (or attach linked files) — double-click still opens them here.
 
+### Links, search, and recovery
+
+- Type `[[` to find and link another note, optionally using `[[Note#Heading|Label]]`. Use the right-hand linked mentions panel to follow incoming references.
+- Choose **More → Search library notes…** to search saved Markdown notes in the current library. **Ctrl/Cmd+F** searches within the current document.
+- Right-click a paper or PDF → **Create Markdown from PDF annotations…**, select excerpts/comments, and create the note.
+- Choose **More → Local history…**, or use the Markdown/Canvas attachment context menu, to preview a version and save a recovery copy. If an external edit causes a conflict, recover the draft before reopening and merging changes.
+- Export a library's notes from **More → Export library notes for Obsidian… / Export library notes as Markdown…**. Local images are copied with rewritten paths; unresolved resources are listed in `REPORT.md`.
+
 ---
 
 ### Whiteboards
@@ -95,11 +116,13 @@ Drag existing `.md` files into Zotero (or attach linked files) — double-click 
 1. Choose **Tools → New Whiteboard…** or **New Whiteboard from Collection…**.
 2. Drag a Zotero item onto the canvas, browse its excerpts, and add notes.
 3. Group related cards in Frames and connect them to organize your argument.
-4. Reopen boards from **Tools → Recent Whiteboards** or their `.canvas` attachments.
+4. Select cards or a Frame, then use **Ctrl/Cmd+C** and **Ctrl/Cmd+V** to copy them between boards. **More → Duplicate selection** creates a copy on the same board.
+5. Use **More → Auto layout** to arrange the selection, or **Ctrl/Cmd+F** to locate a card. Press **Enter / Shift+Enter** to move through search results.
+6. Reopen boards from **Tools → Recent Whiteboards** or their `.canvas` attachments.
 
 For a guided introduction, choose **Help → Scholar Canvas: Create Example Whiteboard**. This creates a new board and a **Start writing.md** notebook with three hands-on exercises: summarize a reading, add a task, and insert an image. It also explains Live / Source modes and saving, then guides you back to the whiteboard to connect evidence and share your work. Existing tutorial boards are kept as they are.
 
-To share a board, use the toolbar **Export PNG** button (2×), or right-click empty canvas space and choose **Export PNG · 1× / 2× / 4×**. The image includes the entire board with padding, uses the current theme, and excludes editor controls. Very large exports ask you to choose a lower resolution instead of silently reducing quality.
+To share a board, use **More → Export PNG** (2×), or right-click empty canvas space and choose **Export PNG · 1× / 2× / 4×**. The image includes the entire board with padding, uses the current theme, and excludes editor controls. Very large exports ask you to choose a lower resolution instead of silently reducing quality.
 
 ---
 
@@ -128,13 +151,22 @@ China mainland users: project `.npmrc` already uses [npmmirror](https://npmmirro
 
 ### Scripts
 
-| Command               | Description                  |
-| --------------------- | ---------------------------- |
-| `pnpm start`          | Dev server + hot reload      |
-| `pnpm run build`      | Production build + typecheck |
-| `pnpm test`           | Plugin tests                 |
-| `pnpm run lint:check` | Prettier + ESLint            |
-| `pnpm run lint:fix`   | Auto-fix lint                |
+For browser testing without Zotero, run `pnpm whiteboard:dev`. The whiteboard at
+`/` and production Markdown editor at `/markdown.html` use the standalone
+`@zotero-plugin/fake-zotero` development package. Run `pnpm test:fake-zotero`
+for their integration tests. See the [browser testing guide](docs/fake-zotero.md)
+for agent inspection, supported APIs, and manual adoption in other plugins.
+
+| Command                 | Description                               |
+| ----------------------- | ----------------------------------------- |
+| `pnpm start`            | Dev server + hot reload                   |
+| `pnpm run build`        | Production build + typecheck              |
+| `pnpm test`             | Plugin tests                              |
+| `pnpm test:unit`        | Unit and DOM regression tests             |
+| `pnpm test:fake-zotero` | Fake-Zotero package and integration tests |
+| `pnpm whiteboard:dev`   | Browser lab for Canvas and Markdown       |
+| `pnpm run lint:check`   | Prettier + ESLint                         |
+| `pnpm run lint:fix`     | Auto-fix lint                             |
 
 ---
 
@@ -148,15 +180,15 @@ China mainland users: project `.npmrc` already uses [npmmirror](https://npmmirro
 
 ## API for other plugins
 
-Scholar Canvas was previously named Bamboo. The repository, XPI filename, add-on ID, preference keys, and `Zotero.Bamboo` API namespace retain their existing names for update and integration compatibility.
+Scholar Canvas was previously named Bamboo. The public API is `Zotero.scholarcanvas`, and packages use `scholarcanvas-v{version}.xpi`. The repository, add-on ID, preference keys, chrome resource namespace, and existing canvas data fields retain their compatibility identifiers.
 
-Scholar Canvas exposes its in-process API at `Zotero.Bamboo.api.markdown`
+Scholar Canvas exposes its in-process API at `Zotero.scholarcanvas.api.markdown`
 for other plugins / MCP bridges to create and edit `.md` documents inside Zotero.
 All methods are async, JSON-friendly, and reject with `MarkdownApiError`
 (`error.code` is stable).
 
 ```js
-const md = Zotero.Bamboo.api.markdown;
+const md = Zotero.scholarcanvas.api.markdown;
 
 // List markdown attachments in the user library
 const docs = await md.list({ q: "note" });
@@ -195,10 +227,10 @@ Notes:
 - All writes go through the same persistence path as the editor (file write,
   image-asset cleanup, item-title sync, Zotero file-sync marking).
 - `update` rejects with `WRITE_CONFLICT` when an open editor tab has unsaved
-  changes — pass `force: true` to overwrite.
+  changes — `force: true` permits that API update, but does not bypass external file conflict checks.
 - `rename` renames the underlying file; for linked attachments this renames
   the file on disk.
-- API version: `Zotero.Bamboo.api.version` (currently `2`).
+- API version: `Zotero.scholarcanvas.api.version` (currently `2`).
 
 ---
 

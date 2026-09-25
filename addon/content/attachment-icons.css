@@ -1,0 +1,35 @@
+/* SVGs have transparent centers and palettes for the host's row states. */
+.icon[data-item-type^="bamboo-attachment-"] {
+  background: var(--bamboo-attachment-icon) center / contain no-repeat !important;
+  mask: none;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  .icon[data-item-type^="bamboo-attachment-"] {
+    color-scheme: dark;
+  }
+}
+
+/* Match Zotero's white icons only when the selected row has an active focus. */
+.focus-states-target:focus-within
+  .row.selected
+  .icon[data-item-type^="bamboo-attachment-"] {
+  color-scheme: dark;
+}
+
+[data-item-type="bamboo-attachment-markdown"] {
+  --bamboo-attachment-icon: url("icons/attachment-markdown.svg");
+}
+
+[data-item-type="bamboo-attachment-markdown-link"] {
+  --bamboo-attachment-icon: url("icons/attachment-markdown-link.svg");
+}
+
+[data-item-type="bamboo-attachment-canvas"] {
+  --bamboo-attachment-icon: url("icons/attachment-canvas.svg");
+}
+
+[data-item-type="bamboo-attachment-canvas-link"] {
+  --bamboo-attachment-icon: url("icons/attachment-canvas-link.svg");
+}

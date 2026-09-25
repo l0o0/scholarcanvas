@@ -10,10 +10,6 @@ import {
 } from "./CardShell";
 import type { CanvasFlowNode } from "./types";
 
-function point(value: { x: number; y: number } | undefined, fallback: number) {
-  return value ?? { x: fallback, y: fallback };
-}
-
 function resolvedStrokeStyle(style: CanvasFlowNode["data"]["model"]["style"]) {
   return style?.strokeStyle ?? (style?.dashed ? "dashed" : "solid");
 }
@@ -63,25 +59,106 @@ function shapeStyle(
   return {
     borderColor: stroke,
     background:
-      nodeSurfaceFill(kind, value) ??
-      `var(--zmd-board-surface, ${defaults.fill})`,
-    borderWidth: value.strokeWidth ?? defaults.strokeWidth,
+      value.shape === "diamond"
+        ? "transparent"
+        : (nodeSurfaceFill(kind, value) ??
+          `var(--zmd-board-surface, ${defaults.fill})`),
+    borderWidth:
+      value.shape === "diamond"
+        ? 0
+        : (value.strokeWidth ?? defaults.strokeWidth),
     borderStyle: resolvedStrokeStyle(value),
-    borderRadius: kind === "ellipse" ? 999 : (value.radius ?? defaults.radius),
+    borderRadius:
+      kind === "ellipse"
+        ? 999
+        : value.shape === "diamond"
+          ? 0
+          : (value.radius ?? defaults.radius),
     ...verticalAlignmentStyle(value),
   } as const;
+}
+
+function DiamondSurface({
+  model,
+}: {
+  model: Extract<CanvasFlowNode["data"]["model"], { kind: "rect" }>;
+}) {
+  const style = model.style ?? {};
+  const defaults = canvasNodeSurfaceDefaults("rect");
+  const stroke =
+    nodeSurfaceStroke("rect", style) ??
+    `var(--zmd-board-text, ${defaults.stroke})`;
+  const fill =
+    style.fillStyle === "hatch"
+      ? (style.fill ?? defaults.fill)
+      : (nodeSurfaceFill("rect", style) ??
+        `var(--zmd-board-surface, ${defaults.fill})`);
+  const patternId = `zmd-board-diamond-hatch-${model.id}`;
+  return (
+    <>
+      <svg
+        className="zmd-board-diamond"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        {style.fillStyle === "hatch" ? (
+          <defs>
+            <pattern
+              id={patternId}
+              width="8"
+              height="8"
+              patternUnits="userSpaceOnUse"
+            >
+              <rect width="8" height="8" fill={fill} />
+              <path
+                d="M-2 2L2-2M0 8L8 0M6 10L10 6"
+                stroke={stroke}
+                strokeWidth="1"
+                opacity="0.25"
+              />
+            </pattern>
+          </defs>
+        ) : null}
+        <polygon
+          points="50,1 99,50 50,99 1,50"
+          fill={style.fillStyle === "hatch" ? `url(#${patternId})` : fill}
+          stroke={stroke}
+          strokeWidth={style.strokeWidth ?? defaults.strokeWidth}
+          strokeDasharray={strokeDasharray(style)}
+          vectorEffect="non-scaling-stroke"
+          strokeLinejoin="round"
+        />
+      </svg>
+      {model.data.title ? (
+        <span
+          className="zmd-board-shape-label"
+          style={{
+            ...labelTextStyle(style),
+            display: "block",
+            width: "54%",
+            maxHeight: "58%",
+          }}
+        >
+          {model.data.title}
+        </span>
+      ) : null}
+    </>
+  );
 }
 
 export function RectNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   const model = data.model;
   if (model.kind !== "rect") return null;
+  const diamond = model.style?.shape === "diamond";
   return (
     <div
-      className={`zmd-board-shape is-rect${selected ? " is-selected" : ""}`}
+      className={`zmd-board-shape ${diamond ? "is-diamond" : "is-rect"}${selected ? " is-selected" : ""}`}
       style={shapeStyle("rect", model.style)}
     >
       <NodeHandles />
-      {model.data.title ? (
+      {diamond ? <DiamondSurface model={model} /> : null}
+      {!diamond && model.data.title ? (
         <span style={labelTextStyle(model.style ?? {})}>
           {model.data.title}
         </span>
@@ -121,15 +198,12 @@ function StrokeShape({
   const style = model.style ?? {};
   const boxW = Math.max(width ?? 8, 8);
   const boxH = Math.max(height ?? 8, 8);
-  const start = point(model.data.from, 0);
+  const start = model.data.from ?? { x: 0, y: boxH / 2 };
   const end = model.data.to ?? { x: boxW, y: boxH / 2 };
   const markerId = `zmd-board-arrow-${id}`;
   const stroke =
     nodeSurfaceStroke(model.kind, style) ??
     `var(--zmd-board-edge, ${canvasNodeSurfaceDefaults(model.kind).stroke})`;
-  const fontSize = style.fontSize || 16;
-  const maxTextHeight =
-    Math.max(1, Math.floor(boxH / (fontSize * 1.25))) * fontSize * 1.25;
   return (
     <div
       className={`zmd-board-shape is-stroke${selected ? " is-selected" : ""}`}
@@ -172,20 +246,13 @@ function StrokeShape({
         <span
           className="zmd-board-stroke-label"
           style={{
-            ...labelTextStyle(style),
-            ...verticalAlignmentStyle(style),
-            display: "flex",
-            justifyContent:
-              style.textAlign === "left"
-                ? "flex-start"
-                : style.textAlign === "right"
-                  ? "flex-end"
-                  : "center",
+            left: (start.x + end.x) / 2,
+            top: (start.y + end.y) / 2,
           }}
         >
           <span
             className="zmd-board-stroke-label-text"
-            style={{ maxHeight: maxTextHeight }}
+            style={labelTextStyle(style)}
           >
             {model.data.title}
           </span>

@@ -1,3 +1,5 @@
+import { rememberDocument, forgetOpenDocument } from "../workspace-state";
+import { navigateDocumentLink } from "../markdown/document-links";
 import { resolveEditorTheme } from "../markdown/editor";
 import { getString } from "../../utils/locale";
 import { ensureDOMGlobals } from "../../utils/dom";
@@ -161,7 +163,7 @@ function pickZoteroItem(
   } = {
     dataOut: null,
     singleSelection: false,
-    onlyRegularItems: opts.onlyRegularItems,
+    onlyRegularItems: opts.onlyRegularItems ?? false,
     multiSelect: true,
   };
   Services.ww.openWindow(
@@ -196,18 +198,13 @@ export async function acquireAcademicItems(
         };
       }
       try {
-        if (item.isRegularItem() || item.isNote()) {
+        if (
+          item.isRegularItem?.() ||
+          item.isNote?.() ||
+          item.isAttachment?.()
+        ) {
           return {
             success: { index, acquisition: await gateway.acquireItem(item) },
-          };
-        }
-        if (item.isAttachment()) {
-          return {
-            failure: {
-              index,
-              code: "unsupported-attachment",
-              message: "Zotero attachments cannot be added to the canvas.",
-            } satisfies AcademicAcquisitionFailure,
           };
         }
         return {
@@ -270,10 +267,12 @@ async function resolveAcademicItems(
   );
 }
 
-function dataUrlToBytes(
+export function dataUrlToBytes(
   dataUrl: string,
 ): { bytes: Uint8Array; mimeType: string } | null {
-  const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(dataUrl);
+  const match = /^data:([^;,]+)?(?:;[^;,=]+=[^;,]*)*(;base64)?,(.*)$/s.exec(
+    dataUrl,
+  );
   if (!match) return null;
   const mimeType = match[1] || "image/png";
   const payload = match[3];
@@ -450,21 +449,30 @@ export function resolveNativeAcademicDrop(
       if (!item?.key) {
         return { status: "rejected", code: "drop-malformed" };
       }
-      if (item.libraryID === dependencies.userLibraryID) {
-        sources.push({ library: { type: "user" }, itemKey: item.key });
-        continue;
-      }
-      const library = dependencies.getLibrary(item.libraryID);
-      if (
-        library?.libraryType !== "group" ||
-        typeof library.groupID !== "number"
-      ) {
+      const library =
+        item.libraryID === dependencies.userLibraryID
+          ? ({ type: "user" } as const)
+          : (() => {
+              const value = dependencies.getLibrary(item.libraryID);
+              if (
+                value?.libraryType !== "group" ||
+                typeof value.groupID !== "number"
+              ) {
+                return null;
+              }
+              return { type: "group", groupID: value.groupID } as const;
+            })();
+      if (!library) {
         return { status: "rejected", code: "drop-unsupported" };
       }
-      sources.push({
-        library: { type: "group", groupID: library.groupID },
-        itemKey: item.key,
-      });
+      const isAttachment = item.isAttachment?.() ?? false;
+      const isRegular = item.isRegularItem?.() ?? !isAttachment;
+      if (isAttachment) {
+        sources.push({ library, attachmentKey: item.key });
+        continue;
+      }
+      if (isRegular) sources.push({ library, itemKey: item.key });
+      else return { status: "rejected", code: "drop-unsupported" };
     }
   } catch (error) {
     return {
@@ -496,13 +504,15 @@ async function handleDropAcademicSources(
       editor.rejectAcademicRequest(requestId, nodeId, "acquisition-failed");
       return;
     }
-    const items = sources.map(({ library, itemKey }) => {
+    const items = sources.map((source) => {
+      const key =
+        "attachmentKey" in source ? source.attachmentKey : source.itemKey;
       const libraryID =
-        library.type === "user"
+        source.library.type === "user"
           ? Zotero.Libraries.userLibraryID
-          : (Zotero.Groups.get(library.groupID)?.libraryID ?? null);
+          : (Zotero.Groups.get(source.library.groupID)?.libraryID ?? null);
       if (libraryID === null) return undefined;
-      return Zotero.Items.getByLibraryAndKey(libraryID, itemKey) || undefined;
+      return Zotero.Items.getByLibraryAndKey(libraryID, key) || undefined;
     });
     const gateway = createZoteroSourceGateway();
     const result = await acquireAcademicItems(items, gateway);
@@ -862,7 +872,10 @@ function mountWhiteboardUI(
       }
       const path = (await item.getFilePathAsync()) || session.path;
       if (!path) throw new Error("Canvas file not found");
-      session.path = await writeCanvasFile(path, document);
+      session.path = await writeCanvasFile(path, document, {
+        revision: session.fileRevision,
+        item,
+      });
       await cleanupUnusedAssets(session, document);
       session.title = attachmentTitle(item);
     },
@@ -902,6 +915,8 @@ function mountWhiteboardUI(
       addFile: getString("whiteboard-add-file"),
       addText: getString("whiteboard-add-text"),
       addRect: getString("whiteboard-add-rect"),
+      addRoundedRect: getString("whiteboard-add-rounded-rect"),
+      addDiamond: getString("whiteboard-add-diamond"),
       addEllipse: getString("whiteboard-add-ellipse"),
       addLine: getString("whiteboard-add-line"),
       addArrow: getString("whiteboard-add-arrow"),
@@ -931,6 +946,9 @@ function mountWhiteboardUI(
       sourceAvailable: getString("whiteboard-source-available"),
       sourceLoading: getString("whiteboard-source-loading"),
       sourceMissing: getString("whiteboard-source-missing"),
+      attachmentNotDownloaded: getString(
+        "whiteboard-attachment-not-downloaded",
+      ),
       acquisitionSummary: getString("whiteboard-acquisition-summary", {
         args: {
           successCount: "{successCount}",
@@ -984,6 +1002,9 @@ function mountWhiteboardUI(
       undo: getString("whiteboard-undo"),
       redo: getString("whiteboard-redo"),
       save: getString("whiteboard-save"),
+      searchCanvas: getString("whiteboard-search-canvas"),
+      duplicateSelection: getString("whiteboard-duplicate-selection"),
+      layoutAllConfirm: getString("whiteboard-layout-all-confirm"),
       editText: getString("whiteboard-edit-text"),
       copy: getString("whiteboard-copy"),
       delete: getString("whiteboard-delete"),
@@ -997,10 +1018,28 @@ function mountWhiteboardUI(
       distributeHorizontal: getString("whiteboard-distribute-horizontal"),
       distributeVertical: getString("whiteboard-distribute-vertical"),
       fitView: getString("whiteboard-fit-view"),
+      groupSelection: getString("whiteboard-group-selection"),
+      removeFromGroup: getString("whiteboard-remove-from-group"),
+      fitSelection: getString("whiteboard-fit-selection"),
+      drawTools: getString("whiteboard-draw-tools"),
+      selectionDetails: getString("whiteboard-selection-details"),
+      edgeLabel: getString("whiteboard-edge-label"),
+      edgeRelation: getString("whiteboard-edge-relation"),
+      relationNone: getString("whiteboard-relation-none"),
+      relationRelated: getString("whiteboard-relation-related"),
+      relationSupports: getString("whiteboard-relation-supports"),
+      relationContradicts: getString("whiteboard-relation-contradicts"),
       autoLayout: getString("whiteboard-auto-layout"),
       edgeColor: getString("whiteboard-edge-color"),
       edgeDash: getString("whiteboard-edge-dash"),
       edgeArrow: getString("whiteboard-edge-arrow"),
+      edgeStyle: getString("whiteboard-edge-style"),
+      edgeArrows: getString("whiteboard-edge-arrows"),
+      arrowNone: getString("whiteboard-arrow-none"),
+      arrowForward: getString("whiteboard-arrow-forward"),
+      arrowReverse: getString("whiteboard-arrow-reverse"),
+      arrowBoth: getString("whiteboard-arrow-both"),
+      edgeSelection: getString("whiteboard-edge-selection"),
       saved: getString("whiteboard-save-saved"),
       saving: getString("whiteboard-save-saving"),
       saveFailed: getString("whiteboard-save-failed-short"),
@@ -1019,6 +1058,12 @@ function mountWhiteboardUI(
       solid: getString("whiteboard-solid"),
       dashed: getString("whiteboard-dashed"),
       corners: getString("whiteboard-corners"),
+      strokeWidth: getString("whiteboard-stroke-width"),
+      geometry: getString("whiteboard-geometry"),
+      nodeWidth: getString("whiteboard-node-width"),
+      nodeHeight: getString("whiteboard-node-height"),
+      positionX: getString("whiteboard-position-x"),
+      positionY: getString("whiteboard-position-y"),
       format: getString("whiteboard-format"),
       color: getString("whiteboard-color"),
       size: getString("whiteboard-size"),
@@ -1032,6 +1077,10 @@ function mountWhiteboardUI(
       fontMenlo: getString("whiteboard-font-menlo"),
       fontSerifSc: getString("whiteboard-font-serif-sc"),
       weightRegular: getString("whiteboard-weight-regular"),
+      textItalic: getString("whiteboard-text-italic"),
+      textUnderline: getString("whiteboard-text-underline"),
+      textStrike: getString("whiteboard-text-strike"),
+      fontFamily: getString("whiteboard-font-family"),
       weightBold: getString("whiteboard-weight-bold"),
       commonColors: getString("whiteboard-colors-common"),
       recentColors: getString("whiteboard-colors-recent"),
@@ -1069,6 +1118,10 @@ function mountWhiteboardUI(
           ztoolkit.log("Failed to switch Canvas window", error);
           toast(getString("whiteboard-open-failed"));
         });
+    },
+    onOpenLink(href) {
+      const item = Zotero.Items.get(session.itemID);
+      if (item) navigateDocumentLink(item, win, href);
     },
     onSave() {
       void saveSession(session);
@@ -1311,6 +1364,7 @@ async function mountWhiteboardSurface(
     session = {
       tabID,
       canvasId,
+      fileRevision: { content: parsed.source },
       itemID: item.id,
       win,
       path,
@@ -1337,10 +1391,12 @@ async function mountWhiteboardSurface(
       session.editor!.loadSnapshot(
         (await existing.editor!.requestSnapshot()).snapshot,
       );
+      session.fileRevision = existing.fileRevision;
       disposeWhiteboardSession(existing);
       existing.closeHost?.();
     }
     whiteboardRegistry.register(session);
+    rememberDocument(item.id, { kind: "canvas", surface, open: true });
     session.transitioning = false;
     session.view!.root.inert = false;
     refreshTabTitle(session);
@@ -1394,6 +1450,7 @@ export function closeWhiteboardSession(tabID: string): Promise<boolean> {
       } else {
         await session.saveCoordinator?.flush();
       }
+      forgetOpenDocument(session.itemID);
       disposeWhiteboardSession(session);
       if (session.surface === "window") session.closeHost?.();
       return true;

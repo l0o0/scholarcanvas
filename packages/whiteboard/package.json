@@ -10,8 +10,8 @@
     "./nodes": "./src/nodes/index.ts"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "dev": "pnpm --filter @zotero-plugin/fake-zotero build && vite",
+    "build": "pnpm --filter @zotero-plugin/fake-zotero build && tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -22,10 +22,11 @@
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@zotero-plugin/fake-zotero": "workspace:*",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^4.3.4",
-    "typescript": "^5.7.2",
+    "typescript": "^6.0.3",
     "vite": "^5.4.8"
   }
 }

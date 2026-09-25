@@ -1,10 +1,12 @@
 import type { CanvasNodeKind } from "../model/academic";
+import type { CanvasNodeStyle } from "../model/core";
 import type { CanvasTool } from "./tools";
 import { BUILTIN_NOTE_TEMPLATE_IDS } from "../model/note-template";
 
 export const CLICK_THRESHOLD = 5;
 
-export type DrawKind = "rect" | "ellipse" | "line" | "arrow";
+export type DrawShapeKind = "rect" | "roundedRect" | "ellipse" | "diamond";
+export type DrawKind = DrawShapeKind | "line" | "arrow";
 export type StampKind =
   "item" | "pdf" | "attachment" | "text" | "note" | "frame";
 
@@ -22,7 +24,14 @@ export interface DrawFrame {
 }
 
 const DEFAULT_BOX = { width: 120, height: 80 };
-const DRAW_KINDS = new Set<DrawKind>(["rect", "ellipse", "line", "arrow"]);
+const DRAW_KINDS = new Set<DrawKind>([
+  "rect",
+  "roundedRect",
+  "ellipse",
+  "diamond",
+  "line",
+  "arrow",
+]);
 const STAMP_KINDS = new Set<StampKind>([
   "item",
   "note",
@@ -34,6 +43,23 @@ const STAMP_KINDS = new Set<StampKind>([
 
 export function isDrawTool(tool: CanvasTool): tool is DrawKind {
   return DRAW_KINDS.has(tool as DrawKind);
+}
+
+/** Map toolbar variants to the persisted basic node kind. */
+export function drawNodeKind(
+  kind: DrawKind,
+): "rect" | "ellipse" | "line" | "arrow" {
+  return kind === "roundedRect" || kind === "diamond" ? "rect" : kind;
+}
+
+/** Return only the style needed to represent a toolbar variant. */
+export function drawNodeStyle(
+  kind: DrawKind,
+): Partial<CanvasNodeStyle> | undefined {
+  if (kind === "rect") return { radius: 0 };
+  if (kind === "roundedRect") return { radius: 16 };
+  if (kind === "diamond") return { shape: "diamond", radius: 0 };
+  return undefined;
 }
 
 export function isStampTool(
@@ -89,10 +115,7 @@ export function frameFromDrag(
   let end = current;
   if (options.shift && (options.kind === "line" || options.kind === "arrow")) {
     end = snapTo45(origin, current);
-  } else if (
-    options.shift &&
-    (options.kind === "rect" || options.kind === "ellipse")
-  ) {
+  } else if (options.shift) {
     const dx = current.x - origin.x;
     const dy = current.y - origin.y;
     const size = Math.max(Math.abs(dx), Math.abs(dy)) || 1;
@@ -165,7 +188,12 @@ export function toolAfterDraw(_kind: DrawKind): CanvasTool {
 
 export function isBorderHit(
   local: Point,
-  box: { width: number; height: number; kind: CanvasNodeKind },
+  box: {
+    width: number;
+    height: number;
+    kind: CanvasNodeKind;
+    shape?: CanvasNodeStyle["shape"];
+  },
   threshold = 8,
 ): boolean {
   const width = Math.max(box.width, 1);
@@ -177,6 +205,13 @@ export function isBorderHit(
     const r = Math.hypot(nx, ny);
     const inner = 1 - (threshold * 2) / Math.min(width, height);
     return r >= Math.max(inner, 0.55) && r <= 1.15;
+  }
+  if (box.kind === "rect" && box.shape === "diamond") {
+    const nx = (local.x - width / 2) / (width / 2);
+    const ny = (local.y - height / 2) / (height / 2);
+    const distance = Math.abs(nx) + Math.abs(ny);
+    const border = threshold / Math.min(width / 2, height / 2);
+    return distance >= 1 - border;
   }
   const inset =
     local.x >= threshold &&

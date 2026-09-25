@@ -74,6 +74,30 @@ test("addon reload reads new translations without reusing Zotero's shared Fluent
 const hostKeys = [
   "whiteboard-add-item",
   "whiteboard-canvas",
+  "whiteboard-group-selection",
+  "whiteboard-remove-from-group",
+  "whiteboard-fit-selection",
+  "whiteboard-draw-tools",
+  "whiteboard-selection-details",
+  "whiteboard-edge-label",
+  "whiteboard-edge-relation",
+  "whiteboard-edge-style",
+  "whiteboard-edge-arrows",
+  "whiteboard-arrow-none",
+  "whiteboard-arrow-forward",
+  "whiteboard-arrow-reverse",
+  "whiteboard-arrow-both",
+  "whiteboard-edge-selection",
+  "whiteboard-stroke-width",
+  "whiteboard-geometry",
+  "whiteboard-node-width",
+  "whiteboard-node-height",
+  "whiteboard-position-x",
+  "whiteboard-position-y",
+  "whiteboard-relation-none",
+  "whiteboard-relation-related",
+  "whiteboard-relation-supports",
+  "whiteboard-relation-contradicts",
   "whiteboard-select",
   "whiteboard-hand",
   "whiteboard-more",
@@ -412,7 +436,10 @@ test("host picker protocol keeps the Note toolbar local while accepting Zotero N
   const tab = readFileSync("src/modules/whiteboard/tab.ts", "utf8");
   assert.doesNotMatch(protocol, /"item" \| "pdf" \| "note" \| "attachment"/);
   assert.doesNotMatch(editor, /"item" \| "pdf" \| "note" \| "attachment"/);
-  assert.match(tab, /item\.isRegularItem\(\) \|\| item\.isNote\(\)/);
+  assert.match(
+    tab,
+    /item\.isRegularItem(?:\?\.)?\(\)\s*\|\|\s*item\.isNote(?:\?\.)?\(\)\s*\|\|\s*item\.isAttachment(?:\?\.)?\(\)/,
+  );
   assert.doesNotMatch(protocol, /kind: "literature" \| "note"/);
 });
 

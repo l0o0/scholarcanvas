@@ -73,6 +73,8 @@ test("uses the leading toolbar panel button as the only outline control", () => 
 test("uses XHTML-safe markup for sidebar toolbar icons", () => {
   const icon = iconPanelLeft();
 
-  assert.match(icon, /^<img\b[^>]*\/>$/);
+  assert.match(icon, /^<span\b[^>]*><\/span>$/);
+  assert.match(icon, /--zmd-icon-url: url/);
+  assert.doesNotMatch(icon, /<svg/);
   assert.doesNotMatch(icon, /<\/img>/);
 });

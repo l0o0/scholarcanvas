@@ -1,0 +1,27 @@
+{
+  "name": "@zotero-plugin/fake-zotero",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Small browser-test fake for the Zotero APIs used by this plugin.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/index.test.js"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  },
+  "license": "MIT"
+}

@@ -14,6 +14,8 @@ export interface CanvasMetadata {
 }
 
 export interface CanvasNodeStyle {
+  /** Optional geometry variant for the rectangle node. */
+  shape?: "diamond";
   stroke?: string;
   fill?: string;
   strokeWidth?: number;

@@ -69,8 +69,8 @@ jobs:
       - name: Upload build result
         uses: actions/upload-artifact@v7
         with:
-          name: bamboo-v${{ steps.package.outputs.version }}.xpi
-          path: .scaffold/build/bamboo-v${{ steps.package.outputs.version }}.xpi
+          name: scholarcanvas-v${{ steps.package.outputs.version }}.xpi
+          path: .scaffold/build/scholarcanvas-v${{ steps.package.outputs.version }}.xpi
           if-no-files-found: error
 
   # Plugin integration tests need a Zotero binary in CI — skip until wired.

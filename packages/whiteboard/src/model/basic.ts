@@ -1,3 +1,4 @@
+import type { AttachmentSource } from "./academic";
 import type { CanvasNodeBase, CanvasPoint } from "./core";
 
 export type BasicNodeKind =
@@ -26,6 +27,9 @@ export interface PdfNodeData {
   pdfPage?: number;
   image?: string;
   asset?: string;
+  source?: AttachmentSource;
+  availability?: "available" | "not-downloaded";
+  contentType?: string;
 }
 
 export interface AttachmentNodeData {
@@ -34,6 +38,9 @@ export interface AttachmentNodeData {
   preview?: string;
   itemID?: number;
   attachmentID?: number;
+  source?: AttachmentSource;
+  availability?: "available" | "not-downloaded";
+  contentType?: string;
 }
 
 export interface TextNodeData {

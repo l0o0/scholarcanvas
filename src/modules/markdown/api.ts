@@ -2,7 +2,7 @@
  * Public in-process API for Bamboo.
  *
  * Exposed to other plugins / MCP bridges as the
- * `Zotero.Bamboo.api.markdown` namespace.
+ * `Zotero.scholarcanvas.api.markdown` namespace.
  * All methods are async, JSON-friendly, and throw `MarkdownApiError` with a
  * stable `code` on failure.
  *
@@ -27,6 +27,7 @@ import { closeMarkdownSession, closeMarkdownTab, openMarkdownTab } from "./tab";
 import { closeSidebarSessions, findSidebarSessions } from "./sidebar";
 import { normalizeMarkdownFilename } from "./modal";
 import { storedMarkdownFilename } from "./storage-filename";
+import { invalidateNoteLibrary } from "./note-library";
 import { editorSnapshotChanged } from "./api-guards";
 import type { MarkdownEditorHandle } from "./editor";
 import type { SaveCoordinator } from "./save-coordinator";
@@ -384,6 +385,7 @@ async function writeContent(
     }
   } else {
     await persistMarkdownContent(item, content, {
+      revision: { content: observedContent ?? (await readContent(item)) },
       cleanupImages: opts.cleanupImages,
       syncTitle: true,
       syncFile: true,
@@ -518,6 +520,7 @@ async function createLinked(
     attachment.attachmentContentType = "text/markdown";
     await attachment.saveTx({ skipSelect: true });
   }
+  invalidateNoteLibrary(attachment.libraryID);
   return attachmentInfo(attachment);
 }
 
@@ -586,6 +589,7 @@ async function rename(
   }
   item.setField("title", newName);
   await item.saveTx({ skipSelect: true });
+  invalidateNoteLibrary(item.libraryID);
   // Keep open editor sessions' cached paths in sync so the document-info
   // modal and reveal-folder show the new location (autosave resolves the
   // path fresh via getFilePathAsync, so writes are already safe).
@@ -600,7 +604,7 @@ async function rename(
 }
 
 async function trash(itemID: number): Promise<{ trashed: boolean }> {
-  requireMarkdownItem(itemID);
+  const item = requireMarkdownItem(itemID);
   // Close open editor sessions first: a live session would otherwise keep
   // autosaving into the trashed attachment's file, "resurrecting" it and
   // re-marking it for Zotero file sync.
@@ -617,6 +621,7 @@ async function trash(itemID: number): Promise<{ trashed: boolean }> {
   );
   await closeSidebarSessions(itemID);
   await Zotero.Items.trash(itemID);
+  invalidateNoteLibrary(item.libraryID);
   return { trashed: true };
 }
 

@@ -1,4 +1,6 @@
+import { validViewState, type DocumentViewState } from "./editor-view-state";
 import { parseDocumentLink } from "./document-link-shared";
+import { parseNoteLink, portableNoteFilename } from "./note-links";
 
 /**
  * postMessage protocol between the Zotero tab (parent) and the
@@ -44,6 +46,9 @@ export interface EditorLinkCandidate {
   kind: "markdown" | "canvas" | "regular";
   kindLabel?: string;
   href: string;
+  /** Original Markdown attachment filename; enables portable Wiki insertion. */
+  filename?: string;
+  heading?: string;
 }
 
 export interface EditorInitPayload {
@@ -56,6 +61,7 @@ export interface EditorInitPayload {
   /** Layout density for the editor host. */
   surface?: EditorSurface;
   imageLabels?: EditorImageLabels;
+  viewState?: DocumentViewState;
 }
 
 export interface EditorImageLabels {
@@ -190,6 +196,11 @@ export type ParentToEditorMessage = (
 
 /** iframe → parent */
 export type EditorToParentMessage = (
+  | {
+      source: typeof EDITOR_MESSAGE_SOURCE;
+      type: "viewState";
+      payload: DocumentViewState;
+    }
   | { source: typeof EDITOR_MESSAGE_SOURCE; type: "ready" }
   | {
       source: typeof EDITOR_MESSAGE_SOURCE;
@@ -272,6 +283,7 @@ export function isEditorProtocolMessage(
 }
 
 function isLinkMessagePayloadValid(data: Record<string, unknown>): boolean {
+  if (data.type === "viewState") return validViewState(data.payload);
   if (data.type === "openLink") {
     const payload = data.payload;
     return (
@@ -326,13 +338,28 @@ function isEditorLinkCandidate(value: unknown): value is EditorLinkCandidate {
     typeof candidate.href === "string"
       ? parseDocumentLink(candidate.href)
       : null;
-  const hrefMatchesCandidate =
+  const zoteroHrefMatchesCandidate =
     reference !== null &&
     reference.key === candidate.key &&
     ((candidate.groupID === undefined && reference.scope === "library") ||
       (typeof candidate.groupID === "number" &&
         reference.scope === "group" &&
         reference.groupID === candidate.groupID));
+  const fileReference =
+    typeof candidate.href === "string" ? parseNoteLink(candidate.href) : null;
+  const fileHrefMatchesCandidate =
+    candidate.kind === "markdown" &&
+    typeof candidate.filename === "string" &&
+    candidate.filename.length > 0 &&
+    candidate.filename.length <= 1000 &&
+    typeof candidate.key === "string" &&
+    /^[A-Za-z0-9]{8}$/.test(candidate.key) &&
+    fileReference?.target ===
+      portableNoteFilename({
+        filename: candidate.filename,
+        key: candidate.key,
+      }) &&
+    fileReference.heading === candidate.heading;
   return (
     typeof candidate.key === "string" &&
     /^[A-Za-z0-9]{8}$/.test(candidate.key) &&
@@ -355,7 +382,14 @@ function isEditorLinkCandidate(value: unknown): value is EditorLinkCandidate {
       candidate.kind === "regular") &&
     typeof candidate.href === "string" &&
     candidate.href.length <= 4096 &&
-    hrefMatchesCandidate
+    (candidate.filename === undefined ||
+      (typeof candidate.filename === "string" &&
+        candidate.filename.length > 0 &&
+        candidate.filename.length <= 1000)) &&
+    (candidate.heading === undefined ||
+      (typeof candidate.heading === "string" &&
+        candidate.heading.length <= 1000)) &&
+    (zoteroHrefMatchesCandidate || fileHrefMatchesCandidate)
   );
 }
 

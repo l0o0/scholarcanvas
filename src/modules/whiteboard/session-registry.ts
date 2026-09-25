@@ -17,6 +17,7 @@ export interface WhiteboardSession {
   closePromise?: Promise<boolean>;
   closeHost?: () => void;
   path: string;
+  fileRevision?: { content: string };
   title: string;
   saveCoordinator?: WhiteboardSaveCoordinator;
   sourceScheduler?: ProgressiveSourceScheduler;

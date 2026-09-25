@@ -7,37 +7,38 @@ const read = (path: string) => readFile(path, "utf8");
 test("uses Scholar Canvas branding with stable Bamboo compatibility identifiers", async () => {
   const pkg = JSON.parse(await read("package.json"));
 
-  assert.equal(pkg.name, "bamboo");
+  assert.equal(pkg.name, "scholarcanvas");
   assert.equal(pkg.config.addonName, "Scholar Canvas");
   assert.equal(pkg.config.addonID, "bamboo@@linxzh.com");
   assert.equal(pkg.config.addonRef, "bamboo");
-  assert.equal(pkg.config.addonInstance, "Bamboo");
+  assert.equal(pkg.config.addonInstance, "scholarcanvas");
   assert.equal(pkg.config.prefsPrefix, "extensions.zotero.bamboo");
   assert.equal(pkg.repository.url, "git+https://github.com/l0o0/bamboo.git");
   assert.equal(pkg.bugs.url, "https://github.com/l0o0/bamboo/issues");
   assert.equal(pkg.homepage, "https://github.com/l0o0/bamboo#readme");
 });
 
-test("uses the packaged 20px SVG favicon for all plugin chrome icons", async () => {
-  const [manifestText, svgText, ...sources] = await Promise.all([
+test("uses packaged branding icons and a theme-aware Markdown sidebar icon", async () => {
+  const [manifestText, ...sources] = await Promise.all([
     read("addon/manifest.json"),
-    read("addon/content/icons/favicon.svg"),
     read("src/hooks.ts"),
     read("src/modules/markdown/menu.ts"),
-    read("src/modules/markdown/sidebar.ts"),
+    read("src/modules/whiteboard/menu.ts"),
     read("src/utils/ztoolkit.ts"),
   ]);
-  await access("addon/content/icons/favicon.svg");
+  await access("addon/content/icons/favicon.png");
   const manifest = JSON.parse(manifestText);
   const combined = [manifestText, ...sources].join("\n");
 
   assert.equal(manifest.name, "__addonName__ — Markdown & Whiteboard");
-  assert.equal(manifest.icons["48"], "content/icons/favicon.svg");
-  assert.equal(manifest.icons["96"], "content/icons/favicon.svg");
-  assert.match(combined, /favicon\.svg/);
-  assert.match(svgText, /<svg[^>]*\bwidth="20"[^>]*\bheight="20"/);
-  assert.match(svgText, /\bviewBox="0 0 1024 1024"/);
-  assert.doesNotMatch(combined, /favicon(?:@0\.5x)?\.png/);
+  assert.equal(manifest.icons["48"], "content/icons/favicon.png");
+  assert.equal(manifest.icons["96"], "content/icons/favicon.png");
+  for (const source of sources) assert.match(source, /favicon\.png/);
+  assert.doesNotMatch(combined, /favicon(?:\.svg|@0\.5x\.png)/);
+  const sidebar = await read("src/modules/markdown/sidebar.ts");
+  assert.match(sidebar, /sidebar-markdown/);
+  await access("addon/content/icons/sidebar-markdown.svg");
+  await access("addon/content/icons/sidebar-markdown-dark.svg");
 });
 
 test("does not register or document the legacy runtime namespace", async () => {
@@ -62,30 +63,30 @@ test("packaged chrome pages use the Bamboo content namespace", async () => {
   assert.doesNotMatch(combined, /chrome:\/\/zoteromarkdown\/content\//);
 });
 
-test("uses a versioned Bamboo XPI name in build and CI", async () => {
+test("uses a versioned Scholar Canvas XPI name in build and CI", async () => {
   const scaffold = await read("zotero-plugin.config.ts");
   const [ci, release] = await Promise.all([
     read(".github/workflows/ci.yml"),
     read(".github/workflows/release.yml"),
   ]);
 
-  assert.match(scaffold, /xpiName:\s*`bamboo-v\$\{pkg\.version\}`/);
+  assert.match(scaffold, /xpiName:\s*`scholarcanvas-v\$\{pkg\.version\}`/);
   for (const workflow of [ci, release]) {
     assert.match(workflow, /id:\s*package/);
     assert.match(
       workflow,
-      /name:\s*bamboo-v\$\{\{ steps\.package\.outputs\.version \}\}\.xpi/,
+      /name:\s*scholarcanvas-v\$\{\{ steps\.package\.outputs\.version \}\}\.xpi/,
     );
     assert.match(
       workflow,
-      /\.scaffold\/build\/bamboo-v\$\{\{ steps\.package\.outputs\.version \}\}\.xpi/,
+      /\.scaffold\/build\/scholarcanvas-v\$\{\{ steps\.package\.outputs\.version \}\}\.xpi/,
     );
     assert.doesNotMatch(workflow, /zotero-markdown-xpi/);
     assert.doesNotMatch(workflow, /name:\s*build-result/);
   }
 });
 
-test("documents Bamboo repository and public API", async () => {
+test("documents repository and Scholar Canvas public API", async () => {
   const readmes = await Promise.all([
     read("README.md"),
     read("doc/README-zhCN.md"),
@@ -93,8 +94,8 @@ test("documents Bamboo repository and public API", async () => {
   const combined = readmes.join("\n");
 
   assert.match(combined, /github\.com\/l0o0\/bamboo\/releases/);
-  assert.match(combined, /Zotero\.Bamboo\.api\.markdown/);
-  assert.match(combined, /Zotero\.Bamboo\.api\.version/);
+  assert.match(combined, /Zotero\.scholarcanvas\.api\.markdown/);
+  assert.match(combined, /Zotero\.scholarcanvas\.api\.version/);
   assert.doesNotMatch(combined, /github\.com\/l0o0\/zotero-markdown/);
   assert.doesNotMatch(combined, /Zotero\.ZoteroMarkdown/);
 });

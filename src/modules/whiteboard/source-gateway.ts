@@ -5,6 +5,7 @@ import type {
   AnnotationListResult,
   AcademicAcquisition,
   AcademicSourceDescriptor,
+  AttachmentSnapshot,
   LiteratureSource,
   NoteSource,
   SourceResolutionResult,
@@ -29,6 +30,8 @@ export interface SourceGatewayDependencies {
     attachment: Zotero.Item,
     pageIndex?: number,
   ): Promise<void>;
+  /** Opens a file attachment in Zotero Reader or the platform file handler. */
+  openAttachment?(attachment: Zotero.Item): Promise<void>;
 }
 
 export interface ZoteroSourceGateway {
@@ -114,7 +117,8 @@ export function createZoteroSourceGateway(
       return noteAcquisition(item, libraryRef(item.libraryID), deps);
     if (item.isAnnotation())
       return quoteAcquisition(item, libraryRef(item.libraryID));
-    if (item.isAttachment()) throw new Error("Unsupported Zotero attachment.");
+    if (item.isAttachment())
+      return attachmentAcquisition(item, libraryRef(item.libraryID));
     throw new Error("Unsupported Zotero item.");
   }
 
@@ -130,7 +134,7 @@ export function createZoteroSourceGateway(
     if (!item) return unavailable(nodeId, generation, "item-missing");
 
     try {
-      const resolved = acquisitionForDescriptor(item, descriptor, deps);
+      const resolved = await acquisitionForDescriptor(item, descriptor, deps);
       return { nodeId, generation, status: "resolved", acquisition: resolved };
     } catch (error) {
       const code =
@@ -297,6 +301,13 @@ export function createZoteroSourceGateway(
         return;
       }
 
+      if (descriptor.kind === "attachment") {
+        if (!item.isAttachment()) throw new SourceIntegrityError("wrong-kind");
+        if (deps.openAttachment) await deps.openAttachment(item);
+        else await deps.openAttachmentPage(item);
+        return;
+      }
+
       const quote = quoteForSource(item, descriptor.source);
       const exact = await deps.openAnnotation(quote.attachment, item);
       if (!exact) {
@@ -356,6 +367,26 @@ function literatureAcquisition(
   };
 }
 
+function attachmentAcquisition(
+  item: Zotero.Item,
+  library: LibraryRef,
+  availability = attachmentAvailability(item),
+): Extract<AcademicAcquisition, { kind: "attachment" }> {
+  if (!item.isAttachment()) throw new SourceIntegrityError("wrong-kind");
+  const filename = attachmentFilename(item);
+  const contentType = attachmentContentType(item);
+  const snapshot: AttachmentSnapshot = {
+    filename,
+    ...(contentType ? { contentType } : {}),
+    availability,
+  };
+  return {
+    kind: "attachment",
+    source: { library, attachmentKey: item.key },
+    snapshot,
+  };
+}
+
 function noteAcquisition(
   item: Zotero.Item,
   library: LibraryRef,
@@ -402,14 +433,31 @@ function acquisitionForDescriptor(
   item: Zotero.Item,
   descriptor: AcademicSourceDescriptor,
   utilities: NoteUtilities,
-): AcademicAcquisition {
+): Promise<AcademicAcquisition> {
   if (descriptor.kind === "literature") {
     if (!item.isRegularItem()) throw new SourceIntegrityError("wrong-kind");
-    return literatureAcquisition(item, descriptor.source.library);
+    return Promise.resolve(literatureAcquisition(item, descriptor.source.library));
   }
   if (descriptor.kind === "note")
-    return noteForSource(item, descriptor.source, utilities);
-  return quoteForSource(item, descriptor.source).acquisition;
+    return Promise.resolve(noteForSource(item, descriptor.source, utilities));
+  if (descriptor.kind === "attachment") {
+    if (!item.isAttachment() || item.key !== descriptor.source.attachmentKey) {
+      throw new SourceIntegrityError("wrong-kind");
+    }
+    return attachmentAcquisitionAsync(item, descriptor.source.library);
+  }
+  return Promise.resolve(quoteForSource(item, descriptor.source).acquisition);
+}
+
+async function attachmentAcquisitionAsync(
+  item: Zotero.Item,
+  library: LibraryRef,
+): Promise<Extract<AcademicAcquisition, { kind: "attachment" }>> {
+  return attachmentAcquisition(
+    item,
+    library,
+    await attachmentAvailabilityAsync(item),
+  );
 }
 
 function noteForSource(
@@ -488,7 +536,77 @@ function isSupportedAnnotation(item: Zotero.Item): boolean {
 function keyFor(descriptor: AcademicSourceDescriptor): string {
   if (descriptor.kind === "literature") return descriptor.source.itemKey;
   if (descriptor.kind === "note") return descriptor.source.noteKey;
+  if (descriptor.kind === "attachment") return descriptor.source.attachmentKey;
   return descriptor.source.annotationKey;
+}
+
+function attachmentFilename(item: Zotero.Item): string {
+  const candidate = (item as unknown as { attachmentFilename?: unknown })
+    .attachmentFilename;
+  if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  const field = textField(item, "title");
+  return field || item.key;
+}
+
+function attachmentContentType(item: Zotero.Item): string | undefined {
+  const candidate = (item as unknown as { attachmentContentType?: unknown })
+    .attachmentContentType;
+  if (typeof candidate === "string" && candidate.trim()) {
+    return candidate.trim().toLowerCase();
+  }
+  return undefined;
+}
+
+function attachmentAvailability(item: Zotero.Item): "available" | "not-downloaded" {
+  const candidate = item as unknown as {
+    fileExists?: (() => boolean | Promise<boolean>) | boolean;
+    isStoredFileAttachment?: () => boolean;
+  };
+  try {
+    if (typeof candidate.fileExists === "function") {
+      // Zotero's real API is async; resolve() performs the one awaited refresh.
+      return "not-downloaded";
+    }
+    if (typeof candidate.fileExists === "boolean") {
+      return candidate.fileExists ? "available" : "not-downloaded";
+    }
+    if (typeof candidate.isStoredFileAttachment === "function") {
+      return candidate.isStoredFileAttachment() ? "available" : "not-downloaded";
+    }
+  } catch {
+    return "not-downloaded";
+  }
+  // Older Zotero doubles do not expose a file-presence method; identity still resolves.
+  return "available";
+}
+
+async function attachmentAvailabilityAsync(
+  item: Zotero.Item,
+): Promise<"available" | "not-downloaded"> {
+  const candidate = item as unknown as {
+    fileExists?: (() => boolean | Promise<boolean>) | boolean;
+    getFilePath?: () => string | null | Promise<string | null>;
+    isStoredFileAttachment?: () => boolean | Promise<boolean>;
+  };
+  try {
+    if (typeof candidate.fileExists === "function") {
+      return (await candidate.fileExists()) ? "available" : "not-downloaded";
+    }
+    if (typeof candidate.fileExists === "boolean") {
+      return candidate.fileExists ? "available" : "not-downloaded";
+    }
+    if (typeof candidate.getFilePath === "function") {
+      return (await candidate.getFilePath()) ? "available" : "not-downloaded";
+    }
+    if (typeof candidate.isStoredFileAttachment === "function") {
+      return (await candidate.isStoredFileAttachment())
+        ? "available"
+        : "not-downloaded";
+    }
+  } catch {
+    return "not-downloaded";
+  }
+  return "available";
 }
 
 function unavailable(
@@ -636,6 +754,23 @@ function productionDependencies(): GatewayDependencies {
         annotationID: annotation.key,
       });
       return true;
+    },
+    openAttachment: async (attachment) => {
+      const pane = zotero.getMainWindow?.()?.ZoteroPane;
+      if (typeof pane?.viewAttachment === "function") {
+        try {
+          await pane.viewAttachment(attachment.id);
+          return;
+        } catch {
+          // Fall through for older panes and non-file attachments.
+        }
+      }
+      if (attachment.attachmentContentType === "application/pdf" &&
+          typeof zotero.Reader?.open === "function") {
+        await zotero.Reader.open(attachment.id);
+        return;
+      }
+      await zotero.FileHandlers.open(attachment);
     },
     openAttachmentPage: async (attachment, pageIndex) => {
       if (pageIndex === undefined) {

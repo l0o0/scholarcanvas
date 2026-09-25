@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fake Zotero · Markdown</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font:
+          14px system-ui,
+          sans-serif;
+        color: #263347;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        padding: 12px 16px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid #d8dee8;
+        background: #f8fafc;
+      }
+      button,
+      a {
+        font: inherit;
+      }
+      button {
+        padding: 6px 10px;
+        border: 1px solid #c5cedb;
+        background: white;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      button:focus-visible,
+      a:focus-visible {
+        outline: 2px solid #3967ce;
+        outline-offset: 2px;
+      }
+      [role="status"] {
+        flex-basis: 100%;
+        color: #526277;
+      }
+      main {
+        position: relative;
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      .demo-outline {
+        flex: 0 0 auto;
+        width: 190px;
+        overflow: auto;
+        padding: 16px;
+        border-right: 1px solid #d8dee8;
+      }
+      .demo-outline button {
+        display: block;
+        border: none;
+        text-align: left;
+        margin: 4px 0;
+      }
+      @media (max-width: 679px) {
+        .demo-outline {
+          display: none;
+        }
+      }
+      #markdown-host,
+      .zmd-editor-wrap {
+        height: 100%;
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+      }
+      footer {
+        border-top: 1px solid #d8dee8;
+        padding: 8px 16px;
+        max-height: 25vh;
+        overflow: auto;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Fake Zotero · Markdown</strong>
+      <a href="/">Whiteboard</a>
+      <select id="document" aria-label="Markdown document" disabled>
+        <option value="2">Research [MDNOTE01]</option>
+        <option value="3">Research [MDNOTE02]</option>
+        <option value="4">Reading [MDNOTE03]</option>
+      </select>
+      <button id="source" disabled>Source</button>
+      <button id="live" disabled>Live preview</button>
+      <button id="bold" disabled>Bold</button>
+      <button id="table" disabled>Insert table</button>
+      <button id="undo" disabled>Undo</button>
+      <button id="redo" disabled>Redo</button>
+      <button id="save" disabled>Save Markdown</button>
+      <button id="reload" disabled>Reload saved</button>
+      <button id="reset" disabled>Reset Markdown</button>
+      <button id="export-wiki" disabled>Preview Obsidian export</button>
+      <button id="export-markdown" disabled>Preview Markdown export</button>
+      <button id="backlinks-toggle" aria-expanded="true" disabled>
+        Linked mentions
+      </button>
+      <span id="status" role="status"
+        >Loading the production Markdown editor…</span
+      >
+    </header>
+    <main id="workspace">
+      <aside class="demo-outline" aria-label="Outline">
+        <div id="outline"></div>
+      </aside>
+      <section id="markdown-host" aria-label="Markdown editor"></section>
+      <aside
+        id="references"
+        class="zotero-markdown-backlinks-sidebar"
+        aria-label="Linked mentions"
+      ></aside>
+    </main>
+    <footer>
+      <span id="stats"></span>
+      <details>
+        <summary>Saved Markdown</summary>
+        <pre id="saved"></pre>
+      </details>
+      <details id="export-details">
+        <summary>Export files preview</summary>
+        <pre id="export-result"></pre>
+      </details>
+    </footer>
+    <script type="module" src="/src/markdownDemo.js"></script>
+  </body>
+</html>

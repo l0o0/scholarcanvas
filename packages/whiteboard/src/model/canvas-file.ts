@@ -8,7 +8,7 @@ import {
   type CanvasDocument,
   type CanvasParseIssue,
 } from "./document";
-import type { CanvasViewport } from "./core";
+import type { CanvasNodeStyle, CanvasViewport } from "./core";
 
 export const JSON_CANVAS_VERSION = 1 as const;
 const BAMBOO_SCHEMA_VERSION = 2 as const;
@@ -38,6 +38,8 @@ export interface CanvasFileEdge extends Record<string, unknown> {
   toNode: string;
   fromSide?: "top" | "right" | "bottom" | "left";
   toSide?: "top" | "right" | "bottom" | "left";
+  fromEnd?: "none" | "arrow";
+  toEnd?: "none" | "arrow";
   label?: string;
   color?: string;
   bamboo?: {
@@ -47,6 +49,8 @@ export interface CanvasFileEdge extends Record<string, unknown> {
     targetHandle?: string | null;
     dashed?: boolean;
     arrow?: boolean;
+    startArrow?: boolean;
+    textStyle?: CanvasNodeStyle;
     extensions?: Record<string, unknown>;
   };
 }
@@ -269,6 +273,7 @@ interface PayloadSchema {
 const POINT_SCHEMA: PayloadSchema = { x: true, y: true };
 const LIBRARY_SCHEMA: PayloadSchema = { type: true, groupID: true };
 const STYLE_SCHEMA: PayloadSchema = {
+  shape: true,
   stroke: true,
   fill: true,
   strokeWidth: true,
@@ -296,6 +301,13 @@ function payloadSchema(kind: unknown): PayloadSchema | undefined {
     preview: true,
     itemID: true,
   };
+  const attachmentData: PayloadSchema = {
+    ...itemData,
+    attachmentID: true,
+    source: { library: LIBRARY_SCHEMA, attachmentKey: true },
+    contentType: true,
+    availability: true,
+  };
   switch (kind) {
     case "item":
       return { ...common, data: itemData };
@@ -303,15 +315,14 @@ function payloadSchema(kind: unknown): PayloadSchema | undefined {
       return {
         ...common,
         data: {
-          ...itemData,
-          attachmentID: true,
+          ...attachmentData,
           pdfPage: true,
           image: true,
           asset: true,
         },
       };
     case "attachment":
-      return { ...common, data: { ...itemData, attachmentID: true } };
+      return { ...common, data: attachmentData };
     case "text":
     case "rect":
     case "ellipse":
@@ -606,10 +617,17 @@ function toCanvasEdge(connection: CanvasConnection): CanvasFileEdge {
     ...(isConnectionSide(connection.targetHandle)
       ? { toSide: connection.targetHandle }
       : {}),
+    ...(connection.startArrow !== undefined
+      ? { fromEnd: connection.startArrow ? "arrow" : "none" }
+      : {}),
+    ...(connection.arrow !== undefined
+      ? { toEnd: connection.arrow ? "arrow" : "none" }
+      : {}),
     ...(connection.label !== undefined ? { label: connection.label } : {}),
     ...(connection.color !== undefined ? { color: connection.color } : {}),
     bamboo: {
       kind: connection.kind,
+      ...(connection.textStyle ? { textStyle: connection.textStyle } : {}),
       ...(connection.kind === "academic"
         ? { relation: connection.relation }
         : {}),
@@ -621,6 +639,9 @@ function toCanvasEdge(connection: CanvasConnection): CanvasFileEdge {
         : {}),
       ...(connection.dashed !== undefined ? { dashed: connection.dashed } : {}),
       ...(connection.arrow !== undefined ? { arrow: connection.arrow } : {}),
+      ...(connection.startArrow !== undefined
+        ? { startArrow: connection.startArrow }
+        : {}),
       ...(extensions ? { extensions } : {}),
     },
   };
@@ -763,12 +784,18 @@ function decodeEdge(value: unknown): unknown {
   const raw = asRecord(value);
   if (!raw) return value;
   const bamboo = asRecord(raw.bamboo);
+  const standardFromEnd =
+    raw.fromEnd === "none" || raw.fromEnd === "arrow" ? raw.fromEnd : undefined;
+  const standardToEnd =
+    raw.toEnd === "none" || raw.toEnd === "arrow" ? raw.toEnd : undefined;
   const standard = withoutKeys(raw, [
     "id",
     "fromNode",
     "toNode",
     "fromSide",
     "toSide",
+    ...(standardFromEnd !== undefined ? ["fromEnd"] : []),
+    ...(standardToEnd !== undefined ? ["toEnd"] : []),
     "label",
     "color",
     "bamboo",
@@ -780,6 +807,8 @@ function decodeEdge(value: unknown): unknown {
     "targetHandle",
     "dashed",
     "arrow",
+    "startArrow",
+    "textStyle",
   ]);
   const extensions = decodedExtensions(
     standard,
@@ -805,10 +834,20 @@ function decodeEdge(value: unknown): unknown {
       : isConnectionSide(raw.toSide)
         ? { targetHandle: raw.toSide }
         : {}),
+    ...(bamboo?.textStyle !== undefined ? { textStyle: bamboo.textStyle } : {}),
     ...(raw.label !== undefined ? { label: raw.label } : {}),
     ...(raw.color !== undefined ? { color: raw.color } : {}),
     ...(bamboo?.dashed !== undefined ? { dashed: bamboo.dashed } : {}),
-    ...(bamboo?.arrow !== undefined ? { arrow: bamboo.arrow } : {}),
+    ...(standardToEnd !== undefined
+      ? { arrow: standardToEnd === "arrow" }
+      : bamboo?.arrow !== undefined
+        ? { arrow: bamboo.arrow }
+        : {}),
+    ...(standardFromEnd !== undefined
+      ? { startArrow: standardFromEnd === "arrow" }
+      : bamboo?.startArrow !== undefined
+        ? { startArrow: bamboo.startArrow }
+        : {}),
     ...(extensions ? { extensions } : {}),
   };
 }

@@ -1,3 +1,4 @@
+import type { CanvasNodeStyle } from "./core";
 export type AcademicRelation = "related" | "supports" | "contradicts";
 
 export type ConnectionSide = "top" | "right" | "bottom" | "left";
@@ -18,9 +19,11 @@ export interface CanvasConnectionBase {
   sourceHandle?: string | null;
   targetHandle?: string | null;
   label?: string;
+  textStyle?: CanvasNodeStyle;
   color?: string;
   dashed?: boolean;
   arrow?: boolean;
+  startArrow?: boolean;
   extensions?: Record<string, unknown>;
 }
 

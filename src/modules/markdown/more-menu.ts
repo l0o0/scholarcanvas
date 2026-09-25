@@ -3,6 +3,8 @@ import type { FluentMessageId } from "../../../typings/i10n";
 
 export type MoreMenuAction =
   | "open-window"
+  | "search-library"
+  | "history"
   | "document-info"
   | "rename"
   | "show-in-folder"
@@ -11,6 +13,8 @@ export type MoreMenuAction =
   | "mode"
   | "export-pdf"
   | "export-html"
+  | "export-obsidian"
+  | "export-markdown"
   | "shortcuts"
   | "settings"
   | "import-external-images"
@@ -36,16 +40,23 @@ export function findShortcutLabel(platform?: string): string {
 export const MORE_MENU_SECTIONS: readonly (readonly MoreMenuItem[])[] = [
   [
     { action: "document-info" },
+    { action: "history" },
     { action: "rename" },
     { action: "show-in-folder" },
     { action: "open-window" },
   ],
   [
+    { action: "search-library" },
     { action: "find", shortcut: findShortcutLabel() },
     { action: "source" },
     { action: "mode", submenu: true },
   ],
-  [{ action: "export-pdf" }, { action: "export-html" }],
+  [
+    { action: "export-pdf" },
+    { action: "export-html" },
+    { action: "export-obsidian" },
+    { action: "export-markdown" },
+  ],
   [
     { action: "import-external-images" },
     { action: "cleanup-images" },

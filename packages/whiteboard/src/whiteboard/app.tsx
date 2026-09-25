@@ -1,3 +1,12 @@
+import {
+  selectedDocument,
+  cloneSelection,
+  serializeSelection,
+  parseSelection,
+  layoutSelection,
+  searchCanvas,
+} from "./selection";
+import { THEME_TOKENS, UI_METRICS } from "../../../../src/ui/theme";
 /// <reference lib="dom" />
 
 import {
@@ -21,8 +30,11 @@ import {
   ConnectionLineType,
   ConnectionMode,
   Controls,
+  getBezierPath,
   MarkerType,
+  Position,
   ReactFlow,
+  ViewportPortal,
   addEdge,
   applyEdgeChanges,
   reconnectEdge,
@@ -45,6 +57,7 @@ import {
   type NoteSource,
 } from "../model/academic";
 import { createBasicNode } from "../model/basic";
+import { hasDefaultTutorialViewport } from "../model/tutorial";
 import {
   demoCanvasDocument,
   parseCanvasDocument,
@@ -88,10 +101,13 @@ import {
 } from "../chrome/AnnotationBrowser";
 import { ShortcutsOverlay } from "../chrome/ShortcutsOverlay";
 import { StyleBar } from "../chrome/StyleBar";
+import { EdgeStyleBar } from "../chrome/EdgeStyleBar";
 import { TextStyleBar } from "../chrome/TextStyleBar";
 import { TopIsland } from "../chrome/TopIsland";
 import { WhiteboardLabelsProvider, noteTypePrompt } from "../chrome/labels";
 import {
+  drawNodeKind,
+  drawNodeStyle,
   frameFromDrag,
   isBorderHit,
   isDrawTool,
@@ -103,14 +119,17 @@ import {
   type DrawFrame,
   type DrawKind,
 } from "../chrome/draw";
-import type { CanvasTool } from "../chrome/tools";
 import {
-  alignNodes,
-  autoLayoutNodes,
-  distributeNodes,
-  type AlignMode,
-} from "./layout";
-import { buildCanvasMarkdown, buildCanvasSvg } from "./export";
+  connectionDisplayLabel,
+  ConnectionEditor,
+} from "../chrome/ConnectionEditor";
+import type { CanvasTool } from "../chrome/tools";
+import { alignNodes, distributeNodes, type AlignMode } from "./layout";
+import {
+  buildCanvasMarkdown,
+  buildCanvasSvg,
+  connectionEndpoint,
+} from "./export";
 import { exportCanvasPng, type PngScale } from "./png";
 import {
   acceptAnnotationListFailure,
@@ -127,17 +146,19 @@ import {
   flowToCanvasDocument,
   applyCanvasNodeChanges,
   labelTextStyle,
+  nodeTextStyle,
   mergeEditingStyle,
   toggleEditingBold,
   type CanvasFlowEdge,
   updateFlowNodeModel,
   verticalAlignmentStyle,
-  withEdgeColor,
+  withEdgeStyle,
 } from "./document";
 import { armEditFocusHold, handleEditBlur } from "./editFocus";
 import { IconCopy, IconEdit, IconExport, IconOpen, IconTrash } from "./icons";
 import {
   beginFrameDragState,
+  assignNodeToFrame,
   deleteNodeFromDocument,
   finishFrameDragState,
   moveNodesInDocument,
@@ -195,6 +216,9 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   addFile: "File",
   addText: "Text",
   addRect: "Rect",
+  addRoundedRect: "Rounded rectangle",
+  addDiamond: "Diamond",
+  attachmentNotDownloaded: "Not downloaded",
   addEllipse: "Oval",
   addLine: "Line",
   addArrow: "Arrow",
@@ -257,6 +281,17 @@ const DEFAULT_LABELS: WhiteboardLabels = {
     "Zotero's current Note will replace local content. Local changes will be lost.",
   confirm: "Replace",
   cancel: "Cancel",
+  groupSelection: "Group selection",
+  removeFromGroup: "Remove from group",
+  fitSelection: "Fit selection",
+  drawTools: "Shapes and drawing",
+  selectionDetails: "Selection details",
+  edgeLabel: "Connection text",
+  edgeRelation: "Relation",
+  relationNone: "No relation",
+  relationRelated: "Related",
+  relationSupports: "Supports",
+  relationContradicts: "Contradicts",
   eraser: "Eraser",
   undo: "Undo",
   redo: "Redo",
@@ -276,9 +311,20 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   distributeVertical: "Distribute vertically",
   fitView: "Fit view",
   autoLayout: "Auto layout",
+  searchCanvas: "Search canvas",
+  duplicateSelection: "Duplicate selection",
+  layoutAllConfirm:
+    "No cards are selected. Arrange the entire canvas? This can be undone.",
   edgeColor: "Edge color",
   edgeDash: "Toggle dashed",
   edgeArrow: "Toggle arrow",
+  edgeStyle: "Line style",
+  edgeArrows: "Arrows",
+  arrowNone: "None",
+  arrowForward: "Forward",
+  arrowReverse: "Reverse",
+  arrowBoth: "Both ends",
+  edgeSelection: "Connection",
   saved: "Saved",
   saving: "Saving…",
   saveFailed: "Save failed",
@@ -298,6 +344,12 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   solid: "Solid",
   dashed: "Dashed",
   corners: "Corners",
+  strokeWidth: "Stroke width",
+  geometry: "Size and position",
+  nodeWidth: "Width",
+  nodeHeight: "Height",
+  positionX: "Horizontal position",
+  positionY: "Vertical position",
   format: "Format",
   color: "Color",
   size: "Size",
@@ -311,6 +363,10 @@ const DEFAULT_LABELS: WhiteboardLabels = {
   fontMenlo: "Menlo",
   fontSerifSc: "Noto Serif SC",
   weightRegular: "Regular",
+  textItalic: "Italic",
+  textUnderline: "Underline",
+  textStrike: "Strikethrough",
+  fontFamily: "Font",
   weightBold: "Bold",
   commonColors: "Common custom colors",
   recentColors: "Recently used colors",
@@ -351,6 +407,7 @@ export interface WhiteboardAppProps {
     nodeId: string,
     kind: "literature",
   ) => void;
+  onOpenLink?: (href: string) => void;
   onOpenItem: (payload: {
     itemID?: number;
     attachmentID?: number;
@@ -575,6 +632,12 @@ interface ContextMenuState {
   x: number;
   y: number;
   nodeId: string;
+  flowPosition?: { x: number; y: number };
+}
+
+interface EdgeEditingState {
+  edgeId: string;
+  value: string;
 }
 
 interface DrawSession {
@@ -664,6 +727,14 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     CanvasFlowNode,
     CanvasFlowEdge
   > | null>(null);
+  const fitInitialView =
+    !props.initialSnapshot || hasDefaultTutorialViewport(initial);
+  const fitPendingViewRef = useRef(false);
+  const fitPendingView = useCallback(() => {
+    if (!fitPendingViewRef.current || !flowRef.current) return;
+    fitPendingViewRef.current = false;
+    void flowRef.current.fitView({ padding: 0.15, maxZoom: 1 });
+  }, []);
   const resizingRef = useRef(false);
   const exportBusyRef = useRef(false);
   const [exportStatus, setExportStatus] = useState<"busy" | "error" | null>(
@@ -678,6 +749,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   const [, renderSourceState] = useState(0);
   const cancelIdleResolutionRef = useRef<(() => void) | null>(null);
   const [sourceCycle, setSourceCycle] = useState(1);
+  useEffect(fitPendingView, [sourceCycle, fitPendingView]);
   const propsRef = useRef(props);
   propsRef.current = props;
   const [canvasNotice, setCanvasNotice] = useState<CanvasNotice | null>(null);
@@ -817,9 +889,36 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     nodeId: string;
     value: string;
   } | null>(null);
+  const [edgeEditorHeight, setEdgeEditorHeight] = useState(32);
+  const [editingEdge, setEditingEdge] = useState<EdgeEditingState | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [styleTarget, setStyleTarget] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchIndex, setSearchIndex] = useState(-1);
+  const searchResults = useMemo(
+    () =>
+      searchCanvas(
+        flowToCanvasDocument(nodes, edges, viewportRef.current),
+        searchQuery,
+      ),
+    [nodes, edges, searchQuery],
+  );
+  const focusSearchResult = (index: number) => {
+    const id = searchResults[index];
+    if (!id) return;
+    setSearchIndex(index);
+    setNodes((current) =>
+      current.map((node) => ({ ...node, selected: node.id === id })),
+    );
+    void flowRef.current?.fitView({
+      nodes: [{ id }],
+      padding: 0.3,
+      maxZoom: 1.2,
+      duration: 200,
+    });
+  };
+  const [detailsTarget, setDetailsTarget] = useState<string | null>(null);
   const [annotationBrowser, setAnnotationBrowser] =
     useState<AnnotationBrowserSession | null>(null);
   // Space temporarily owns all pointer gestures, including those over cards.
@@ -830,6 +929,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   annotationBrowserRef.current = annotationBrowser;
   const annotationBrowserOriginNodeIdRef = useRef<string | null>(null);
   const viewAnnotationsRef = useRef<HTMLButtonElement | null>(null);
+  const detailsButtonRef = useRef<HTMLButtonElement | null>(null);
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
   const holdEditFocusRef = useRef(false);
 
@@ -938,6 +1038,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       sourceGenerationRef.current += 1;
       sourcePrioritiesRef.current.clear();
       sourceStatesRef.current = createSourceResolutionStates(value.nodes);
+      fitPendingViewRef.current = hasDefaultTutorialViewport(value);
       loadDocumentSnapshot(value);
       setSourceCycle(sourceGenerationRef.current);
     },
@@ -1416,13 +1517,18 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         edge.targetHandle === connection.targetHandle
       )
         return;
+      const rawEdge = edgesRef.current.find(
+        (candidate) => candidate.id === edge.id,
+      );
       pushHistory();
       setEdges((current) =>
-        reconnectEdge(edge, connection, current, { shouldReplaceId: false }),
+        reconnectEdge(rawEdge ?? edge, connection, current, {
+          shouldReplaceId: false,
+        }),
       );
       bump();
     },
-    [bump, pushHistory],
+    [bump, edgesRef, pushHistory],
   );
 
   const addNode = useCallback(
@@ -1465,6 +1571,8 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       });
       bump();
       if (editOnCreate) {
+        setDetailsTarget(null);
+        setEditingEdge(null);
         setEditing({ nodeId, value: flowNodeText(created) });
       }
     },
@@ -1475,6 +1583,27 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       noteTemplates,
       pushHistory,
     ],
+  );
+
+  const openContextMenu = useCallback(
+    (
+      event: { clientX: number; clientY: number },
+      nodeId: string,
+      flowPosition?: { x: number; y: number },
+    ) => {
+      const width = 220;
+      const height = 280;
+      setMenu({
+        x: Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)),
+        y: Math.max(
+          8,
+          Math.min(event.clientY, window.innerHeight - height - 8),
+        ),
+        nodeId,
+        ...(flowPosition ? { flowPosition } : {}),
+      });
+    },
+    [],
   );
 
   const flowPoint = useCallback((clientX: number, clientY: number) => {
@@ -1559,10 +1688,17 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         working: workingSnapshot(),
         history: snapshotNow(),
       };
+      const model = createBasicNode(drawNodeKind(kind), origin, nodeId);
+      model.style = { ...model.style, ...drawNodeStyle(kind) };
+      if (model.kind === "rect" || model.kind === "ellipse") {
+        // New shapes inherit the active theme until a color is chosen.
+        delete model.style.fill;
+        delete model.style.stroke;
+      }
       const created = applyDrawFrame(
         canvasDocumentToFlow({
           version: 2,
-          nodes: [createBasicNode(kind, origin, nodeId)],
+          nodes: [model],
           connections: [],
         }).nodes[0],
         frame,
@@ -1608,11 +1744,39 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     const transition = beginNodeEditing(nodesRef.current, nodeId);
     if (!transition) return;
     setMenu(null);
-    setStyleTarget(null);
+    setDetailsTarget(null);
+    setEditingEdge(null);
     setActiveTool("select");
     setNodes(transition.nodes);
     setEditing(transition.editing);
   }, []);
+
+  const startEdgeEdit = useCallback(
+    (edgeId: string) => {
+      const edge = edgesRef.current.find(
+        (candidate) => candidate.id === edgeId,
+      );
+      if (!edge) return;
+      const connection = edge.data?.connection;
+      setEditing(null);
+      setDetailsTarget(null);
+      setMenu(null);
+      setActiveTool("select");
+      setEditingEdge({
+        edgeId,
+        value: connection
+          ? (connectionDisplayLabel(
+              connection,
+              labels,
+              typeof edge.label === "string" ? edge.label : undefined,
+            ) ?? "")
+          : typeof edge.label === "string"
+            ? edge.label
+            : "",
+      });
+    },
+    [edgesRef, labels],
+  );
 
   const openNode = useCallback(
     (node: CanvasFlowNode) => {
@@ -1677,28 +1841,125 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     );
   }, []);
 
-  const copyNode = useCallback(
-    (nodeId: string) => {
-      const node = nodesRef.current.find((item) => item.id === nodeId);
-      if (!node) return;
+  const commitEdgeEdit = useCallback(
+    (text: string) => {
+      if (!editingEdge) return;
+      const edge = edgesRef.current.find(
+        (candidate) => candidate.id === editingEdge.edgeId,
+      );
+      setEditingEdge(null);
+      if (!edge) return;
+      const connection = edge.data?.connection ?? {
+        id: edge.id,
+        kind: "basic" as const,
+        source: edge.source,
+        target: edge.target,
+      };
+      const value = text.trim();
+      // Unchanged visible fallback labels should not be materialized on blur.
+      if (value === editingEdge.value.trim()) return;
+      // An explicit empty label suppresses relation fallback without losing semantics.
+      const nextConnection = { ...connection, label: value };
       pushHistory();
-      const id = newId(node.type || "item");
-      setNodes((current) => [
-        ...current,
-        updateFlowNodeModel(
-          {
-            ...node,
-            id,
-            selected: false,
-            position: { x: node.position.x + 24, y: node.position.y + 24 },
-          },
-          (model) => ({ ...model, id }),
+      setEdges((current) =>
+        current.map((candidate) =>
+          candidate.id === edge.id
+            ? {
+                ...candidate,
+                label: nextConnection.label,
+                data: { ...candidate.data, connection: nextConnection },
+              }
+            : candidate,
         ),
+      );
+      bump();
+    },
+    [bump, edgesRef, editingEdge, pushHistory],
+  );
+
+  const cancelEdgeEdit = useCallback(() => setEditingEdge(null), []);
+
+  const pasteSelection = useCallback(
+    (document: CanvasDocument, center = false) => {
+      if (!document.nodes.length) return;
+      let offset = { x: 24, y: 24 };
+      if (center) {
+        const host = canvasHostRef.current?.getBoundingClientRect();
+        if (host && flowRef.current) {
+          const point = flowRef.current.screenToFlowPosition({
+            x: host.left + host.width / 2,
+            y: host.top + host.height / 2,
+          });
+          offset = {
+            x: point.x - Math.min(...document.nodes.map((n) => n.position.x)),
+            y: point.y - Math.min(...document.nodes.map((n) => n.position.y)),
+          };
+        }
+      }
+      const copied = cloneSelection(document, () => newId("copy"), offset);
+      const flow = canvasDocumentToFlow(copied);
+      pushHistory();
+      setNodes((current) => [
+        ...current.map((n) => ({ ...n, selected: false })),
+        ...flow.nodes.map((n) => ({ ...n, selected: true })),
+      ]);
+      setEdges((current) => [
+        ...current.map((e) => ({ ...e, selected: false })),
+        ...flow.edges,
       ]);
       bump();
     },
-    [bump, pushHistory],
+    [pushHistory, setNodes, setEdges, bump],
   );
+
+  const copyNode = useCallback(
+    (nodeId?: string) => {
+      const selected = nodesRef.current
+        .filter((node) => node.selected)
+        .map((node) => node.id);
+      const ids = nodeId && !selected.includes(nodeId) ? [nodeId] : selected;
+      pasteSelection(selectedDocument(snapshotNow(), ids));
+    },
+    [nodesRef, snapshotNow, pasteSelection],
+  );
+
+  useEffect(() => {
+    const allowed = (event: ClipboardEvent) =>
+      !editing &&
+      !editingEdge &&
+      !annotationBrowserRef.current &&
+      !isEditableTarget(event.target);
+    const onCopy = (event: ClipboardEvent) => {
+      if (
+        !allowed(event) ||
+        !event.clipboardData ||
+        window.getSelection()?.toString()
+      )
+        return;
+      const document = selectedDocument(
+        snapshotNow(),
+        nodesRef.current.filter((n) => n.selected).map((n) => n.id),
+      );
+      if (!document.nodes.length) return;
+      event.clipboardData.setData("text/plain", serializeSelection(document));
+      event.preventDefault();
+    };
+    const onPaste = (event: ClipboardEvent) => {
+      if (!allowed(event) || !event.clipboardData) return;
+      const document = parseSelection(
+        event.clipboardData.getData("text/plain"),
+      );
+      if (!document) return;
+      event.preventDefault();
+      pasteSelection(document, true);
+    };
+    window.addEventListener("copy", onCopy);
+    window.addEventListener("paste", onPaste);
+    return () => {
+      window.removeEventListener("copy", onCopy);
+      window.removeEventListener("paste", onPaste);
+    };
+  }, [editing, editingEdge, nodesRef, snapshotNow, pasteSelection]);
 
   const deleteNode = useCallback(
     (nodeId: string) => {
@@ -1850,10 +2111,21 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
   );
 
   const autoLayout = useCallback(() => {
+    if (
+      !nodesRef.current.some((node) => node.selected) &&
+      !window.confirm(labels.layoutAllConfirm ?? "Arrange the entire canvas?")
+    )
+      return;
     pushHistory();
-    applyNodePositions(autoLayoutNodes(nodesRef.current));
+    applyNodePositions(layoutSelection(nodesRef.current));
     bump();
-  }, [applyNodePositions, bump, nodesRef, pushHistory]);
+  }, [
+    applyNodePositions,
+    bump,
+    nodesRef,
+    pushHistory,
+    labels.layoutAllConfirm,
+  ]);
 
   const nudgeSelected = useCallback(
     (key: string, shift: boolean): boolean => {
@@ -1883,78 +2155,184 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     void flowRef.current?.fitView({ padding: 0.2, duration: 300 });
   }, []);
 
-  const EDGE_COLORS = ["#9ca3af", "#2563eb", "#059669", "#d97706", "#dc2626"];
+  const fitSelection = useCallback(() => {
+    const selected = nodesRef.current
+      .filter((node) => node.selected)
+      .map((node) => ({ id: node.id }));
+    if (!selected.length) return;
+    void flowRef.current?.fitView({
+      nodes: selected,
+      padding: 0.24,
+      duration: 300,
+    });
+  }, [nodesRef]);
 
+  const groupSelection = useCallback(() => {
+    setMenu(null);
+    const pending = new Set(academicAcquisition.pendingNodeIds());
+    const selected = nodesRef.current.filter(
+      (node) =>
+        node.selected &&
+        node.data.model.kind !== "frame" &&
+        !pending.has(node.id),
+    );
+    if (!selected.length) return;
+    const padding = 32;
+    const titleSpace = 64;
+    const bounds = selected.reduce(
+      (current, node) => {
+        const size = nodeSize(node);
+        return {
+          left: Math.min(current.left, node.position.x),
+          top: Math.min(current.top, node.position.y),
+          right: Math.max(current.right, node.position.x + size.width),
+          bottom: Math.max(current.bottom, node.position.y + size.height),
+        };
+      },
+      {
+        left: Number.POSITIVE_INFINITY,
+        top: Number.POSITIVE_INFINITY,
+        right: Number.NEGATIVE_INFINITY,
+        bottom: Number.NEGATIVE_INFINITY,
+      },
+    );
+    const frameId = newId("frame");
+    const frame = {
+      ...createAcademicNode(
+        "frame",
+        {
+          x: bounds.left - padding,
+          y: bounds.top - titleSpace,
+        },
+        frameId,
+      ),
+      width: bounds.right - bounds.left + padding * 2,
+      height: bounds.bottom - bounds.top + titleSpace + padding,
+      title: labels.kindFrame,
+    };
+    let document = workingSnapshot();
+    document = {
+      ...document,
+      nodes: [...document.nodes, frame],
+    };
+    for (const node of selected) {
+      document = assignNodeToFrame(document, node.id, frameId);
+    }
+    pushHistory();
+    applyDocument(document);
+    setNodes((current) =>
+      current.map((node) => ({
+        ...node,
+        selected: node.id === frameId,
+      })),
+    );
+    bump();
+  }, [
+    academicAcquisition,
+    applyDocument,
+    bump,
+    labels.kindFrame,
+    nodesRef,
+    pushHistory,
+    setMenu,
+    setNodes,
+    workingSnapshot,
+  ]);
+
+  const removeFromGroup = useCallback(
+    (nodeId: string) => {
+      const node = nodesRef.current.find(
+        (candidate) => candidate.id === nodeId,
+      );
+      if (!node || !("frameId" in node.data.model) || !node.data.model.frameId)
+        return;
+      const selectedIds = new Set(
+        nodesRef.current
+          .filter((candidate) => candidate.selected)
+          .map((candidate) => candidate.id),
+      );
+      pushHistory();
+      applyDocument(assignNodeToFrame(workingSnapshot(), nodeId, undefined));
+      setNodes((current) =>
+        current.map((candidate) => ({
+          ...candidate,
+          selected: selectedIds.has(candidate.id),
+        })),
+      );
+      setMenu(null);
+      bump();
+    },
+    [applyDocument, bump, nodesRef, pushHistory, setNodes, workingSnapshot],
+  );
+
+  const closeEditing = useCallback(() => {
+    setEditing(null);
+    setEditingEdge(null);
+    setDetailsTarget(null);
+    setNodes((current) =>
+      current.map((item) => ({ ...item, className: undefined })),
+    );
+  }, [setNodes]);
+
+  const loadCanvasSnapshot = useCallback(
+    (snapshot: CanvasDocument) => {
+      closeEditing();
+      loadSnapshot(snapshot);
+    },
+    [closeEditing, loadSnapshot],
+  );
+
+  const undoCanvas = useCallback(() => {
+    closeEditing();
+    undo();
+  }, [closeEditing, undo]);
+
+  const redoCanvas = useCallback(() => {
+    closeEditing();
+    redo();
+  }, [closeEditing, redo]);
+
+  const changeEdgeStyle = useCallback(
+    (edgeId: string, patch: Parameters<typeof withEdgeStyle>[1]) => {
+      if (!edgesRef.current.some((edge) => edge.id === edgeId)) return;
+      pushHistory();
+      setEdges((current) =>
+        current.map((edge) =>
+          edge.id === edgeId ? withEdgeStyle(edge, patch) : edge,
+        ),
+      );
+      bump();
+    },
+    [bump, pushHistory],
+  );
+
+  const EDGE_COLORS = ["#9ca3af", "#2563eb", "#059669", "#d97706", "#dc2626"];
   const cycleEdgeColor = useCallback(
     (edgeId: string) => {
       const edge = edgesRef.current.find((item) => item.id === edgeId);
       if (!edge) return;
-      const current = edge.style?.stroke ?? "#9ca3af";
-      const next =
-        EDGE_COLORS[
-          (EDGE_COLORS.indexOf(String(current)) + 1) % EDGE_COLORS.length
-        ];
-      pushHistory();
-      setEdges((currentEdges) =>
-        currentEdges.map((item) =>
-          item.id === edgeId ? withEdgeColor(item, next) : item,
-        ),
-      );
-      bump();
+      const color = String(edge.style?.stroke ?? "#9ca3af");
+      changeEdgeStyle(edgeId, {
+        color:
+          EDGE_COLORS[(EDGE_COLORS.indexOf(color) + 1) % EDGE_COLORS.length],
+      });
     },
-    [bump, pushHistory],
+    [changeEdgeStyle],
   );
-
   const toggleEdgeDashed = useCallback(
     (edgeId: string) => {
       const edge = edgesRef.current.find((item) => item.id === edgeId);
-      if (!edge) return;
-      const dashed = !edge.style?.strokeDasharray;
-      pushHistory();
-      setEdges((currentEdges) =>
-        currentEdges.map((item) =>
-          item.id === edgeId
-            ? {
-                ...item,
-                style: {
-                  ...(item.style ?? {}),
-                  strokeDasharray: dashed ? "6 4" : undefined,
-                },
-              }
-            : item,
-        ),
-      );
-      bump();
+      if (edge)
+        changeEdgeStyle(edgeId, { dashed: !edge.style?.strokeDasharray });
     },
-    [bump, pushHistory],
+    [changeEdgeStyle],
   );
-
   const toggleEdgeArrow = useCallback(
     (edgeId: string) => {
       const edge = edgesRef.current.find((item) => item.id === edgeId);
-      if (!edge) return;
-      const hasArrow = !!edge.markerEnd;
-      pushHistory();
-      setEdges((currentEdges) =>
-        currentEdges.map((item) =>
-          item.id === edgeId
-            ? {
-                ...item,
-                markerEnd: hasArrow
-                  ? undefined
-                  : {
-                      type: MarkerType.ArrowClosed,
-                      width: 16,
-                      height: 16,
-                      color: String(item.style?.stroke ?? "#9ca3af"),
-                    },
-              }
-            : item,
-        ),
-      );
-      bump();
+      if (edge) changeEdgeStyle(edgeId, { arrow: !edge.markerEnd });
     },
-    [bump, pushHistory],
+    [changeEdgeStyle],
   );
 
   const exportAs = useCallback(
@@ -1973,7 +2351,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         return;
       }
       if (format === "svg") {
-        const svg = buildCanvasSvg(doc);
+        const svg = buildCanvasSvg(doc, labels);
         propsRef.current.onExportFile({
           requestId,
           format,
@@ -2004,16 +2382,29 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           exportBusyRef.current = false;
         });
     },
-    [snapshotNow],
+    [snapshotNow, labels],
   );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "f" &&
+        !isEditableTarget(event.target) &&
+        !editing &&
+        !editingEdge &&
+        !annotationBrowserRef.current
+      ) {
+        event.preventDefault();
+        setSearchOpen(true);
+        return;
+      }
+      if (
         !event.metaKey &&
         !event.ctrlKey &&
         !event.altKey &&
         !editing &&
+        !editingEdge &&
         annotationBrowserRef.current === null &&
         !isEditableTarget(event.target)
       ) {
@@ -2024,7 +2415,7 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         event,
         {
           annotationBrowserOpen: annotationBrowserRef.current !== null,
-          editing: Boolean(editing),
+          editing: Boolean(editing || editingEdge),
           drawing: drawRef.current !== null,
           selectedNodeIds: nodesRef.current
             .filter((node) => node.selected)
@@ -2039,11 +2430,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           dismissTransientUi() {
             setMenu(null);
             setHelpOpen(false);
-            setStyleTarget(null);
+            setDetailsTarget(null);
           },
           setActiveTool,
           deleteSelection: deleteCanvasElements,
           nudgeSelected,
+          fitView,
+          fitSelection,
+          undo: undoCanvas,
+          redo: redoCanvas,
         },
       );
     };
@@ -2051,11 +2446,16 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     editing,
+    editingEdge,
     cancelDraw,
     deleteCanvasElements,
     edgesRef,
     endFrameDrag,
+    fitSelection,
+    fitView,
     nudgeSelected,
+    redoCanvas,
+    undoCanvas,
   ]);
 
   useEffect(() => {
@@ -2098,10 +2498,10 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       setTemplates(templates) {
         setCustomTemplates(parseNoteTemplateRegistry(templates));
       },
-      loadSnapshot,
+      loadSnapshot: loadCanvasSnapshot,
       getSnapshot: snapshotNow,
-      undo,
-      redo,
+      undo: undoCanvas,
+      redo: redoCanvas,
       beginAcademicDrop(requestId, nodeId, screenPosition, sources) {
         setActiveTool("select");
         const position =
@@ -2192,13 +2592,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
     applyAnnotationCandidates,
     clearMatchingNotice,
     labels.noteRefreshFailed,
-    loadSnapshot,
+    loadCanvasSnapshot,
     noteRefreshRuntime,
     rejectAnnotationList,
-    redo,
+    redoCanvas,
     snapshotNow,
     showCanvasNotice,
-    undo,
+    undoCanvas,
   ]);
 
   useEffect(() => {
@@ -2226,8 +2626,40 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
 
   const selectedNodes = nodes.filter((node) => node.selected);
   const selectedEdges = edges.filter((edge) => edge.selected);
+  useEffect(() => {
+    setDetailsTarget((current) => {
+      if (
+        !current ||
+        editing ||
+        editingEdge ||
+        selectedNodes.length !== 1 ||
+        selectedEdges.length
+      ) {
+        return null;
+      }
+      return selectedNodes[0]!.id === current ? current : null;
+    });
+  }, [editing, editingEdge, nodes, edges]);
   const editingNode = editing
     ? nodes.find((node) => node.id === editing.nodeId)
+    : null;
+  const editingStroke =
+    editingNode &&
+    (editingNode.data.model.kind === "line" ||
+      editingNode.data.model.kind === "arrow")
+      ? editingNode.data.model
+      : null;
+  const editingStrokeCenter = editingStroke
+    ? {
+        x:
+          ((editingStroke.data.from?.x ?? 0) +
+            (editingStroke.data.to?.x ?? nodeSize(editingNode!).width)) /
+          2,
+        y:
+          ((editingStroke.data.from?.y ?? nodeSize(editingNode!).height / 2) +
+            (editingStroke.data.to?.y ?? nodeSize(editingNode!).height / 2)) /
+          2,
+      }
     : null;
   const editingSurfaceDefaults = editingNode
     ? canvasNodeSurfaceDefaults(
@@ -2247,21 +2679,163 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
       )
     : null;
   const menuNode = menu ? nodes.find((node) => node.id === menu.nodeId) : null;
-  const styleNode = styleTarget
-    ? nodes.find((node) => node.id === styleTarget)
+  const toolbarNode =
+    selectedNodes.length === 1 &&
+    !selectedEdges.length &&
+    !editing &&
+    !editingEdge
+      ? selectedNodes[0]
+      : null;
+  const toolbarScreen = toolbarNode
+    ? flowRef.current?.flowToScreenPosition(toolbarNode.position)
     : null;
-  const styleScreen = styleNode
-    ? flowRef.current?.flowToScreenPosition(styleNode.position)
+  const toolbarEdge =
+    selectedEdges.length === 1 &&
+    !selectedNodes.length &&
+    !editing &&
+    !editingEdge
+      ? selectedEdges[0]
+      : null;
+  const anchoredEdge = editingEdge
+    ? edges.find((edge) => edge.id === editingEdge.edgeId)
+    : toolbarEdge;
+  const edgeToolbarAnchor = anchoredEdge
+    ? (() => {
+        const source = nodes.find((node) => node.id === anchoredEdge.source);
+        const target = nodes.find((node) => node.id === anchoredEdge.target);
+        if (!source || !target) return null;
+        const from = connectionEndpoint(
+          { position: source.position, ...nodeSize(source) },
+          anchoredEdge.sourceHandle,
+          Position.Right,
+        );
+        const to = connectionEndpoint(
+          { position: target.position, ...nodeSize(target) },
+          anchoredEdge.targetHandle,
+          Position.Left,
+        );
+        const [, x, y] = getBezierPath({
+          sourceX: from.x,
+          sourceY: from.y,
+          sourcePosition: from.position,
+          targetX: to.x,
+          targetY: to.y,
+          targetPosition: to.position,
+        });
+        const screen = flowRef.current?.flowToScreenPosition({ x, y });
+        return screen ? { ...screen, width: 0, height: 0 } : null;
+      })()
     : null;
   const zoom = viewportRef.current.zoom || 1;
+  const propertyNode =
+    toolbarNode && detailsTarget === toolbarNode.id ? toolbarNode : null;
+  const propertyPosition = propertyNode
+    ? (() => {
+        const screen = flowRef.current?.flowToScreenPosition(
+          propertyNode.position,
+        );
+        if (!screen) return undefined;
+        return {
+          x: screen.x,
+          y: screen.y,
+          width: nodeSize(propertyNode).width * zoom,
+          height: nodeSize(propertyNode).height * zoom,
+        };
+      })()
+    : undefined;
+  const displayEdges = useMemo(
+    () =>
+      edges.map((edge) => {
+        const connection = edge.data?.connection;
+        if (!connection) return edge;
+        const label = connectionDisplayLabel(
+          connection,
+          labels,
+          typeof edge.label === "string" ? edge.label : undefined,
+        );
+        return {
+          ...edge,
+          label:
+            editingEdge?.edgeId === edge.id
+              ? undefined
+              : label?.includes("\n")
+                ? label.split("\n").map((line, index, lines) => (
+                    <tspan
+                      key={index}
+                      x={0}
+                      dy={
+                        index === 0
+                          ? `${-(lines.length - 1) * 0.625}em`
+                          : "1.25em"
+                      }
+                    >
+                      {line || "\u00a0"}
+                    </tspan>
+                  ))
+                : label,
+          labelStyle: {
+            fontSize: 12,
+            ...nodeTextStyle(connection.textStyle ?? {}),
+            fill:
+              connection.textStyle?.textColor ??
+              "var(--zmd-board-text, #111827)",
+          },
+          labelBgStyle: {
+            fill: "var(--zmd-board-surface, #fff)",
+            fillOpacity: 1,
+          },
+          labelBgPadding: [12, 7] as [number, number],
+          labelBgBorderRadius: 8,
+        };
+      }),
+    [edges, labels, editingEdge],
+  );
 
   return (
     <WhiteboardLabelsProvider value={labels}>
       <div
         ref={canvasHostRef}
+        style={
+          {
+            "--zmd-board-bg": THEME_TOKENS[theme].bg,
+            "--zmd-board-surface": THEME_TOKENS[theme].surface,
+            "--zmd-board-hover": THEME_TOKENS[theme].surface2,
+            "--zmd-board-border":
+              theme === "dark"
+                ? THEME_TOKENS.dark.borderStrong
+                : THEME_TOKENS.light.border,
+            "--zmd-board-text": THEME_TOKENS[theme].text,
+            "--zmd-board-muted": THEME_TOKENS[theme].textMuted,
+            "--zmd-board-accent": THEME_TOKENS[theme].accent,
+            "--zmd-board-accent-soft": THEME_TOKENS[theme].accentSoft,
+            "--zmd-control-size": `${UI_METRICS.control}px`,
+            "--zmd-compact-control-size": `${UI_METRICS.compactControl}px`,
+            "--zmd-icon-size": `${UI_METRICS.icon}px`,
+            "--zmd-menu-shadow": `${UI_METRICS.menuShadow} ${THEME_TOKENS[theme].menuShadow}`,
+          } as CSSProperties
+        }
         className={`zmd-board-host${eraser ? " is-eraser" : ""}${activeTool === "hand" ? " is-hand" : ""}${isDrawTool(activeTool) ? " is-draw" : ""}`}
         data-theme={theme}
         tabIndex={-1}
+        onDoubleClick={(event) => {
+          if (activeTool !== "select" || editing || editingEdge) return;
+          const target = event.target as HTMLElement | null;
+          if (
+            target?.closest(
+              ".react-flow__node, .react-flow__edge, .react-flow__controls, .zmd-board-toolbars",
+            )
+          )
+            return;
+          if (!target?.closest(".react-flow__pane")) return;
+          event.preventDefault();
+          addNode(
+            "note",
+            flowRef.current?.screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            }),
+          );
+        }}
         onPointerDown={(event) => {
           if (event.button !== 0 || editing) return;
           if (!isDrawTool(activeToolRef.current)) return;
@@ -2285,14 +2859,20 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           saveState={saveState}
           selectedNodeCount={selectedNodes.length}
           selectedEdgeCount={selectedEdges.length}
-          onUndo={() => runtimeRef.current?.undo()}
-          onRedo={() => runtimeRef.current?.redo()}
+          onUndo={undoCanvas}
+          onRedo={redoCanvas}
           onSave={() => propsRef.current.onSave()}
           onSwitchWindow={props.onSwitchWindow}
           onExportPng={() => exportAs("png")}
+          onExportSvg={() => exportAs("svg")}
+          onExportMarkdown={() => exportAs("md")}
           exportBusy={exportStatus === "busy"}
           onFitView={fitView}
+          onFitSelection={fitSelection}
+          onGroupSelection={groupSelection}
           onAutoLayout={autoLayout}
+          onDuplicate={() => copyNode()}
+          onSearch={() => setSearchOpen(true)}
           onOpenShortcuts={() => setHelpOpen(true)}
           onAlign={alignSelected}
           onDistribute={distributeSelected}
@@ -2306,6 +2886,64 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             selectedEdges[0] && toggleEdgeArrow(selectedEdges[0].id)
           }
         />
+        {searchOpen ? (
+          <div
+            className="zmd-board-search"
+            role="search"
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Escape") setSearchOpen(false);
+              if (event.key === "Enter" && searchResults.length) {
+                event.preventDefault();
+                focusSearchResult(
+                  searchIndex < 0
+                    ? event.shiftKey
+                      ? searchResults.length - 1
+                      : 0
+                    : (searchIndex +
+                        (event.shiftKey ? -1 : 1) +
+                        searchResults.length) %
+                        searchResults.length,
+                );
+              }
+            }}
+          >
+            <input
+              autoFocus
+              aria-label={labels.searchCanvas ?? "Search canvas"}
+              placeholder={labels.searchCanvas ?? "Search canvas"}
+              value={searchQuery}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setSearchIndex(-1);
+              }}
+            />
+            <span role="status">
+              {searchResults.length
+                ? `${Math.min(searchIndex + 1, searchResults.length)} / ${searchResults.length}`
+                : "0"}
+            </span>
+            <button
+              type="button"
+              disabled={!searchResults.length}
+              aria-label={labels.fitSelection ?? "Focus result"}
+              onClick={() =>
+                focusSearchResult(
+                  Math.max(0, searchIndex) % searchResults.length,
+                )
+              }
+            >
+              ↵
+            </button>
+            <button
+              type="button"
+              aria-label={labels.close ?? "Close"}
+              onClick={() => setSearchOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         {exportStatus ? (
           <div
             className="zmd-board-notice"
@@ -2335,27 +2973,26 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
         />
         <PropertiesPanel
           labels={labels}
-          node={
-            selectedNodes.length === 1 &&
-            (isLibraryKind(selectedNodes[0].data.model.kind) ||
-              selectedNodes[0].data.model.kind === "literature" ||
-              selectedNodes[0].data.model.kind === "quote" ||
-              selectedNodes[0].data.model.kind === "note")
-              ? selectedNodes[0]
-              : null
-          }
+          node={propertyNode}
+          position={propertyPosition}
           sourceState={
             selectedNodes.length === 1
               ? sourceStatesRef.current.get(selectedNodes[0].id)
               : undefined
           }
-          onEdit={startEdit}
+          onClose={() => {
+            setDetailsTarget(null);
+            window.requestAnimationFrame(() =>
+              detailsButtonRef.current?.focus(),
+            );
+          }}
           onOpen={openNode}
           onRefreshSource={refreshNodeSource}
           onViewAnnotations={openAnnotationBrowser}
           viewAnnotationsRef={viewAnnotationsRef}
           onCopy={copyNode}
           onDelete={deleteNode}
+          onRemoveFromGroup={removeFromGroup}
           noteTemplates={noteTemplates}
           onBadgeChange={changeNoteBadge}
           onTypeChange={changeSelectedNoteType}
@@ -2410,11 +3047,13 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           />
         ) : null}
         <ReactFlow<CanvasFlowNode, CanvasFlowEdge>
+          colorMode={theme}
           nodes={nodes}
-          edges={edges}
+          edges={displayEdges}
           nodeTypes={canvasNodeTypes}
           defaultViewport={initial.viewport}
-          fitView={!props.initialSnapshot}
+          fitView={fitInitialView}
+          fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
           minZoom={0.1}
           connectionMode={ConnectionMode.Loose}
           connectionLineType={ConnectionLineType.Bezier}
@@ -2441,19 +3080,52 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           edgesReconnectable={!eraser && !editing && activeTool === "select"}
           onInit={(instance) => {
             flowRef.current = instance;
-            void instance.setViewport(viewportRef.current);
+            if (fitPendingViewRef.current) fitPendingView();
+            else if (!fitInitialView)
+              void instance.setViewport(viewportRef.current);
           }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onReconnect={onReconnect}
           onNodeClick={(event, node) => {
+            const link = (event.target as Element).closest?.(
+              "a[href], [data-zmd-wikilink]",
+            );
+            if (link) {
+              event.preventDefault();
+              event.stopPropagation();
+              const wiki = link.getAttribute("data-zmd-wikilink");
+              const href = wiki
+                ? `[[${wiki}]]`
+                : link.getAttribute("href") || "";
+              if (href.startsWith("#")) {
+                const target = [
+                  ...(link
+                    .closest(".zmd-board-card-markdown")
+                    ?.querySelectorAll("[id]") ?? []),
+                ].find((element) => element.id === href.slice(1));
+                target?.scrollIntoView({ block: "nearest" });
+              } else if (propsRef.current.onOpenLink)
+                propsRef.current.onOpenLink(href);
+              else if (/^https?:/.test(href))
+                window.open(href, "_blank", "noopener,noreferrer");
+              return;
+            }
             if (!eraser) return;
             event.preventDefault();
             eraseNode(node.id);
           }}
+          zoomOnDoubleClick={false}
           onNodeDoubleClick={(event, node) => {
+            if (
+              (event.target as Element).closest?.(
+                "a[href], [data-zmd-wikilink]",
+              )
+            )
+              return;
             event.preventDefault();
+            setEditingEdge(null);
             const origin = flowRef.current?.flowToScreenPosition(node.position);
             const size = nodeSize(node);
             const zoom = viewportRef.current.zoom || 1;
@@ -2464,14 +3136,18 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 y: (event.clientY - origin.y) / zoom,
               };
               if (
+                !(event.target as Element).closest?.(
+                  ".zmd-board-stroke-label",
+                ) &&
                 isBorderHit(local, {
                   width: size.width,
                   height: size.height,
                   kind,
+                  shape: node.data.model.style?.shape,
                 })
               ) {
                 setEditing(null);
-                setStyleTarget(node.id);
+                setDetailsTarget(null);
                 return;
               }
             }
@@ -2490,13 +3166,18 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             event.preventDefault();
             eraseEdge(edge.id);
           }}
+          onEdgeDoubleClick={(event, edge) => {
+            if (eraser || activeTool !== "select") return;
+            event.preventDefault();
+            startEdgeEdit(edge.id);
+          }}
           onNodeContextMenu={(event, node) => {
             event.preventDefault();
-            setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
+            openContextMenu(event, node.id);
           }}
           onPaneClick={(event) => {
             setMenu(null);
-            setStyleTarget(null);
+            setDetailsTarget(null);
             if (eraser) {
               setActiveTool("select");
               return;
@@ -2511,7 +3192,15 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           }}
           onPaneContextMenu={(event) => {
             event.preventDefault();
-            setMenu({ x: event.clientX, y: event.clientY, nodeId: "" });
+            if (activeTool !== "select") return;
+            openContextMenu(
+              event,
+              "",
+              flowRef.current?.screenToFlowPosition({
+                x: event.clientX,
+                y: event.clientY,
+              }),
+            );
           }}
           onNodeDragStart={beginNodeDrag}
           onNodeDragStop={finishNodeDrag}
@@ -2530,104 +3219,148 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
           }}
           proOptions={{ hideAttribution: true }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
           <Controls showInteractive={false} position="bottom-right" />
+          <ViewportPortal>
+            {editing && editingNode && editingTextStyle ? (
+              <div
+                className={`zmd-board-editor is-in-shape nodrag nopan nowheel${editingStroke ? " is-stroke-label" : ""}`}
+                data-kind={editingNode.type}
+                data-shape={editingNode.data.model.style?.shape}
+                style={{
+                  borderWidth:
+                    editingNode.type === "note" || editingNode.type === "text"
+                      ? (editingNode.data.model.style?.strokeWidth ??
+                        editingSurfaceDefaults?.strokeWidth ??
+                        1)
+                      : undefined,
+                  left: editingNode.position.x,
+                  top: editingNode.position.y,
+                  width: nodeSize(editingNode).width,
+                  height: nodeSize(editingNode).height,
+                  borderRadius:
+                    editingNode.type === "ellipse"
+                      ? 999
+                      : (editingNode.data.model.style?.radius ??
+                        editingSurfaceDefaults?.radius ??
+                        8),
+                  ...verticalAlignmentStyle(editingTextStyle),
+                  ...(editingStrokeCenter
+                    ? {
+                        left: editingNode.position.x + editingStrokeCenter.x,
+                        top: editingNode.position.y + editingStrokeCenter.y,
+                        width: "max-content",
+                        height: "auto",
+                        borderRadius: 8,
+                      }
+                    : {}),
+                }}
+              >
+                <div className="zmd-board-edit-content">
+                  {editingNode.type === "text" || editingStroke ? (
+                    <span
+                      className="zmd-board-edit-measure"
+                      aria-hidden="true"
+                      style={labelTextStyle(editingTextStyle)}
+                    >
+                      {editing.value + "\u200b"}
+                    </span>
+                  ) : null}
+                  <textarea
+                    cols={editingStroke ? 1 : undefined}
+                    ref={(element) => {
+                      if (
+                        element &&
+                        (editingNode.type === "note" ||
+                          editingNode.data.model.style?.shape === "diamond")
+                      ) {
+                        element.style.height = "0px";
+                        element.style.height = `${element.scrollHeight}px`;
+                      }
+                    }}
+                    rows={
+                      editingNode.type === "text" || editingStroke
+                        ? 1
+                        : undefined
+                    }
+                    autoFocus
+                    aria-label={
+                      editingNode.type === "note"
+                        ? labels.editNoteBody
+                        : labels.editText
+                    }
+                    placeholder={
+                      editingNode.data.model.kind === "note"
+                        ? noteTypePrompt(
+                            labels,
+                            getNoteType(editingNode.data.model),
+                          )
+                        : undefined
+                    }
+                    className="zmd-board-in-shape-edit"
+                    value={editing.value}
+                    style={{
+                      ...labelTextStyle(editingTextStyle),
+                      ...(editingNode.data.model.style?.shape === "diamond"
+                        ? { width: "54%" }
+                        : {}),
+                      lineHeight: editingNode.type === "note" ? 1.45 : 1.25,
+                    }}
+                    onChange={(event) =>
+                      setEditing({
+                        nodeId: editing.nodeId,
+                        value: event.target.value,
+                      })
+                    }
+                    onBlur={() => {
+                      handleEditBlur(holdEditFocusRef, commitEdit);
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.nativeEvent.isComposing ||
+                        event.keyCode === 229
+                      )
+                        return;
+                      if (
+                        (event.metaKey || event.ctrlKey) &&
+                        event.key.toLowerCase() === "b"
+                      ) {
+                        event.preventDefault();
+                        updateNode(editing.nodeId, (current) =>
+                          toggleEditingBold(current, editing.value),
+                        );
+                        return;
+                      }
+                      if (
+                        event.key === "Enter" &&
+                        (editingNode.type === "note"
+                          ? event.metaKey || event.ctrlKey
+                          : !event.shiftKey)
+                      ) {
+                        event.preventDefault();
+                        commitEdit();
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelEdit();
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </ViewportPortal>
         </ReactFlow>
-        {editing && editingNode && editingScreen && editingTextStyle ? (
-          <div
-            className="zmd-board-editor is-in-shape"
-            data-kind={editingNode.type}
-            style={{
-              ...({ "--zmd-edit-zoom": zoom } as CSSProperties),
-              borderWidth:
-                editingNode.type === "note"
-                  ? (editingNode.data.model.style?.strokeWidth ??
-                      editingSurfaceDefaults?.strokeWidth ??
-                      1) * zoom
-                  : undefined,
-              left: editingScreen.x,
-              top: editingScreen.y,
-              width:
-                nodeSize(editingNode).width * (viewportRef.current.zoom || 1),
-              height:
-                nodeSize(editingNode).height * (viewportRef.current.zoom || 1),
-              borderRadius:
-                editingNode.type === "ellipse"
-                  ? 999
-                  : (editingNode.data.model.style?.radius ??
-                      editingSurfaceDefaults?.radius ??
-                      8) * (viewportRef.current.zoom || 1),
-              ...verticalAlignmentStyle(editingTextStyle),
-            }}
-          >
-            <textarea
-              ref={(element) => {
-                if (element && editingNode.type === "note") {
-                  element.style.height = "0px";
-                  element.style.height = `${element.scrollHeight}px`;
-                }
-              }}
-              autoFocus
-              aria-label={
-                editingNode.type === "note"
-                  ? labels.editNoteBody
-                  : labels.editText
-              }
-              placeholder={
-                editingNode.data.model.kind === "note"
-                  ? noteTypePrompt(labels, getNoteType(editingNode.data.model))
-                  : undefined
-              }
-              className="zmd-board-in-shape-edit"
-              value={editing.value}
-              style={{
-                ...labelTextStyle(editingTextStyle),
-                lineHeight: editingNode.type === "note" ? 1.45 : 1.25,
-                fontSize:
-                  editingTextStyle.fontSize * (viewportRef.current.zoom || 1),
-              }}
-              onChange={(event) =>
-                setEditing({
-                  nodeId: editing.nodeId,
-                  value: event.target.value,
-                })
-              }
-              onBlur={() => {
-                handleEditBlur(holdEditFocusRef, commitEdit);
-              }}
-              onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing || event.keyCode === 229)
-                  return;
-                if (
-                  (event.metaKey || event.ctrlKey) &&
-                  event.key.toLowerCase() === "b"
-                ) {
-                  event.preventDefault();
-                  updateNode(editing.nodeId, (current) =>
-                    toggleEditingBold(current, editing.value),
-                  );
-                  return;
-                }
-                if (
-                  event.key === "Enter" &&
-                  (editingNode.type === "note"
-                    ? event.metaKey || event.ctrlKey
-                    : !event.shiftKey)
-                ) {
-                  event.preventDefault();
-                  commitEdit();
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  cancelEdit();
-                }
-              }}
-            />
-          </div>
-        ) : null}
         {menu ? (
           <div
             className="zmd-board-context-menu"
             style={{ left: menu.x, top: menu.y }}
+            role="menu"
+            aria-label={labels.more}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              setMenu(null);
+            }}
           >
             {menuNode ? (
               <>
@@ -2667,6 +3400,24 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                   <IconCopy />
                   <span>{labels.copy}</span>
                 </button>
+                {selectedNodes.some(
+                  (node) => node.data.model.kind !== "frame",
+                ) ? (
+                  <button type="button" onClick={groupSelection}>
+                    <IconCopy />
+                    <span>{labels.groupSelection}</span>
+                  </button>
+                ) : null}
+                {"frameId" in menuNode.data.model &&
+                menuNode.data.model.frameId ? (
+                  <button
+                    type="button"
+                    onClick={() => removeFromGroup(menuNode.id)}
+                  >
+                    <IconOpen />
+                    <span>{labels.removeFromGroup}</span>
+                  </button>
+                ) : null}
                 <button type="button" onClick={() => deleteNode(menuNode.id)}>
                   <IconTrash />
                   <span>{labels.delete}</span>
@@ -2674,6 +3425,39 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               </>
             ) : (
               <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const position = menu.flowPosition;
+                    setMenu(null);
+                    addNode("note", position);
+                  }}
+                >
+                  <IconEdit />
+                  <span>{labels.addNote}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const position = menu.flowPosition;
+                    setMenu(null);
+                    addNode("literature", position);
+                  }}
+                >
+                  <IconOpen />
+                  <span>{labels.kindLiterature}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const position = menu.flowPosition;
+                    setMenu(null);
+                    addNode("frame", position);
+                  }}
+                >
+                  <IconCopy />
+                  <span>{labels.addFrame}</span>
+                </button>
                 {([1, 2, 4] as const).map((scale) => (
                   <button
                     key={scale}
@@ -2711,6 +3495,12 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
               280
             }
             top={Math.max(8, editingScreen.y - 56)}
+            anchor={{
+              x: editingScreen.x,
+              y: editingScreen.y,
+              width: nodeSize(editingNode).width * zoom,
+              height: nodeSize(editingNode).height * zoom,
+            }}
             onHoldFocus={() => {
               armEditFocusHold(holdEditFocusRef);
             }}
@@ -2721,17 +3511,101 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
             }}
           />
         ) : null}
-        {styleNode && styleScreen ? (
-          <StyleBar
-            key={styleNode.id}
-            node={styleNode}
+        {editingEdge && edgeToolbarAnchor ? (
+          <ConnectionEditor
+            key={editingEdge.edgeId}
+            labels={labels}
+            value={editingEdge.value}
+            left={edgeToolbarAnchor.x}
+            top={edgeToolbarAnchor.y}
+            zoom={zoom}
+            textStyle={anchoredEdge?.data?.connection.textStyle}
+            onHeightChange={setEdgeEditorHeight}
+            onCommit={commitEdgeEdit}
+            onCancel={cancelEdgeEdit}
+          />
+        ) : null}
+        {editingEdge && anchoredEdge && edgeToolbarAnchor ? (
+          <TextStyleBar
+            textStyle={{
+              fontSize: 12,
+              ...anchoredEdge.data?.connection.textStyle,
+            }}
             labels={labels}
             theme={theme}
-            left={styleScreen.x + (nodeSize(styleNode).width * zoom) / 2 - 280}
-            top={Math.max(8, styleScreen.y - 56)}
+            left={edgeToolbarAnchor.x}
+            top={edgeToolbarAnchor.y - 56}
+            anchor={{
+              ...edgeToolbarAnchor,
+              y: edgeToolbarAnchor.y - (edgeEditorHeight * zoom) / 2,
+            }}
             onChange={(patch) => {
-              const { width, height, ...style } = patch;
-              updateNode(styleNode.id, (current) => {
+              pushHistory();
+              setEdges((current) =>
+                current.map((edge) =>
+                  edge.id === editingEdge.edgeId && edge.data
+                    ? {
+                        ...edge,
+                        data: {
+                          ...edge.data,
+                          connection: {
+                            ...edge.data.connection,
+                            textStyle: {
+                              ...edge.data.connection.textStyle,
+                              ...patch,
+                            },
+                          },
+                        },
+                      }
+                    : edge,
+                ),
+              );
+              bump();
+            }}
+          />
+        ) : null}
+        {toolbarNode && toolbarScreen ? (
+          <StyleBar
+            key={toolbarNode.id}
+            node={toolbarNode}
+            labels={labels}
+            theme={theme}
+            left={
+              toolbarScreen.x + (nodeSize(toolbarNode).width * zoom) / 2 - 280
+            }
+            top={Math.max(8, toolbarScreen.y - 56)}
+            anchor={{
+              x: toolbarScreen.x,
+              y: toolbarScreen.y,
+              width: nodeSize(toolbarNode).width * zoom,
+              height: nodeSize(toolbarNode).height * zoom,
+            }}
+            onEdit={() => startEdit(toolbarNode.id)}
+            onToggleDetails={() => {
+              setDetailsTarget((current) =>
+                current === toolbarNode.id ? null : toolbarNode.id,
+              );
+              setMenu(null);
+            }}
+            detailsOpen={propertyNode?.id === toolbarNode.id}
+            detailsButtonRef={detailsButtonRef}
+            onChange={(patch) => {
+              const { width, height, x, y, ...style } = patch;
+              if (x !== undefined || y !== undefined) {
+                pushHistory();
+                applyNodePositions([
+                  {
+                    ...toolbarNode,
+                    position: {
+                      x: x ?? toolbarNode.position.x,
+                      y: y ?? toolbarNode.position.y,
+                    },
+                  },
+                ]);
+                bump();
+                return;
+              }
+              updateNode(toolbarNode.id, (current) => {
                 const next = updateFlowNodeModel(current, (model) => ({
                   ...model,
                   style: { ...(model.style ?? {}), ...style },
@@ -2747,6 +3621,17 @@ export function WhiteboardApp(props: WhiteboardAppProps): ReactElement {
                 };
               });
             }}
+          />
+        ) : null}
+        {toolbarEdge && edgeToolbarAnchor ? (
+          <EdgeStyleBar
+            key={toolbarEdge.id}
+            edge={toolbarEdge}
+            labels={labels}
+            theme={theme}
+            anchor={edgeToolbarAnchor}
+            onChange={(patch) => changeEdgeStyle(toolbarEdge.id, patch)}
+            onEdit={() => startEdgeEdit(toolbarEdge.id)}
           />
         ) : null}
         {helpOpen ? (

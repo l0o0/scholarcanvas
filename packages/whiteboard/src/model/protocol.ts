@@ -8,6 +8,8 @@
  */
 
 import type {
+  AttachmentSnapshot,
+  AttachmentSource,
   LiteratureSnapshot,
   LiteratureSource,
   NoteSource,
@@ -41,6 +43,10 @@ export interface WhiteboardProtocolMessage {
 }
 
 export interface WhiteboardLabels {
+  searchCanvas?: string;
+  duplicateSelection?: string;
+  layoutAllConfirm?: string;
+
   canvas: string;
   selection: string;
   select: string;
@@ -63,6 +69,8 @@ export interface WhiteboardLabels {
   addFile: string;
   addText: string;
   addRect: string;
+  addRoundedRect: string;
+  addDiamond: string;
   addEllipse: string;
   addLine: string;
   addArrow: string;
@@ -89,6 +97,7 @@ export interface WhiteboardLabels {
   sourceAvailable: string;
   sourceLoading: string;
   sourceMissing: string;
+  attachmentNotDownloaded: string;
   acquisitionSummary: string;
   dropMalformed: string;
   dropUnsupported: string;
@@ -141,10 +150,28 @@ export interface WhiteboardLabels {
   distributeHorizontal: string;
   distributeVertical: string;
   fitView: string;
+  groupSelection: string;
+  removeFromGroup: string;
+  fitSelection: string;
+  drawTools: string;
+  selectionDetails: string;
+  edgeLabel: string;
+  edgeRelation: string;
+  relationNone: string;
+  relationRelated: string;
+  relationSupports: string;
+  relationContradicts: string;
   autoLayout: string;
   edgeColor: string;
   edgeDash: string;
   edgeArrow: string;
+  edgeStyle: string;
+  edgeArrows: string;
+  arrowNone: string;
+  arrowForward: string;
+  arrowReverse: string;
+  arrowBoth: string;
+  edgeSelection: string;
   saved: string;
   saving: string;
   saveFailed: string;
@@ -163,6 +190,12 @@ export interface WhiteboardLabels {
   solid: string;
   dashed: string;
   corners: string;
+  strokeWidth: string;
+  geometry: string;
+  nodeWidth: string;
+  nodeHeight: string;
+  positionX: string;
+  positionY: string;
   format: string;
   color: string;
   size: string;
@@ -176,6 +209,10 @@ export interface WhiteboardLabels {
   fontMenlo: string;
   fontSerifSc: string;
   weightRegular: string;
+  textItalic: string;
+  textUnderline: string;
+  textStrike: string;
+  fontFamily: string;
   weightBold: string;
   commonColors: string;
   opacity: string;
@@ -210,7 +247,8 @@ export interface WhiteboardInitPayload {
 export type AcademicSourceDescriptor =
   | { kind: "literature"; source: LiteratureSource }
   | { kind: "note"; source: NoteSource }
-  | { kind: "quote"; source: QuoteSource };
+  | { kind: "quote"; source: QuoteSource }
+  | { kind: "attachment"; source: AttachmentSource };
 
 export type SourceResolutionPriority = "selected" | "visible" | "idle";
 
@@ -226,7 +264,12 @@ export type AcademicAcquisition =
       sourceSnapshot?: NoteSourceSnapshot;
       content: string;
     }
-  | { kind: "quote"; source: QuoteSource; snapshot: QuoteSnapshot };
+  | { kind: "quote"; source: QuoteSource; snapshot: QuoteSnapshot }
+  | {
+      kind: "attachment";
+      source: AttachmentSource;
+      snapshot: AttachmentSnapshot;
+    };
 
 export interface IndexedAcademicAcquisition {
   index: number;
@@ -234,7 +277,7 @@ export interface IndexedAcademicAcquisition {
 }
 
 /** Ordered, persistence-safe identity used after the host resolves a Zotero drag. */
-export type AcademicDropSourceRef = LiteratureSource;
+export type AcademicDropSourceRef = LiteratureSource | AttachmentSource;
 
 export type AcademicDropFailureCode = "drop-malformed" | "drop-unsupported";
 
@@ -246,12 +289,14 @@ export type AcademicRequestFailureCode =
   | "item-missing"
   | "wrong-kind"
   | "parent-mismatch"
+  | "attachment-not-downloaded"
   | "note-refresh-failed";
 
 export type AcademicAcquisitionFailureCode =
   | "item-missing"
   | "unsupported-attachment"
   | "unsupported-kind"
+  | "attachment-not-downloaded"
   | "acquisition-failed";
 
 export interface AcademicAcquisitionFailure {
@@ -271,7 +316,11 @@ export interface AcademicSourceActionFailure {
 }
 
 export type AcademicIntegrityFailureCode =
-  "library-missing" | "item-missing" | "wrong-kind" | "parent-mismatch";
+  | "library-missing"
+  | "item-missing"
+  | "wrong-kind"
+  | "parent-mismatch"
+  | "attachment-not-downloaded";
 
 export type AcademicSourceActionFailureCode =
   AcademicIntegrityFailureCode | "open-failed";
@@ -481,6 +530,7 @@ export type WhiteboardToParentBody =
     }
   | { type: "save" }
   | { type: "switchWindow" }
+  | { type: "openLink"; payload: { href: string } }
   | { type: "error"; payload: { message: string } }
   | {
       type: "openItem";
@@ -561,6 +611,7 @@ const activeWhiteboardToParentTypes = {
   switchWindow: true,
   error: true,
   pickAcademicSource: true,
+  openLink: true,
   openItem: true,
   dropAcademicSources: true,
   resolveAcademicSources: true,
@@ -761,6 +812,9 @@ const whiteboardLabelStringKeys: Record<
   Exclude<keyof WhiteboardLabels, "annotations">,
   true
 > = {
+  searchCanvas: true,
+  duplicateSelection: true,
+  layoutAllConfirm: true,
   canvas: true,
   selection: true,
   select: true,
@@ -783,6 +837,8 @@ const whiteboardLabelStringKeys: Record<
   addFile: true,
   addText: true,
   addRect: true,
+  addRoundedRect: true,
+  addDiamond: true,
   addEllipse: true,
   addLine: true,
   addArrow: true,
@@ -808,6 +864,7 @@ const whiteboardLabelStringKeys: Record<
   sourceAvailable: true,
   sourceLoading: true,
   sourceMissing: true,
+  attachmentNotDownloaded: true,
   acquisitionSummary: true,
   dropMalformed: true,
   dropUnsupported: true,
@@ -860,10 +917,28 @@ const whiteboardLabelStringKeys: Record<
   distributeHorizontal: true,
   distributeVertical: true,
   fitView: true,
+  groupSelection: true,
+  removeFromGroup: true,
+  fitSelection: true,
+  drawTools: true,
+  selectionDetails: true,
+  edgeLabel: true,
+  edgeRelation: true,
+  relationNone: true,
+  relationRelated: true,
+  relationSupports: true,
+  relationContradicts: true,
   autoLayout: true,
   edgeColor: true,
   edgeDash: true,
   edgeArrow: true,
+  edgeStyle: true,
+  edgeArrows: true,
+  arrowNone: true,
+  arrowForward: true,
+  arrowReverse: true,
+  arrowBoth: true,
+  edgeSelection: true,
   saved: true,
   saving: true,
   saveFailed: true,
@@ -882,6 +957,12 @@ const whiteboardLabelStringKeys: Record<
   solid: true,
   dashed: true,
   corners: true,
+  strokeWidth: true,
+  geometry: true,
+  nodeWidth: true,
+  nodeHeight: true,
+  positionX: true,
+  positionY: true,
   format: true,
   color: true,
   size: true,
@@ -895,6 +976,10 @@ const whiteboardLabelStringKeys: Record<
   fontMenlo: true,
   fontSerifSc: true,
   weightRegular: true,
+  textItalic: true,
+  textUnderline: true,
+  textStrike: true,
+  fontFamily: true,
   weightBold: true,
   commonColors: true,
   opacity: true,
@@ -921,8 +1006,16 @@ const whiteboardLabelStringKeys: Record<
 
 function isWhiteboardLabels(value: unknown): value is WhiteboardLabels {
   if (!isPlainRecord(value)) return false;
-  const stringKeys = Object.keys(whiteboardLabelStringKeys);
-  if (!hasExactKeys(value, [...stringKeys, "annotations"])) return false;
+  const optional = ["searchCanvas", "duplicateSelection", "layoutAllConfirm"];
+  const stringKeys = Object.keys(whiteboardLabelStringKeys).filter(
+    (key) => !optional.includes(key),
+  );
+  if (!hasExactKeys(value, [...stringKeys, "annotations"], optional))
+    return false;
+  if (
+    !optional.every((key) => value[key] === undefined || isString(value[key]))
+  )
+    return false;
   if (!stringKeys.every((key) => isString(value[key]))) return false;
   return (
     isPlainRecord(value.annotations) &&
@@ -972,7 +1065,43 @@ function isAcademicSourceDescriptor(value: unknown): boolean {
   if (value.kind === "literature") return isLiteratureSource(value.source);
   if (value.kind === "note") return isNoteSource(value.source);
   if (value.kind === "quote") return isQuoteSource(value.source);
+  if (value.kind === "attachment") return isAttachmentSource(value.source);
   return false;
+}
+
+function isAttachmentSource(value: unknown): value is AttachmentSource {
+  return (
+    isPlainRecord(value) &&
+    hasExactKeys(value, ["library", "attachmentKey"]) &&
+    isLibraryRefShape(value.library) &&
+    isNonEmptyString(value.attachmentKey)
+  );
+}
+
+function isLibraryRefShape(value: unknown): boolean {
+  if (!isPlainRecord(value) || !hasOwn(value, "type")) return false;
+  if (value.type === "user") return hasExactKeys(value, ["type"]);
+  return (
+    value.type === "group" &&
+    hasExactKeys(value, ["type", "groupID"]) &&
+    Number.isSafeInteger(value.groupID) &&
+    (value.groupID as number) > 0
+  );
+}
+
+function isAttachmentSnapshot(value: unknown): value is AttachmentSnapshot {
+  return (
+    isPlainRecord(value) &&
+    hasExactKeys(value, ["filename", "availability"], ["contentType"]) &&
+    isNonEmptyString(value.filename) &&
+    (value.availability === "available" ||
+      value.availability === "not-downloaded") &&
+    isOptionalOwnString(value, "contentType")
+  );
+}
+
+function isAcademicDropSource(value: unknown): value is AcademicDropSourceRef {
+  return isLiteratureSource(value) || isAttachmentSource(value);
 }
 
 function isLiteratureSnapshot(value: unknown): boolean {
@@ -1008,6 +1137,13 @@ function isAcademicAcquisition(value: unknown): boolean {
       hasExactKeys(value, ["kind", "source", "snapshot"]) &&
       isQuoteSource(value.source) &&
       isQuoteSnapshot(value.snapshot)
+    );
+  }
+  if (value.kind === "attachment") {
+    return (
+      hasExactKeys(value, ["kind", "source", "snapshot"]) &&
+      isAttachmentSource(value.source) &&
+      isAttachmentSnapshot(value.snapshot)
     );
   }
   return (
@@ -1106,6 +1242,7 @@ const acquisitionFailureCodes: Record<AcademicAcquisitionFailureCode, true> = {
   "item-missing": true,
   "unsupported-attachment": true,
   "unsupported-kind": true,
+  "attachment-not-downloaded": true,
   "acquisition-failed": true,
 };
 const requestFailureCodes: Record<AcademicRequestFailureCode, true> = {
@@ -1116,6 +1253,7 @@ const requestFailureCodes: Record<AcademicRequestFailureCode, true> = {
   "item-missing": true,
   "wrong-kind": true,
   "parent-mismatch": true,
+  "attachment-not-downloaded": true,
   "note-refresh-failed": true,
 };
 const sourceActionFailureCodes: Record<AcademicSourceActionFailureCode, true> =
@@ -1124,6 +1262,7 @@ const sourceActionFailureCodes: Record<AcademicSourceActionFailureCode, true> =
     "item-missing": true,
     "wrong-kind": true,
     "parent-mismatch": true,
+    "attachment-not-downloaded": true,
     "open-failed": true,
   };
 const resolutionFailureCodes: Record<SourceResolutionFailureCode, true> = {
@@ -1131,6 +1270,7 @@ const resolutionFailureCodes: Record<SourceResolutionFailureCode, true> = {
   "item-missing": true,
   "wrong-kind": true,
   "parent-mismatch": true,
+  "attachment-not-downloaded": true,
   "resolution-failed": true,
 };
 const annotationFailureCodes: Record<AnnotationListFailureCode, true> = {
@@ -1316,6 +1456,14 @@ function validateWhiteboardToParentMessageForChannel(
         hasRequestAndNode(payload) &&
         payload.kind === "literature"
       );
+    case "openLink":
+      return (
+        hasOwn(data, "payload") &&
+        isPlainRecord(payload) &&
+        hasExactKeys(payload, ["href"]) &&
+        isString(payload.href) &&
+        payload.href.length < 8192
+      );
     case "openItem":
       return (
         hasOwn(data, "payload") &&
@@ -1331,7 +1479,7 @@ function validateWhiteboardToParentMessageForChannel(
         isPlainRecord(payload) &&
         hasExactKeys(payload, ["requestId", "nodeId", "sources"]) &&
         hasRequestAndNode(payload) &&
-        isArrayOf(payload.sources, isLiteratureSource)
+        isArrayOf(payload.sources, isAcademicDropSource)
       );
     case "resolveAcademicSources":
       return (
@@ -1506,7 +1654,7 @@ function validateParentToWhiteboardMessageForChannel(
         hasExactKeys(payload.position, ["x", "y"]) &&
         isFiniteNumber(payload.position.x) &&
         isFiniteNumber(payload.position.y) &&
-        isArrayOf(payload.sources, isLiteratureSource)
+        isArrayOf(payload.sources, isAcademicDropSource)
       );
     case "academicDropRejected":
       return (

@@ -217,6 +217,7 @@ export function createWhiteboardEditor(
       nodeId: string,
       kind: "literature",
     ) => void;
+    onOpenLink?: (href: string) => void;
     onOpenItem?: (payload: {
       itemID?: number;
       attachmentID?: number;
@@ -410,6 +411,9 @@ export function createWhiteboardEditor(
           data.payload.nodeId,
           data.payload.kind,
         );
+        break;
+      case "openLink":
+        options.onOpenLink?.(data.payload.href);
         break;
       case "openItem":
         options.onOpenItem?.(data.payload);

@@ -10,6 +10,7 @@ import {
 } from "../packages/whiteboard/src/model/canvas-file.ts";
 import { parseCanvasDocument } from "../packages/whiteboard/src/model/document.ts";
 import {
+  hasDefaultTutorialViewport,
   tutorialCanvasDocument,
   type TutorialCanvasLabels,
   type TutorialCanvasSample,
@@ -360,4 +361,21 @@ test("copies and bounds real academic samples through a canvas-file round trip",
   assert.deepEqual(reopened.document.nodes, document.nodes);
   assert.deepEqual(reopened.document.connections, document.connections);
   assert.deepEqual(reopened.document.viewport, document.viewport);
+});
+
+test("only the tutorial's default opening view is automatically fitted", () => {
+  const document = tutorialCanvasDocument(english);
+  assert.equal(hasDefaultTutorialViewport(document), true);
+  const reloaded = canvasFileToDocument(
+    canvasDocumentToFile(document),
+  ).document;
+  assert.equal(hasDefaultTutorialViewport(reloaded), true);
+  assert.equal(
+    hasDefaultTutorialViewport({
+      ...document,
+      viewport: { x: 300, y: 80, zoom: 0.6 },
+    }),
+    false,
+  );
+  assert.equal(hasDefaultTutorialViewport({ ...document, nodes: [] }), false);
 });

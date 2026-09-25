@@ -1,5 +1,6 @@
 import {
   ACADEMIC_SOURCE_CARD_SIZE,
+  attachmentSourceIdentity,
   createAcademicNode,
   literatureSourceIdentity,
   noteSourceIdentity,
@@ -114,6 +115,12 @@ export function sourceDescriptor(
   if (node.kind === "note" && node.source) {
     return { kind: "note", source: node.source };
   }
+  if (
+    (node.kind === "pdf" || node.kind === "attachment") &&
+    node.data.source
+  ) {
+    return { kind: "attachment", source: node.data.source };
+  }
   return undefined;
 }
 
@@ -123,6 +130,9 @@ export function sourceCacheKey(descriptor: AcademicSourceDescriptor): string {
   }
   if (descriptor.kind === "note") {
     return noteSourceIdentity(descriptor.source);
+  }
+  if (descriptor.kind === "attachment") {
+    return attachmentSourceIdentity(descriptor.source);
   }
   return quoteSourceIdentity(descriptor.source);
 }
@@ -137,7 +147,11 @@ export function applyResolvedAcquisition(
   );
   return resolved === node.data.model
     ? node
-    : { ...node, data: { ...node.data, model: resolved } };
+    : {
+        ...node,
+        type: resolved.kind,
+        data: { ...node.data, model: resolved },
+      };
 }
 
 export function applyResolvedAcquisitionToCanvasNode(
@@ -168,6 +182,52 @@ export function applyResolvedAcquisitionToCanvasNode(
     return acquisition.sourceSnapshot
       ? { ...withoutTitle, sourceSnapshot: acquisition.sourceSnapshot }
       : withoutTitle;
+  }
+  if (
+    (node.kind === "pdf" || node.kind === "attachment") &&
+    acquisition.kind === "attachment"
+  ) {
+    const nextKind =
+      acquisition.snapshot.contentType?.toLowerCase() === "application/pdf"
+        ? "pdf"
+        : "attachment";
+    const cleanData =
+      nextKind === "attachment" && node.kind === "pdf"
+        ? (() => {
+            const {
+              subtitle: _subtitle,
+              contentType: _contentType,
+              pdfPage: _page,
+              image: _image,
+              asset: _asset,
+              ...rest
+            } = node.data;
+            return rest;
+          })()
+        : (() => {
+            const {
+              subtitle: _subtitle,
+              contentType: _contentType,
+              ...rest
+            } = node.data;
+            return rest;
+          })();
+    return {
+      ...node,
+      kind: nextKind,
+      data: {
+        ...cleanData,
+        title: acquisition.snapshot.filename,
+        ...(acquisition.snapshot.contentType
+          ? { subtitle: acquisition.snapshot.contentType }
+          : {}),
+        source: acquisition.source,
+        ...(acquisition.snapshot.contentType
+          ? { contentType: acquisition.snapshot.contentType }
+          : {}),
+        availability: acquisition.snapshot.availability,
+      },
+    } as CanvasNode;
   }
   return node;
 }
@@ -237,6 +297,16 @@ export function sourceSnapshotChanged(
   }
   if (model.kind === "quote" && acquisition.kind === "quote") {
     return !quoteSnapshotsEqual(model.snapshot, acquisition.snapshot);
+  }
+  if (
+    (model.kind === "pdf" || model.kind === "attachment") &&
+    acquisition.kind === "attachment"
+  ) {
+    return (
+      model.data.title !== acquisition.snapshot.filename ||
+      model.data.subtitle !== acquisition.snapshot.contentType ||
+      model.data.availability !== acquisition.snapshot.availability
+    );
   }
   return false;
 }

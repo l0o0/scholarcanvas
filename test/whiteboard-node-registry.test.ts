@@ -368,7 +368,7 @@ test("academic card layout keeps full excerpts scrollable and wraps provenance",
   );
 });
 
-test("renders local academic text as plain pre-wrapped content", () => {
+test("renders local academic text as Markdown without changing its source", () => {
   const model = createAcademicNode("note", { x: 0, y: 0 }, "note-1", {
     badge: "Question",
     content: "**plain research**\nsecond line",
@@ -376,10 +376,10 @@ test("renders local academic text as plain pre-wrapped content", () => {
   const markup = renderNode(model);
   assert.match(markup, new RegExp(`title="${labels.addQuestion}"`));
   assert.match(markup, new RegExp(`>${labels.addQuestion}<`));
-  assert.match(markup, /\*\*plain research\*\*/);
+  assert.match(markup, /<strong>plain research<\/strong>/);
   assert.match(markup, /second line/);
-  assert.match(markup, /white-space:pre-wrap/);
-  assert.doesNotMatch(markup, /<strong>/);
+  assert.match(markup, /<br>/);
+  assert.equal(model.content, "**plain research**\nsecond line");
 });
 
 test("an empty Academic Note renders localized display copy without changing content", () => {
@@ -425,7 +425,7 @@ test("Academic cards render non-default canonical surface and text styles", () =
   );
   assert.match(
     note,
-    /class="zmd-board-card-content" style="[^"]*font-family:Georgia, serif[^"]*font-size:24px[^"]*font-weight:bold[^"]*font-style:italic[^"]*text-decoration:underline[^"]*text-align:right[^"]*color:#102030[^"]*opacity:0\.6/,
+    /class="zmd-board-card-content zmd-board-card-markdown nowheel" style="[^"]*font-family:Georgia, serif[^"]*font-size:24px[^"]*font-weight:bold[^"]*font-style:italic[^"]*text-decoration:underline[^"]*text-align:right[^"]*color:#102030[^"]*opacity:0\.6/,
   );
 
   const cardRule = canvasCss.match(/\.zmd-board-card\s*\{([^}]*)\}/)?.[1];
@@ -511,10 +511,10 @@ test("selection style controls expose only surface properties the kind renders",
 
   const noteControls = renderStyleBar(note);
   const lineControls = renderStyleBar(line);
-  assert.match(noteControls, />localized-background</);
-  assert.match(noteControls, />localized-corners</);
-  assert.doesNotMatch(lineControls, />localized-background</);
-  assert.doesNotMatch(lineControls, />localized-corners</);
+  assert.match(noteControls, /aria-label="localized-background"/);
+  assert.match(noteControls, /aria-label="localized-corners"/);
+  assert.doesNotMatch(lineControls, /aria-label="localized-background"/);
+  assert.doesNotMatch(lineControls, /aria-label="localized-corners"/);
 });
 
 test("Basic shapes prefer canonical strokeStyle over the legacy dashed flag", () => {
@@ -586,21 +586,21 @@ test("Frame surface controls reflect its rendered default boundary", () => {
 
   assert.match(
     frameControls,
-    /class="zmd-board-color-swatch is-transparent" style="background-color:transparent"/,
+    /class="zmd-board-color-swatch is-fill is-transparent" style="background-color:transparent"/,
   );
-  assert.match(frameControls, /<option value="1" selected="">1px<\/option>/);
+  assert.match(frameControls, /title="localized-strokeWidth: 1 px"/);
   assert.doesNotMatch(
     frameControls,
-    /class="zmd-board-color-swatch" style="background-color:#1f2937"/,
+    /class="zmd-board-color-swatch is-stroke" style="border-color:#1f2937"/,
   );
   assert.match(
     noteControls,
-    /class="zmd-board-color-swatch" style="background-color:#ffffff"/,
+    /class="zmd-board-color-swatch is-fill" style="background-color:#ffffff"/,
   );
-  assert.match(noteControls, /<option value="1" selected="">1px<\/option>/);
+  assert.match(noteControls, /title="localized-strokeWidth: 1 px"/);
   assert.doesNotMatch(
     noteControls,
-    /class="zmd-board-color-swatch" style="background-color:#1f2937"/,
+    /class="zmd-board-color-swatch is-stroke" style="border-color:#1f2937"/,
   );
 });
 
@@ -631,7 +631,7 @@ test("light surface controls retain canonical Frame and shape defaults", () => {
     assert.match(
       controls,
       new RegExp(
-        `class="zmd-board-color-swatch" style="background-color:${stroke}"`,
+        `class="zmd-board-color-swatch is-stroke" style="border-color:${stroke}"`,
       ),
       node.kind,
     );
@@ -671,15 +671,15 @@ test("unstyled renderers and controls resolve dark UI defaults without persistin
   );
   assert.match(
     noteControls,
-    /class="zmd-board-color-swatch" style="background-color:#3d4452"/,
+    /class="zmd-board-color-swatch is-stroke" style="border-color:#3d4452"/,
   );
   assert.match(
     noteControls,
-    /class="zmd-board-color-swatch" style="background-color:#1a1d24"/,
+    /class="zmd-board-color-swatch is-fill" style="background-color:#1a1d24"/,
   );
   assert.match(
     frameControls,
-    /class="zmd-board-color-swatch is-transparent" style="background-color:transparent"/,
+    /class="zmd-board-color-swatch is-fill is-transparent" style="background-color:transparent"/,
   );
   assert.equal(text.style, undefined);
   assert.equal(note.style, undefined);
@@ -758,7 +758,7 @@ test("label hook rejects missing provider", () => {
 });
 
 test("every text-bearing draw node renders its requested vertical alignment", async (t) => {
-  for (const kind of ["text", "rect", "ellipse", "line", "arrow"] as const) {
+  for (const kind of ["text", "rect", "ellipse"] as const) {
     await t.test(kind, () => {
       const model = {
         ...createBasicNode(kind, { x: 0, y: 0 }, `${kind}-1`),
@@ -771,14 +771,9 @@ test("every text-bearing draw node renders its requested vertical alignment", as
   }
 });
 
-test("stroke labels position flex text for every horizontal alignment", async (t) => {
+test("stroke labels anchor to the midpoint and preserve horizontal text alignment", async (t) => {
   for (const kind of ["line", "arrow"] as const) {
-    for (const [textAlign, justifyContent] of [
-      [undefined, "center"],
-      ["left", "flex-start"],
-      ["center", "center"],
-      ["right", "flex-end"],
-    ] as const) {
+    for (const textAlign of [undefined, "left", "center", "right"] as const) {
       await t.test(`${kind} ${textAlign ?? "default"}`, () => {
         const model = {
           ...createBasicNode(kind, { x: 0, y: 0 }, `${kind}-${textAlign}`),
@@ -795,7 +790,7 @@ test("stroke labels position flex text for every horizontal alignment", async (t
         assert.match(
           markup,
           new RegExp(
-            `class="zmd-board-stroke-label" style="[^"]*justify-content:${justifyContent}`,
+            `class="zmd-board-stroke-label-text" style="[^"]*text-align:${effectiveAlign}`,
           ),
         );
       });
@@ -819,17 +814,17 @@ test("stroke labels constrain long tokens and preserve explicit lines", async (t
       );
       assert.match(
         markup,
-        /class="zmd-board-stroke-label-text" style="max-height:60px"/,
+        /class="zmd-board-stroke-label" style="left:80px;top:32px"/,
       );
       assert.match(
         renderNode({ ...model, height: 32 }),
-        /class="zmd-board-stroke-label-text" style="max-height:20px"/,
+        /class="zmd-board-stroke-label" style="left:80px;top:16px"/,
       );
     });
   }
   assert.match(
     canvasCss,
-    /\.zmd-board-stroke-label\s*\{[^}]*overflow:\s*hidden/s,
+    /\.zmd-board-stroke-label\s*\{[^}]*max-width:\s*280px/s,
   );
   assert.match(
     canvasCss,

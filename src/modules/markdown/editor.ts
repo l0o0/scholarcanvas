@@ -1,3 +1,4 @@
+import type { DocumentViewState } from "./editor-view-state";
 /**
  * Parent-side markdown editor: mounts a chrome:// iframe that runs
  * CodeMirror 6 in a stable Web document, and bridges via postMessage.
@@ -107,6 +108,16 @@ type PendingCommand = Extract<
 /** Upper bound for commands queued while the iframe is not ready yet. */
 const MAX_PENDING_COMMANDS = 256;
 
+function changesDocument(command: PendingCommand): boolean {
+  return (
+    command.type === "replaceRange" ||
+    command.type === "insertText" ||
+    command.type === "wrapSelection" ||
+    command.type === "prefixLine" ||
+    (command.type === "command" && command.payload.command !== "find")
+  );
+}
+
 function editorPageURL(): string {
   const ref = addon.data.config.addonRef;
   return `chrome://${ref}/content/editor/index.html`;
@@ -121,6 +132,8 @@ export function createMarkdownEditor(
   parent: HTMLElement,
   options: {
     doc?: string;
+    viewState?: DocumentViewState;
+    onViewState?: (state: DocumentViewState) => void;
     readOnly?: boolean;
     onChange?: (value: string) => void;
     onOutline?: (
@@ -142,6 +155,8 @@ export function createMarkdownEditor(
     win?: Window;
     channel?: string;
     surface?: EditorSurface;
+    /** Alternate browser page for development harnesses; defaults to chrome://. */
+    pageURL?: string;
   } = {},
 ): MarkdownEditorHandle {
   ztoolkit.log("[Bamboo][EditorDebug] create-start", {
@@ -180,7 +195,13 @@ export function createMarkdownEditor(
 
   const iframe = documentRef.createElement("iframe") as HTMLIFrameElement;
   iframe.className = "zmd-codemirror-iframe";
-  const iframeSrc = `${editorPageURL()}?channel=${encodeURIComponent(channel)}&v=${Date.now()}`;
+  const pageURL = new URL(
+    options.pageURL ?? editorPageURL(),
+    documentRef.baseURI,
+  );
+  pageURL.searchParams.set("channel", channel);
+  pageURL.searchParams.set("v", String(Date.now()));
+  const iframeSrc = pageURL.href;
   iframe.setAttribute("src", iframeSrc);
   Object.assign(iframe.style, {
     border: "none",
@@ -228,6 +249,7 @@ export function createMarkdownEditor(
   const ready = new Promise<void>((resolve) => {
     resolveReady = resolve;
   });
+  let readyTimer: number | null = null;
 
   const post = (message: ParentToEditorMessage) => {
     const target = iframe.contentWindow;
@@ -254,20 +276,30 @@ export function createMarkdownEditor(
   const sendOrQueue = (message: PendingCommand) => {
     if (destroyed) return;
     if (!iframeReady) {
-      // Keep only the latest setValue / init / setTheme / setFontSize / setReadOnly / setMode
-      if (
-        message.type === "setValue" ||
-        message.type === "replaceRange" ||
-        message.type === "insertText" ||
-        message.type === "init" ||
+      // Keep only the latest value/configuration. Range and insertion edits
+      // are ordered operations; dropping an earlier one loses user input.
+      if (message.type === "setValue") {
+        for (let i = pending.length - 1; i >= 0; i--) {
+          if (pending[i].type === "setValue" || changesDocument(pending[i])) {
+            pending.splice(i, 1);
+          }
+        }
+      } else if (
         message.type === "setTheme" ||
         message.type === "setFontSize" ||
         message.type === "setReadOnly" ||
-        message.type === "setMode" ||
-        message.type === "setImageAssets"
+        message.type === "setMode"
       ) {
         for (let i = pending.length - 1; i >= 0; i--) {
           if (pending[i].type === message.type) pending.splice(i, 1);
+        }
+      } else if (message.type === "setImageAssets") {
+        // A replacement supersedes all earlier image-map updates. Merge
+        // updates must stay ordered so none of the resolved assets vanish.
+        if (message.payload.replace !== false) {
+          for (let i = pending.length - 1; i >= 0; i--) {
+            if (pending[i].type === "setImageAssets") pending.splice(i, 1);
+          }
         }
       }
       // Bound the queue: if the iframe never becomes ready, commands must
@@ -313,6 +345,10 @@ export function createMarkdownEditor(
       case "ready": {
         ztoolkit.log("[Bamboo][EditorDebug] iframe-ready", { channel });
         iframeReady = true;
+        if (readyTimer != null) {
+          ownerWin?.clearTimeout?.(readyTimer);
+          readyTimer = null;
+        }
         // Re-resolve at ready time (theme may have changed while loading)
         currentTheme = resolveEditorTheme(ownerWin);
         post({
@@ -321,6 +357,7 @@ export function createMarkdownEditor(
           type: "init",
           payload: {
             doc: lastValue,
+            viewState: options.viewState,
             readOnly,
             fontSize: resolveFontSize(),
             theme: currentTheme,
@@ -357,6 +394,9 @@ export function createMarkdownEditor(
         onOutlineActive?.(data.payload.activeID);
         break;
       }
+      case "viewState":
+        options.onViewState?.(data.payload);
+        break;
       case "snapshot": {
         lastValue = data.payload.value;
         lastStats = data.payload.stats;
@@ -371,14 +411,28 @@ export function createMarkdownEditor(
       case "resolveAsset": {
         if (!onResolveAsset) break;
         const { requestId, reference } = data.payload;
-        void onResolveAsset(reference).then((asset) => {
-          if (destroyed) return;
-          sendOrQueue({
-            source: EDITOR_MESSAGE_SOURCE,
-            type: "assetResolved",
-            payload: { requestId, reference, ...asset },
+        void onResolveAsset(reference)
+          .then((asset) => {
+            if (destroyed) return;
+            sendOrQueue({
+              source: EDITOR_MESSAGE_SOURCE,
+              type: "assetResolved",
+              payload: { requestId, reference, ...asset },
+            });
+          })
+          .catch((error) => {
+            ztoolkit.log("Markdown image asset resolution failed", error);
+            if (destroyed) return;
+            sendOrQueue({
+              source: EDITOR_MESSAGE_SOURCE,
+              type: "assetResolved",
+              payload: {
+                requestId,
+                reference,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            });
           });
-        });
         break;
       }
       case "linkSearch": {
@@ -491,7 +545,8 @@ export function createMarkdownEditor(
   // Fallback: if ready never arrives, still resolve after the timeout so
   // callers awaiting `ready` do not hang forever. The editor itself keeps
   // queueing (bounded) commands and recovers if `ready` arrives late.
-  ownerWin?.setTimeout?.(() => {
+  readyTimer = ownerWin?.setTimeout?.(() => {
+    readyTimer = null;
     if (!iframeReady && !destroyed) {
       ztoolkit.log(
         "Markdown editor iframe ready timeout; commands will queue until ready",
@@ -499,7 +554,7 @@ export function createMarkdownEditor(
       );
       resolveReady();
     }
-  }, 8000);
+  }, 8000) as unknown as number;
 
   return {
     ready,
@@ -627,6 +682,10 @@ export function createMarkdownEditor(
     destroy: () => {
       if (destroyed) return;
       destroyed = true;
+      if (readyTimer != null) {
+        ownerWin?.clearTimeout?.(readyTimer);
+        readyTimer = null;
+      }
       for (const [id, pendingSnapshot] of pendingSnapshots) {
         ownerWin?.clearTimeout?.(pendingSnapshot.timer);
         pendingSnapshot.resolve(lastValue);

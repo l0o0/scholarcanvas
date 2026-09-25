@@ -345,7 +345,7 @@ test("SVG export keeps canonical geometry, XML escaping, styles, and semantic ed
   );
   assert.match(
     svg,
-    /<rect x="200" y="40" width="160" height="100" rx="18" fill="url\(#canvas-hatch-\d+\)" stroke="#654321" stroke-width="3" stroke-dasharray="12 9"\/>/,
+    /<rect x="200" y="40" width="160" height="100" rx="18" fill="url\(#canvas-hatch-\d+\)" stroke="#654321" stroke-width="3" stroke-dasharray="9 9"\/>/,
   );
   assert.match(
     svg,
@@ -391,17 +391,19 @@ test("SVG stroke labels remain visible at default and compact heights", () => {
   });
   const clips = [
     ...svg.matchAll(
-      /<clipPath id="canvas-node-clip-\d+"><rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"\/><\/clipPath>/g,
+      /<clipPath id="canvas-node-clip-\d+"><rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"[^>]*\/><\/clipPath>/g,
     ),
   ].map((match) => match.slice(1).map(Number));
   const baselines = [...svg.matchAll(/<text[^>]* y="([^"]+)"[^>]*>/g)].map(
     (match) => Number(match[1]),
   );
 
-  assert.deepEqual(clips, [
-    [12, 0, 136, 32],
-    [12, 48, 136, 24],
-  ]);
+  assert.equal(clips.length, 2);
+  clips.forEach(([left, top, width, height], index) => {
+    assert.equal(left! + width! / 2, 80);
+    assert.equal(top! + height! / 2, index === 0 ? 16 : 60);
+    assert.ok(height! >= 36);
+  });
   assert.equal(baselines.length, clips.length);
   clips.forEach(([, top, , height], index) => {
     assert.ok(baselines[index]! > top!);
@@ -426,10 +428,18 @@ test("SVG stroke labels preserve left, center, and right alignment", () => {
   ) as CanvasNode[];
   const svg = buildCanvasSvg({ version: 2, nodes, connections: [] });
 
-  nodes.forEach((node) => {
+  const boxes = [
+    ...svg.matchAll(
+      /<clipPath[^>]*><rect x="([^"]+)" y="([^"]+)" width="([^"]+)"/g,
+    ),
+  ];
+  nodes.forEach((node, index) => {
     const align = node.style!.textAlign!;
+    const left = Number(boxes[index]![1]);
+    const width = Number(boxes[index]![3]);
     const x =
-      node.position.x + (align === "left" ? 12 : align === "right" ? 148 : 80);
+      left +
+      (align === "left" ? 12 : align === "right" ? width - 12 : width / 2);
     const anchor =
       align === "left" ? "start" : align === "right" ? "end" : "middle";
     assert.match(
@@ -459,8 +469,8 @@ test("SVG stroke labels constrain long tokens and preserve explicit lines", () =
     (match) => match[1]!,
   );
 
-  assert.equal((textElements[0]!.match(/<tspan/g) ?? []).length, 1);
-  assert.match(textElements[0]!, />SUPERCALIFRAGIL<\/tspan>/);
+  assert.ok((textElements[0]!.match(/<tspan/g) ?? []).length > 1);
+  assert.equal(textElements[0]!.replace(/<[^>]+>/g, ""), longLine.data.title);
   assert.equal((textElements[1]!.match(/<tspan/g) ?? []).length, 2);
   assert.match(textElements[1]!, />A<\/tspan><tspan[^>]*>B<\/tspan>/);
 });
@@ -492,7 +502,7 @@ test("SVG export matches canonical stroke precedence and Frame defaults", () => 
 
   assert.match(
     svg,
-    /<rect x="0" y="0" width="320" height="200" rx="8" fill="none"[^>]*stroke-dasharray="12 9"/,
+    /<rect x="0" y="0" width="320" height="200" rx="8" fill="none"[^>]*stroke-dasharray="3 3"/,
   );
   const claim = svg.match(
     /<rect x="40" y="40" width="200" height="96"[^>]*\/>/,
@@ -519,7 +529,7 @@ test("SVG export keeps the reading-card default text layout", () => {
 
   assert.match(
     svg,
-    /<text x="32" y="51\.6"[^>]*font-size="12"[^>]*font-weight="normal"[^>]*text-anchor="start"/,
+    /<text x="34" y="73\.6"[^>]*font-size="12"[^>]*font-weight="normal"[^>]*text-anchor="start"/,
   );
 });
 
@@ -598,7 +608,7 @@ test("SVG export wraps explicit lines and long tokens into positioned tspans", (
         kind: "note",
         position: { x: 10, y: 20 },
         width: 104,
-        height: 128,
+        height: 180,
         content:
           "Alpha beta gamma\nSUPERCALIFRAGILISTICEXPIALIDOCIOUS & <safe>",
         style: {
@@ -613,16 +623,18 @@ test("SVG export wraps explicit lines and long tokens into positioned tspans", (
 
   const svg = buildCanvasSvg(document);
   const spans = [
-    ...svg.matchAll(/<tspan x="22" y="([^"]+)">([^<]*)<\/tspan>/g),
+    ...svg.matchAll(/<tspan x="24" y="([^"]+)">([^<]*)<\/tspan>/g),
   ];
   assert.ok(spans.length >= 4, "width wrapping must add visual lines");
-  assert.equal(spans[0]?.[1], "41.6");
-  assert.equal(Number(spans[1]?.[1]) - Number(spans[0]?.[1]), 15);
+  assert.equal(spans[0]?.[1], "63.6");
+  assert.ok(
+    Math.abs(Number(spans[1]?.[1]) - Number(spans[0]?.[1]) - 17.4) < 0.001,
+  );
   assert.match(svg, /SUPERCAL/);
   assert.match(svg, /&amp; &lt;safe&gt;/);
   assert.match(
     svg,
-    /<clipPath id="canvas-node-clip-0"><rect x="22" y="32" width="80" height="104"\/><\/clipPath>/,
+    /<clipPath id="canvas-node-clip-0"><rect x="24" y="32" width="76" height="156"\/><\/clipPath>/,
   );
   assert.match(
     svg,
@@ -642,7 +654,7 @@ test("SVG export limits lines by node height and positions vertical alignment", 
           kind: "note",
           position: { x: 0, y: 100 },
           width: 180,
-          height: 100,
+          height: 130,
           content: "First\nSecond",
           style: { fontSize: 20, textAlign: "center", verticalAlign },
         },
@@ -675,7 +687,7 @@ test("SVG export limits lines by node height and positions vertical alignment", 
     ],
     connections: [],
   });
-  assert.equal(clipped.match(/<tspan\b/g)?.length, 2);
+  assert.equal(clipped.match(/<tspan\b/g)?.length, 1);
   assert.match(clipped, /height="25"/);
   assert.doesNotMatch(clipped, />three<\/tspan>|>four<\/tspan>/);
 });
@@ -796,4 +808,56 @@ test("SVG connections use the chosen sides and the same Bezier shape as the canv
     ],
   });
   assert.match(svg, /<path d="M200,200 C200,300 500,300 500,400" fill="none"/);
+});
+
+test("SVG includes localized empty-note chrome and styled connection labels", () => {
+  const doc: CanvasDocument = {
+    version: 2,
+    nodes: [
+      {
+        id: "a",
+        kind: "note",
+        position: { x: 0, y: 0 },
+        width: 260,
+        height: 152,
+        content: "",
+        style: { fill: "#bf5897", strokeStyle: "dotted" },
+      },
+      {
+        id: "b",
+        kind: "rect",
+        position: { x: 0, y: 272 },
+        width: 260,
+        height: 160,
+        data: { title: "" },
+      },
+    ],
+    connections: [
+      {
+        id: "ab",
+        kind: "basic",
+        source: "a",
+        target: "b",
+        sourceHandle: "bottom",
+        targetHandle: "top",
+        label: "this\n第二行",
+        textStyle: { fontSize: 18, fontWeight: "bold", textColor: "#b43750" },
+      },
+    ],
+  };
+  const labels = {
+    addNote: "笔记",
+    notePrompt: "记下想法或阅读心得。",
+  } as import("../packages/whiteboard/src/model/protocol.ts").WhiteboardLabels;
+  const svg = buildCanvasSvg(doc, labels);
+  assert.match(svg, />笔记<\/text>/);
+  assert.match(svg, />记下想法或阅读心得。<\/tspan>/);
+  assert.match(svg, /stroke-dasharray="1 1"/);
+  assert.match(svg, /viewBox="0 0 24 24" fill="none" stroke="currentColor"/);
+  assert.match(svg, /font-size="18" font-weight="bold"[^>]*fill="#b43750"/);
+  assert.match(svg, />this<\/tspan><tspan[^>]*>第二行<\/tspan>/);
+  assert.match(svg, /rx="8" fill="#ffffff"\/><text/);
+  assert.ok(
+    svg.indexOf('rx="8" fill="#ffffff"') > svg.indexOf('<path d="M130,152'),
+  );
 });

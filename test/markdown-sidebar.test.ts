@@ -312,6 +312,24 @@ describe("Markdown sidebar state", () => {
     );
   });
 
+  it("uses transparent theme-specific SVGs for native sidebar slots", () => {
+    const source = readFileSync(
+      new URL("../src/modules/markdown/sidebar.ts", import.meta.url),
+      "utf8",
+    );
+    assert.doesNotMatch(source, /favicon\.png/);
+    assert.equal(source.match(/darkIcon: sidebarIconURL\(true\)/g)?.length, 2);
+    for (const name of ["sidebar-markdown.svg", "sidebar-markdown-dark.svg"]) {
+      const svg = readFileSync(
+        new URL(`../addon/content/icons/${name}`, import.meta.url),
+        "utf8",
+      );
+      assert.match(svg, /width="16" height="16" viewBox="0 0 16 16"/);
+      assert.match(svg, /fill="none"/);
+      assert.doesNotMatch(svg, /<image|<rect|prefers-color-scheme/);
+    }
+  });
+
   it("fits the native sidebar icons inside Zotero's fixed slots", () => {
     const css = sidebarEditorGeometryCSS();
 

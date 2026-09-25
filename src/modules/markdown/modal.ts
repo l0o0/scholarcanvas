@@ -8,7 +8,7 @@ import { getString } from "../../utils/locale";
 import {
   iconInfo,
   iconKeyboard,
-  iconMoreHorizontal,
+  iconMore,
   iconSettings,
   iconType,
 } from "./icons";
@@ -382,7 +382,7 @@ export function createMarkdownModalController(
       overflow.className = "zotero-markdown-shortcut-overflow";
       overflow.setAttribute("aria-label", getString("settings-shortcut-more"));
       overflow.setAttribute("aria-expanded", "false");
-      overflow.innerHTML = iconMoreHorizontal();
+      overflow.innerHTML = iconMore();
       const overflowMenu = doc.createElement("div");
       overflowMenu.className = "zotero-markdown-shortcut-overflow-menu";
       overflowMenu.hidden = true;

@@ -48,6 +48,9 @@ whiteboard-add-pdf = PDF
 whiteboard-add-file = File
 whiteboard-add-text = Text
 whiteboard-add-rect = Rect
+whiteboard-add-rounded-rect = Rounded rectangle
+whiteboard-add-diamond = Diamond
+whiteboard-attachment-not-downloaded = Not downloaded
 whiteboard-add-ellipse = Oval
 whiteboard-add-line = Line
 whiteboard-add-arrow = Arrow
@@ -136,10 +139,28 @@ whiteboard-align-vertical = Align vertical center
 whiteboard-distribute-horizontal = Distribute horizontally
 whiteboard-distribute-vertical = Distribute vertically
 whiteboard-fit-view = Fit view
+whiteboard-group-selection = Group selection
+whiteboard-remove-from-group = Remove from group
+whiteboard-fit-selection = Focus selection
+whiteboard-draw-tools = Shapes and drawing
+whiteboard-selection-details = Details
+whiteboard-edge-label = Connection text
+whiteboard-edge-relation = Relationship
+whiteboard-relation-none = No relationship type
+whiteboard-relation-related = Related
+whiteboard-relation-supports = Supports
+whiteboard-relation-contradicts = Contradicts
 whiteboard-auto-layout = Auto layout
 whiteboard-edge-color = Edge color
 whiteboard-edge-dash = Toggle dashed
 whiteboard-edge-arrow = Toggle arrow
+whiteboard-edge-style = Line style
+whiteboard-edge-arrows = Arrows
+whiteboard-arrow-none = None
+whiteboard-arrow-forward = Forward
+whiteboard-arrow-reverse = Reverse
+whiteboard-arrow-both = Both ends
+whiteboard-edge-selection = Connection
 whiteboard-save-saved = Saved
 whiteboard-save-saving = Saving…
 whiteboard-save-failed-short = Save failed
@@ -491,3 +512,63 @@ image-size-auto = Auto
 image-view-original = View original
 image-view-close = Close image
 image-size-resize = Resize image (arrow keys, Shift for larger steps)
+
+# Portable Markdown note links
+note-backlinks-title = Linked mentions
+note-backlinks-toggle = Show or hide linked mentions sidebar
+note-backlinks-refresh = Refresh links
+note-backlinks-loading = Reading saved notes…
+note-backlinks-empty = No saved notes link here yet.
+note-backlinks-incomplete = Some notes could not be read; results are incomplete
+note-backlinks-failed = Could not load or open this reference
+note-heading-missing = The linked heading could not be found.
+more-export-obsidian = Export library notes for Obsidian…
+more-export-markdown = Export library notes as Markdown…
+note-export-conflict = A note has unsaved changes in more than one editor. Save or close those editors before exporting.
+note-export-complete = Exported { $count } notes to { $directory }. Link warnings: { $warnings }.
+
+whiteboard-stroke-width = Stroke width
+whiteboard-geometry = Size and position
+whiteboard-node-width = Width
+whiteboard-node-height = Height
+whiteboard-position-x = Horizontal position
+whiteboard-position-y = Vertical position
+
+whiteboard-text-italic = Italic
+
+whiteboard-text-underline = Underline
+
+whiteboard-text-strike = Strikethrough
+
+whiteboard-font-family = Font
+
+file-conflict = The file changed outside this editor. Saving was stopped. Your draft is available in the attachment’s Local history menu.
+file-history = Local history…
+file-history-description = Preview saved versions and conflicting drafts. Save a recovery copy without changing the current file. History is local to this device and contains document text/card data, not image or PDF files.
+file-history-version = Version
+file-history-preview = Version preview
+file-history-conflict = Conflicting draft
+file-history-saved = Before save
+file-history-copy = Save recovery copy…
+file-history-empty = No local history yet.
+file-history-copied = Recovery copy saved.
+file-history-copy-failed = Could not save. Choose a new filename; existing files cannot be replaced.
+file-history-close = Close
+more-history = Local history…
+
+whiteboard-search-canvas = Search canvas
+whiteboard-duplicate-selection = Duplicate selection
+whiteboard-layout-all-confirm = No cards are selected. Arrange the entire canvas? This can be undone.
+more-search-library = Search library notes…
+note-search-placeholder = Search titles and note content
+note-search-hint = Search saved Markdown notes in the current library.
+note-search-loading = Searching…
+note-search-count = { $count } matching notes (showing up to 100).
+menuitem-annotations-md = Create Markdown from PDF annotations…
+annotation-export-hint = Choose text highlights and comments to include. Page links return to the PDF annotation.
+annotation-export-empty = No text annotations found in the selected PDF or item.
+annotation-export-create = Create Markdown note
+annotation-export-toggle = Select all / none
+annotation-export-failed = Could not create the note. Please try again.
+
+annotation-export-read-only = This library is read-only. Annotations cannot be saved as a new note here.

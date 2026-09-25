@@ -12,9 +12,9 @@ describe("more menu", () => {
     assert.deepEqual(
       MORE_MENU_SECTIONS.map((section) => section.map((item) => item.action)),
       [
-        ["document-info", "rename", "show-in-folder", "open-window"],
-        ["find", "source", "mode"],
-        ["export-pdf", "export-html"],
+        ["document-info", "history", "rename", "show-in-folder", "open-window"],
+        ["search-library", "find", "source", "mode"],
+        ["export-pdf", "export-html", "export-obsidian", "export-markdown"],
         ["import-external-images", "cleanup-images", "shortcuts", "settings"],
       ],
     );

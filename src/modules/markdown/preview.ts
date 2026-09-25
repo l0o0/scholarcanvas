@@ -60,6 +60,9 @@ export function applyAssetsToHtml(html: string, assets: ImageAssetMap): string {
 /** Printable / exportable prose styles shared by the in-app preview. */
 export function previewDocumentCss(): string {
   return `
+.katex-display { display:block; text-align:center; overflow-x:auto; margin:1em 0; }
+.katex math { font-size:1.15em; }
+.footnotes { font-size:.9em; }
 .zotero-markdown-preview-page {
   margin: 0;
   background: var(--zmd-bg);
@@ -400,4 +403,24 @@ function escapeHtml(text: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/** Footnotes use generated IDs, not document/heading links. Keep them in this preview. */
+export function scrollPreviewToFragment(
+  root: HTMLElement,
+  href: string,
+): boolean {
+  if (!href.startsWith("#")) return false;
+  let id: string;
+  try {
+    id = decodeURIComponent(href.slice(1));
+  } catch {
+    return false;
+  }
+  const target = [...root.querySelectorAll<HTMLElement>("[id]")].find(
+    (element) => element.id === id,
+  );
+  if (!target) return false;
+  target.scrollIntoView({ block: "nearest" });
+  return true;
 }

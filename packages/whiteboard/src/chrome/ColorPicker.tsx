@@ -1,18 +1,15 @@
-import { useMemo } from "react";
+import { IconUndo, IconPalette } from "../whiteboard/icons";
+import { useId, useMemo, useState } from "react";
 import { HexColorInput, HexColorPicker } from "react-colorful";
 import { colorToHex } from "./color";
 import type { WhiteboardLabels } from "../model/protocol";
 
 export function ColorPicker(props: {
   title: string;
+  compact?: boolean;
   labels: Pick<
     WhiteboardLabels,
-    | "close"
-    | "commonColors"
-    | "transparent"
-    | "resetColor"
-    | "customColor"
-    | "opacity"
+    "commonColors" | "transparent" | "resetColor" | "customColor" | "opacity"
   >;
   color: string;
   defaultColor: string;
@@ -22,8 +19,9 @@ export function ColorPicker(props: {
   onChange: (color: string) => void;
   onReset: () => void;
   onOpacityChange?: (opacity: number) => void;
-  onClose: () => void;
 }) {
+  const [customOpen, setCustomOpen] = useState(false);
+  const customId = useId();
   const color = useMemo(
     () => colorToHex(props.color) || "#1f2937",
     [props.color],
@@ -33,21 +31,16 @@ export function ColorPicker(props: {
 
   return (
     <div
-      className="zmd-board-color-picker"
+      className={`zmd-board-color-picker${props.compact ? " is-compact" : ""}`}
       onKeyDown={(event) => {
         if (event.key !== "Escape") event.stopPropagation();
       }}
     >
-      <header>
-        <strong>{props.title}</strong>
-        <button
-          type="button"
-          aria-label={props.labels.close}
-          onClick={props.onClose}
-        >
-          ×
-        </button>
-      </header>
+      {!props.compact ? (
+        <header>
+          <strong>{props.title}</strong>
+        </header>
+      ) : null}
       <div
         className="zmd-board-swatches is-palette"
         role="group"
@@ -70,6 +63,8 @@ export function ColorPicker(props: {
         {props.allowTransparent ? (
           <button
             type="button"
+            title={props.labels.transparent}
+            aria-label={props.labels.transparent}
             aria-pressed={transparent}
             className={transparent ? "is-active" : ""}
             onClick={() => props.onChange("transparent")}
@@ -78,49 +73,66 @@ export function ColorPicker(props: {
               className="zmd-board-color-swatch is-transparent"
               aria-hidden="true"
             />
-            {props.labels.transparent}
+            {!props.compact ? props.labels.transparent : null}
           </button>
         ) : null}
-        <button type="button" onClick={props.onReset}>
+        <button
+          type="button"
+          title={props.labels.resetColor}
+          aria-label={props.labels.resetColor}
+          onClick={props.onReset}
+        >
           <span
             className={`zmd-board-color-swatch${props.defaultColor === "transparent" ? " is-transparent" : ""}`}
             style={{ backgroundColor: props.defaultColor }}
             aria-hidden="true"
           />
-          {props.labels.resetColor}
+          {props.compact ? <IconUndo /> : props.labels.resetColor}
+        </button>
+        <button
+          type="button"
+          className="zmd-board-custom-color-toggle"
+          title={props.labels.customColor}
+          aria-label={props.labels.customColor}
+          aria-expanded={customOpen}
+          aria-controls={customId}
+          onClick={() => setCustomOpen((open) => !open)}
+        >
+          {props.compact ? <IconPalette /> : props.labels.customColor}
         </button>
       </div>
-      <details className="zmd-board-custom-color">
-        <summary>{props.labels.customColor}</summary>
-        <div className="zmd-board-custom-color-body">
-          <HexColorPicker color={color} onChange={props.onChange} />
-          <label className="zmd-board-color-hex">
-            <span>Hex</span>
-            <HexColorInput
-              color={transparent ? "" : color}
-              prefixed
-              aria-label={`${props.title} (Hex)`}
-              onChange={props.onChange}
-              spellCheck={false}
+      <div
+        id={customId}
+        className="zmd-board-custom-color-body"
+        hidden={!customOpen}
+      >
+        <HexColorPicker color={color} onChange={props.onChange} />
+        <label className="zmd-board-color-hex">
+          <span>Hex</span>
+          <HexColorInput
+            color={transparent ? "" : color}
+            prefixed
+            aria-label={`${props.title} (Hex)`}
+            onChange={props.onChange}
+            spellCheck={false}
+          />
+        </label>
+        {props.onOpacityChange ? (
+          <label className="zmd-board-color-opacity">
+            <span>{props.labels.opacity}</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(opacity * 100)}
+              onChange={(event) =>
+                props.onOpacityChange?.(Number(event.target.value) / 100)
+              }
             />
+            <output>{Math.round(opacity * 100)}%</output>
           </label>
-          {props.onOpacityChange ? (
-            <label className="zmd-board-color-opacity">
-              <span>{props.labels.opacity}</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={Math.round(opacity * 100)}
-                onChange={(event) =>
-                  props.onOpacityChange?.(Number(event.target.value) / 100)
-                }
-              />
-              <output>{Math.round(opacity * 100)}%</output>
-            </label>
-          ) : null}
-        </div>
-      </details>
+        ) : null}
+      </div>
     </div>
   );
 }

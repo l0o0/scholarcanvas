@@ -1,12 +1,15 @@
 import MarkdownIt from "markdown-it";
+import { katex } from "@mdit/plugin-katex";
+import { footnote } from "@mdit/plugin-footnote";
 import {
   extractFirstHeadingTitle,
   parseFrontmatter,
   stripFrontmatter,
 } from "./frontmatter";
 import { highlightFencedCode } from "./code-highlight";
-import { parseDocumentLink } from "./document-link-shared";
-import { parseHtmlImage } from "./images/model";
+import { parseDocumentLink, isPdfDocumentLink } from "./document-link-shared";
+import { parseNoteLink } from "./note-links";
+import { parseHtmlImage } from "./images/html";
 
 const MarkdownItCtor: typeof MarkdownIt =
   typeof MarkdownIt === "function"
@@ -16,7 +19,7 @@ const MarkdownItCtor: typeof MarkdownIt =
 function isSafeLinkUrl(url: string): boolean {
   // Zotero links are persisted in one exact canonical form. Do not trim here,
   // otherwise renderer and navigation would disagree about malformed URIs.
-  if (parseDocumentLink(url)) return true;
+  if (parseDocumentLink(url) || isPdfDocumentLink(url)) return true;
   const value = url.trim();
   if (/^(https?:|mailto:)/i.test(value)) return true;
   if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return false;
@@ -36,6 +39,16 @@ const md = new MarkdownItCtor({
   highlight(source, info) {
     return highlightFencedCode(source, info) || "";
   },
+});
+
+md.use(footnote);
+md.use(katex, {
+  output: "mathml",
+  trust: false,
+  throwOnError: false,
+  maxExpand: 1000,
+  maxSize: 20,
+  mathFence: true,
 });
 
 // Sized images have one small HTML vocabulary. Keep general HTML disabled.
@@ -72,9 +85,11 @@ md.inline.ruler.before("link", "zmd_wikilink", (state, silent) => {
   const end = state.src.indexOf("]]", start + 2);
   if (end <= start + 2) return false;
   const raw = state.src.slice(start + 2, end);
+  const parsed = parseNoteLink(`[[${raw}]]`);
+  if (!parsed) return false;
   const pipe = raw.indexOf("|");
   const name = (pipe < 0 ? raw : raw.slice(0, pipe)).trim();
-  const label = (pipe < 0 ? raw : raw.slice(pipe + 1)).trim();
+  const label = parsed.label ?? name;
   if (!name || !label || name.includes("\n") || label.includes("\n")) {
     return false;
   }
@@ -123,10 +138,12 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-export function renderMarkdownCore(source: string): string {
+export function renderMarkdownCore(source: string, docId?: string): string {
   try {
     const { body } = stripFrontmatter(source || "");
-    const html = md.render(body);
+    const html = md.render(body, {
+      docId: docId ? encodeURIComponent(docId) : undefined,
+    });
     if (!html || !html.trim()) {
       return `<p class="zotero-markdown-preview-empty"><em>(empty)</em></p>`;
     }

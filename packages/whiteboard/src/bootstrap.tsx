@@ -38,16 +38,7 @@ function onWindowKeyDown(event: KeyboardEvent) {
     postToParent({ type: "save" });
     return;
   }
-  if (key === "z") {
-    event.preventDefault();
-    if (event.shiftKey) runtime?.redo();
-    else runtime?.undo();
-    return;
-  }
-  if (key === "y") {
-    event.preventDefault();
-    runtime?.redo();
-  }
+  // Canvas history belongs to WhiteboardApp, which knows editing/modal state.
 }
 
 function postToParent(message: WhiteboardToParentBody) {
@@ -187,6 +178,9 @@ function boot() {
           type: "pickAcademicSource",
           payload: { requestId, nodeId, kind },
         })
+      }
+      onOpenLink={(href) =>
+        postToParent({ type: "openLink", payload: { href } })
       }
       onOpenItem={(payload) => postToParent({ type: "openItem", payload })}
       onDropAcademicSources={(requestId, nodeId, sources) =>

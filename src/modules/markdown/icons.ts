@@ -1,12 +1,12 @@
 /**
- * Toolbar icons are packaged as external SVG resources. Keeping them out of
+ * Toolbar icons use external SVG masks so currentColor follows theme and state. Keeping them out of
  * XHTML innerHTML avoids Zotero's unsafe SVG sanitizer and XML parser traps.
  */
 
 import { config } from "../../../package.json";
 
 function iconAsset(name: string): string {
-  return `<img class="zmd-icon" src="chrome://${config.addonRef}/content/icons/markdown/${name}.svg" alt="" aria-hidden="true" />`;
+  return `<span class="zmd-icon" style="--zmd-icon-url: url('chrome://${config.addonRef}/content/icons/markdown/${name}.svg')" aria-hidden="true"></span>`;
 }
 
 function svg(_paths: string, name = "generic"): string {
@@ -109,12 +109,8 @@ export const iconImage = () =>
     "image",
   );
 
-/** ellipsis */
-export const iconMoreHorizontal = () =>
-  svg(
-    `<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>`,
-    "more",
-  );
+/** Vertical ellipsis — shared More affordance. */
+export const iconMore = () => iconAsset("more");
 
 /** panel-left */
 export const iconPanelLeft = () =>
@@ -122,6 +118,9 @@ export const iconPanelLeft = () =>
     `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>`,
     "panel-left",
   );
+
+/** panel-right — linked mentions sidebar */
+export const iconPanelRight = () => iconAsset("panel-right");
 
 /** square-arrow-out-up-right */
 export const iconOpenInNew = () =>

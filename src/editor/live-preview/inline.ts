@@ -1,4 +1,5 @@
 import type { InlineRange } from "./types";
+import { parseNoteLink } from "../../modules/markdown/note-links";
 
 /**
  * L2 inline ranges for a single line (offsets relative to the line string).
@@ -52,6 +53,7 @@ function parseInline(
       opts.link &&
       line[i] === "[" &&
       line[i + 1] === "[" &&
+      findUnescaped(line, "[", i) === i &&
       (i === 0 || line[i - 1] !== "!")
     ) {
       const close = line.indexOf("]]", i + 2);
@@ -60,7 +62,11 @@ function parseInline(
         const separator = raw.indexOf("|");
         const labelStart = separator < 0 ? i + 2 : i + 2 + separator + 1;
         const label = separator < 0 ? raw : raw.slice(separator + 1);
-        if (raw.trim() && label.trim()) {
+        if (
+          parseNoteLink(line.slice(i, close + 2)) &&
+          raw.trim() &&
+          label.trim()
+        ) {
           out.push({ from: i, to: i + 2, kind: "mark" });
           if (labelStart > i + 2) {
             out.push({ from: i + 2, to: labelStart, kind: "mark" });

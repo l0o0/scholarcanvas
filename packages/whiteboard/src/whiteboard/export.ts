@@ -1,7 +1,14 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { NoteTypeIcon } from "./icons";
+import { noteTypeLabel, noteTypePrompt } from "../chrome/labels";
+import { connectionDisplayLabel } from "../chrome/ConnectionEditor";
+import type { WhiteboardLabels } from "../model/protocol";
 import { getBezierPath, Position } from "@xyflow/react";
 import {
   canvasNodeSurfaceDefaults,
   getNoteType,
+  getNoteTitle,
   effectiveCanvasNodeTextStyle,
   type CanvasNode,
 } from "../model/academic";
@@ -9,8 +16,8 @@ import type { CanvasNodeStyle } from "../model/core";
 import type { CanvasDocument } from "../model/document";
 import { isConnectionSide } from "../model/connection";
 
-function connectionEndpoint(
-  node: CanvasNode,
+export function connectionEndpoint(
+  node: Pick<CanvasNode, "position" | "width" | "height">,
   handle: string | null | undefined,
   fallback: Position,
 ) {
@@ -34,12 +41,53 @@ function connectionEndpoint(
   };
 }
 
+function strokeLabelBounds(
+  node: Extract<CanvasNode, { kind: "line" | "arrow" }>,
+) {
+  const style = node.style;
+  const from = node.data.from ?? { x: 0, y: node.height / 2 };
+  const to = node.data.to ?? { x: node.width, y: node.height / 2 };
+  const { x, y } = node.position;
+  const fontSize = effectiveCanvasNodeTextStyle(node.kind, style).fontSize;
+  const labelWidth = Math.min(
+    280,
+    Math.max(
+      72,
+      26 +
+        Math.max(
+          ...node.data.title
+            .split("\n")
+            .map((line) =>
+              [...line].reduce(
+                (sum, char) => sum + glyphWidth(char, fontSize),
+                0,
+              ),
+            ),
+        ),
+    ),
+  );
+  const labelHeight =
+    wrappedTextLines(node.data.title, labelWidth - 24, fontSize).length *
+      fontSize *
+      1.25 +
+    16;
+  const labelX = x + (from.x + to.x) / 2 - labelWidth / 2;
+  const labelY = y + (from.y + to.y) / 2 - labelHeight / 2;
+  return { x: labelX, y: labelY, width: labelWidth, height: labelHeight };
+}
+
 export function boundsOf(nodes: CanvasNode[]) {
   if (!nodes.length) return { x: 0, y: 0, width: 800, height: 600 };
-  const left = Math.min(...nodes.map((n) => n.position.x));
-  const top = Math.min(...nodes.map((n) => n.position.y));
-  const right = Math.max(...nodes.map((n) => n.position.x + n.width));
-  const bottom = Math.max(...nodes.map((n) => n.position.y + n.height));
+  const boxes = nodes.flatMap((node) => [
+    { ...node.position, width: node.width, height: node.height },
+    ...((node.kind === "line" || node.kind === "arrow") && node.data.title
+      ? [strokeLabelBounds(node)]
+      : []),
+  ]);
+  const left = Math.min(...boxes.map((n) => n.x));
+  const top = Math.min(...boxes.map((n) => n.y));
+  const right = Math.max(...boxes.map((n) => n.x + n.width));
+  const bottom = Math.max(...boxes.map((n) => n.y + n.height));
   return {
     x: left - 40,
     y: top - 40,
@@ -153,10 +201,20 @@ function wrappedTextLines(
     .flatMap((line) => wrapVisualLine(line, availableWidth, fontSize));
 }
 
-function textPadding(node: CanvasNode): {
+function textPadding(
+  node: CanvasNode,
+  width: number,
+  height: number,
+): {
   horizontal: number;
   vertical: number;
 } {
+  if (node.style?.shape === "diamond") {
+    return {
+      horizontal: Math.max(12, width * 0.24),
+      vertical: Math.max(8, height * 0.21),
+    };
+  }
   return {
     horizontal: 12,
     vertical: node.kind === "line" || node.kind === "arrow" ? 0 : 12,
@@ -168,13 +226,15 @@ function textElement(
   width: number,
   height: number,
   clipId: string,
+  lineHeightRatio = 1.25,
+  paddingOverride?: { horizontal: number; vertical: number },
 ): string {
   const title = canvasNodeText(node);
   if (!title) return "";
   const style = effectiveCanvasNodeTextStyle(node.kind, node.style);
-  const padding = textPadding(node);
+  const padding = paddingOverride ?? textPadding(node, width, height);
   const fontSize = style.fontSize;
-  const lineHeight = fontSize * 1.25;
+  const lineHeight = fontSize * lineHeightRatio;
   const availableWidth = Math.max(1, width - padding.horizontal * 2);
   const availableHeight = Math.max(0, height - padding.vertical * 2);
   const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
@@ -257,7 +317,10 @@ export function containGeometry(
   };
 }
 
-export function buildCanvasSvg(doc: CanvasDocument): string {
+export function buildCanvasSvg(
+  doc: CanvasDocument,
+  labels?: WhiteboardLabels,
+): string {
   const bounds = boundsOf(doc.nodes);
   const definitions = new Map<string, string>();
   const paintIds = new Map<string, string>();
@@ -307,30 +370,109 @@ export function buildCanvasSvg(doc: CanvasDocument): string {
     const stroke = style.stroke || defaults.stroke;
     const fill = fillValue(style.fill || defaults.fill, style.fillStyle);
     const strokeWidth = style.strokeWidth ?? defaults.strokeWidth;
-    const dash = strokeDash(style, defaults.strokeStyle !== "solid");
+    const borderStyle =
+      style.strokeStyle ??
+      (style.dashed === undefined
+        ? defaults.strokeStyle
+        : style.dashed
+          ? "dashed"
+          : "solid");
+    const dash =
+      node.kind === "line" || node.kind === "arrow"
+        ? strokeDash(style, defaults.strokeStyle !== "solid")
+        : borderStyle === "dotted"
+          ? `${strokeWidth} ${strokeWidth}`
+          : borderStyle === "dashed"
+            ? `${strokeWidth * 3} ${strokeWidth * 3}`
+            : undefined;
     const common = `${attribute("fill", fill)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", style.strokeOpacity)}${attribute("stroke-dasharray", dash)}`;
     const clipId = `canvas-node-clip-${index}`;
-    const text = textElement(node, width, height, clipId);
+    let text = textElement(node, width, height, clipId);
     if (text) {
-      const padding = textPadding(node);
+      const padding = textPadding(node, width, height);
+      const clip =
+        node.style?.shape === "diamond"
+          ? `<polygon${attribute("points", `${x + width / 2},${y} ${x + width},${y + height / 2} ${x + width / 2},${y + height} ${x},${y + height / 2}`)}/>`
+          : `<rect${attribute("x", x + padding.horizontal)}${attribute("y", y + padding.vertical)}${attribute("width", Math.max(0, width - padding.horizontal * 2))}${attribute("height", Math.max(0, height - padding.vertical * 2))}/>`;
+      definitions.set(clipId, `<clipPath id="${clipId}">${clip}</clipPath>`);
+    }
+    if (node.kind === "note") {
+      const type = getNoteType(node);
+      const heading = labels ? noteTypeLabel(labels, type) : type;
+      const title = getNoteTitle(node);
+      const prompt = labels
+        ? noteTypePrompt(labels, type)
+        : "Write your thoughts or reading notes.";
+      const body = node.content === "" ? prompt : node.content;
+      const headerColor = style.textColor ?? "#816b4e";
+      const icon = renderToStaticMarkup(createElement(NoteTypeIcon, { type }));
       definitions.set(
         clipId,
-        `<clipPath id="${clipId}"><rect${attribute("x", x + padding.horizontal)}${attribute("y", y + padding.vertical)}${attribute("width", Math.max(0, width - padding.horizontal * 2))}${attribute("height", Math.max(0, height - padding.vertical * 2))}/></clipPath>`,
+        `<clipPath id="${clipId}"><rect x="${x + 14}" y="${y + 12}" width="${Math.max(0, width - 28)}" height="${Math.max(0, height - 24)}"/></clipPath>`,
       );
+      const bodyNode = {
+        ...node,
+        content: body,
+        position: { x: x + 2, y: y + 22 },
+        style: {
+          ...style,
+          textOpacity:
+            (style.textOpacity ?? 1) * (node.content === "" ? 0.65 : 1),
+        },
+      };
+      text =
+        `<g clip-path="url(#${clipId})"><svg x="${x + 14}" y="${y + 12}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" color="${escapeXml(headerColor)}">${icon.replace(/<svg[^>]*>|<\/svg>/g, "")}</svg><text x="${x + 34}" y="${y + 23}" font-family="system-ui, sans-serif" font-size="11" font-weight="500" fill="${escapeXml(headerColor)}">${escapeXml(heading.toUpperCase() + (title ? ` · ${title}` : ""))}</text></g>` +
+        textElement(
+          bodyNode,
+          width - 4,
+          Math.max(0, height - 22),
+          clipId,
+          1.45,
+        );
     }
     if (node.kind === "line" || node.kind === "arrow") {
       const from = node.data.from ?? { x: 0, y: height / 2 };
       const to = node.data.to ?? { x: width, y: height / 2 };
+      let label = "";
+      if (node.data.title) {
+        const {
+          x: labelX,
+          y: labelY,
+          width: labelWidth,
+          height: labelHeight,
+        } = strokeLabelBounds(node);
+        const box = `${attribute("x", labelX)}${attribute("y", labelY)}${attribute("width", labelWidth)}${attribute("height", labelHeight)}${attribute("rx", 8)}`;
+        definitions.set(
+          clipId,
+          `<clipPath id="${clipId}"><rect${box}/></clipPath>`,
+        );
+        label =
+          `<rect${box} fill="#ffffff" stroke="#e5e7eb"/>` +
+          textElement(
+            {
+              ...node,
+              position: { x: labelX, y: labelY },
+              style: { ...style, verticalAlign: "middle" },
+            },
+            labelWidth,
+            labelHeight,
+            clipId,
+          );
+      }
       const marker =
         node.kind === "arrow"
           ? attribute("marker-end", `url(#${arrowMarker(stroke)})`)
           : "";
-      return `<g><line${attribute("x1", x + from.x)}${attribute("y1", y + from.y)}${attribute("x2", x + to.x)}${attribute("y2", y + to.y)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", style.strokeOpacity)}${attribute("stroke-dasharray", dash)}${marker}/>${text}</g>`;
+      return `<g><line${attribute("x1", x + from.x)}${attribute("y1", y + from.y)}${attribute("x2", x + to.x)}${attribute("y2", y + to.y)}${attribute("stroke", stroke)}${attribute("stroke-width", strokeWidth)}${attribute("stroke-opacity", style.strokeOpacity)}${attribute("stroke-dasharray", dash)}${marker}/>${label}</g>`;
+    }
+    if (node.style?.shape === "diamond") {
+      const points = `${x + width / 2},${y} ${x + width},${y + height / 2} ${x + width / 2},${y + height} ${x},${y + height / 2}`;
+      return `<g><polygon${attribute("points", points)}${common}/>${text}</g>`;
     }
     if (node.kind === "ellipse") {
       return `<g><ellipse${attribute("cx", x + width / 2)}${attribute("cy", y + height / 2)}${attribute("rx", width / 2)}${attribute("ry", height / 2)}${common}/>${text}</g>`;
     }
-    const rx = style.radius ?? 8;
+    const rx = style.radius ?? defaults.radius;
     return `<g><rect${attribute("x", x)}${attribute("y", y)}${attribute("width", width)}${attribute("height", height)}${attribute("rx", rx)}${common}/>${text}</g>`;
   });
   const splitIndex = frameCount < 0 ? renderedNodes.length : frameCount;
@@ -347,7 +489,7 @@ export function buildCanvasSvg(doc: CanvasDocument): string {
         Position.Right,
       );
       const to = connectionEndpoint(target, edge.targetHandle, Position.Left);
-      const [path] = getBezierPath({
+      const [path, labelX, labelY] = getBezierPath({
         sourceX: from.x,
         sourceY: from.y,
         sourcePosition: from.position,
@@ -360,11 +502,60 @@ export function buildCanvasSvg(doc: CanvasDocument): string {
         edge.arrow === false
           ? ""
           : attribute("marker-end", `url(#${arrowMarker(color)})`);
+      const startMarker =
+        edge.startArrow === true
+          ? attribute("marker-start", `url(#${arrowMarker(color)})`)
+          : "";
       const relation =
         edge.kind === "academic"
           ? attribute("data-relation", edge.relation)
           : "";
-      return `<path${relation}${attribute("d", path)} fill="none"${attribute("stroke", color)} stroke-width="1.5"${attribute("stroke-dasharray", edge.dashed ? "6 4" : undefined)}${marker}/>`;
+      const label = labels
+        ? connectionDisplayLabel(edge, labels)
+        : (edge.label ??
+          (edge.kind === "academic" ? edge.relation : undefined));
+      let labelSvg = "";
+      if (label) {
+        const style = { fontSize: 12, ...edge.textStyle };
+        const lines = label.split("\n");
+        const fontSize = style.fontSize;
+        const width =
+          Math.max(
+            ...lines.map((line) =>
+              [...line].reduce(
+                (sum, char) => sum + glyphWidth(char, fontSize),
+                0,
+              ),
+            ),
+          ) + 24;
+        const height = lines.length * fontSize * 1.25 + 14;
+        const clipId = `canvas-edge-label-${definitions.size}`;
+        const x = labelX - width / 2;
+        const y = labelY - height / 2;
+        definitions.set(
+          clipId,
+          `<clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${width}" height="${height}"/></clipPath>`,
+        );
+        labelSvg =
+          `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="8" fill="#ffffff"/>` +
+          textElement(
+            {
+              id: edge.id,
+              kind: "text",
+              position: { x, y },
+              width,
+              height,
+              data: { title: label },
+              style: { ...style, textAlign: "center", verticalAlign: "middle" },
+            },
+            width,
+            height,
+            clipId,
+            1.25,
+            { horizontal: 12, vertical: 7 },
+          );
+      }
+      return `<path${relation}${attribute("d", path)} fill="none"${attribute("stroke", color)} stroke-width="1.5"${attribute("stroke-dasharray", edge.dashed ? "6 4" : undefined)}${startMarker}${marker}/>${labelSvg}`;
     })
     .filter(Boolean)
     .join("\n");

@@ -24,10 +24,25 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
+function isMenuTarget(target: EventTarget | null): boolean {
+  const element = target as { closest?: (selector: string) => unknown } | null;
+  return (
+    typeof element?.closest === "function" &&
+    Boolean(
+      element.closest(
+        '[role="menu"], [role="dialog"], details[open], .zmd-board-properties, .zmd-board-style-bar',
+      ),
+    )
+  );
+}
+
 export interface GlobalCanvasKeyboardEvent extends CanvasArrowKeyEvent {
   readonly metaKey: boolean;
   readonly ctrlKey: boolean;
   readonly altKey: boolean;
+  readonly code?: string;
+  readonly isComposing?: boolean;
+  readonly defaultPrevented?: boolean;
 }
 
 export interface GlobalCanvasKeyboardState {
@@ -45,6 +60,10 @@ export interface GlobalCanvasKeyboardActions {
   setActiveTool(tool: CanvasTool): void;
   deleteSelection(nodeIds: string[], edgeIds: string[]): void;
   nudgeSelected(key: string, shift: boolean): boolean;
+  fitView?(): void;
+  fitSelection?(): void;
+  undo?(): void;
+  redo?(): void;
 }
 
 export function handleGlobalCanvasKeyDown(
@@ -53,11 +72,52 @@ export function handleGlobalCanvasKeyDown(
   actions: GlobalCanvasKeyboardActions,
 ): boolean {
   if (
+    event.defaultPrevented ||
+    event.isComposing ||
     state.annotationBrowserOpen ||
     state.editing ||
+    isMenuTarget(event.target) ||
     isEditableTarget(event.target)
   ) {
     return false;
+  }
+
+  if (!state.drawing && !event.altKey && (event.metaKey || event.ctrlKey)) {
+    const key = event.key.toLowerCase();
+    const action =
+      key === "z"
+        ? event.shiftKey
+          ? actions.redo
+          : actions.undo
+        : key === "y"
+          ? actions.redo
+          : undefined;
+    if (action) {
+      event.preventDefault();
+      action();
+      return true;
+    }
+  }
+
+  if (
+    !state.drawing &&
+    event.shiftKey &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey
+  ) {
+    const code = event.code || event.key;
+    const action =
+      code === "Digit1" || code === "1" || code === "!"
+        ? actions.fitView
+        : code === "Digit2" || code === "2" || code === "@"
+          ? actions.fitSelection
+          : undefined;
+    if (action) {
+      event.preventDefault();
+      action();
+      return true;
+    }
   }
 
   if (event.key === "Escape") {
@@ -103,6 +163,7 @@ export function captureCanvasArrowKey(
 ): boolean {
   if (
     editing ||
+    isMenuTarget(event.target) ||
     isEditableTarget(event.target) ||
     !event.key.startsWith("Arrow") ||
     !nudge(event.key, event.shiftKey)

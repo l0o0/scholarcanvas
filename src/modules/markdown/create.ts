@@ -4,6 +4,7 @@ import { defaultMarkdownFilename, markdownDocumentTitle } from "./detect";
 import { buildNoteWithFrontmatter } from "./frontmatter";
 import { openMarkdownAttachment } from "./open";
 import { createMarkdownImportPaths } from "./storage-filename";
+import { invalidateNoteLibrary } from "./note-library";
 
 /**
  * Create a stored .md attachment under a regular item (or top-level), then open it.
@@ -97,6 +98,7 @@ export async function createMarkdownAttachment(
     if (!attachment?.id) {
       throw new Error("importFromFile returned no attachment item");
     }
+    invalidateNoteLibrary(attachment.libraryID);
 
     if (attachment.attachmentContentType !== "text/markdown") {
       attachment.attachmentContentType = "text/markdown";

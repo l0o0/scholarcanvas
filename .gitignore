@@ -19,3 +19,5 @@ logs
 
 # Isolated whiteboard Vite output
 packages/whiteboard/dist
+packages/fake-zotero/dist
+packages/fake-zotero/*.tgz

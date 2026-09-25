@@ -9,6 +9,9 @@ export function keyboardShortcuts(labels: WhiteboardLabels): ShortcutHelp[] {
   return [
     { keys: "V", label: labels.shortcutSelect },
     { keys: "H", label: labels.shortcutHand },
+    { keys: "Space + drag", label: labels.shortcutHand },
+    { keys: "Shift + 1", label: labels.fitView },
+    { keys: "Shift + 2", label: labels.fitSelection },
     { keys: "R", label: labels.shortcutRect },
     { keys: "O", label: labels.shortcutEllipse },
     { keys: "A", label: labels.shortcutArrow },

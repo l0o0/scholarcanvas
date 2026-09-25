@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   canvasThemePalette,
   effectiveCanvasNodeTextStyle,
@@ -7,7 +7,12 @@ import type { CanvasNodeStyle } from "../model/core";
 import type { WhiteboardLabels } from "../model/protocol";
 import type { WhiteboardTheme } from "../model/protocol";
 import type { CanvasFlowNode } from "../nodes";
+import { StyleMenu } from "./StyleMenu";
 import { ColorPicker } from "./ColorPicker";
+import {
+  useFloatingStyleBar,
+  type FloatingStyleBarAnchor,
+} from "./FloatingStyleBar";
 import { colorPalette } from "./color";
 import {
   IconAlignTextCenter,
@@ -32,7 +37,6 @@ const FONTS = [
 ] as const;
 
 const SIZES = [12, 13, 14, 16, 18, 24, 32, 48];
-const WEIGHTS = ["normal", "bold"] as const;
 
 type TextMenu = "format" | "color" | "align" | null;
 
@@ -48,17 +52,20 @@ export function isEditableControl(target: EventTarget | null): boolean {
 }
 
 export function TextStyleBar(props: {
-  node: CanvasFlowNode;
+  node?: CanvasFlowNode;
+  textStyle?: CanvasNodeStyle;
   left: number;
   top: number;
+  anchor?: FloatingStyleBarAnchor;
   labels: WhiteboardLabels;
   theme: WhiteboardTheme;
   onChange: (patch: Partial<CanvasNodeStyle>) => void;
   onHoldFocus?: () => void;
 }) {
-  const style = props.node.data.model.style ?? {};
+  const { barRef, position } = useFloatingStyleBar(props);
+  const style = props.textStyle ?? props.node?.data.model.style ?? {};
   const effective = effectiveCanvasNodeTextStyle(
-    props.node.data.model.kind,
+    props.node?.data.model.kind ?? "text",
     style,
   );
   const [menu, setMenu] = useState<TextMenu>(null);
@@ -72,120 +79,112 @@ export function TextStyleBar(props: {
   const fontFamily = effective.fontFamily;
   const color = style.textColor || canvasThemePalette(props.theme).text;
 
-  useEffect(() => {
-    if (!menu) return;
-    const onDown = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (!target?.closest(".zmd-board-style-bar, .zmd-board-popover")) {
-        setMenu(null);
-      }
-    };
-    window.addEventListener("pointerdown", onDown);
-    return () => window.removeEventListener("pointerdown", onDown);
-  }, [menu]);
-
-  const toggle = (next: TextMenu) =>
-    setMenu((current) => (current === next ? null : next));
-
   return (
     <div
+      ref={barRef}
       className="zmd-board-style-bar is-text"
-      style={{ left: props.left, top: props.top }}
+      style={position}
       onPointerDown={(event) => {
         props.onHoldFocus?.();
         event.stopPropagation();
         if (!isEditableControl(event.target)) event.preventDefault();
       }}
     >
-      <span className="zmd-board-flyout">
-        <button
-          type="button"
-          title={props.labels.format}
-          className={bold || menu === "format" ? "is-active" : ""}
-          onClick={() => toggle("format")}
-        >
-          B
-        </button>
-        {menu === "format" ? (
-          <div className="zmd-board-popover is-mini">
-            <button
-              type="button"
-              className={bold ? "is-active" : ""}
-              onClick={() =>
-                props.onChange({ fontWeight: bold ? "normal" : "bold" })
-              }
-            >
-              <IconBold />B
-            </button>
-            <button
-              type="button"
-              className={italic ? "is-active" : ""}
-              onClick={() =>
-                props.onChange({
-                  fontStyle: italic ? "normal" : "italic",
-                })
-              }
-            >
-              <IconItalic />I
-            </button>
-            <button
-              type="button"
-              className={underline ? "is-active" : ""}
-              onClick={() =>
-                props.onChange({
-                  textDecoration: underline ? "none" : "underline",
-                })
-              }
-            >
-              <IconUnderline />U
-            </button>
-            <button
-              type="button"
-              className={strike ? "is-active" : ""}
-              onClick={() =>
-                props.onChange({
-                  textDecoration: strike ? "none" : "line-through",
-                })
-              }
-            >
-              <IconStrike />
-            </button>
-          </div>
-        ) : null}
-      </span>
-      <span className="zmd-board-flyout">
-        <button
-          type="button"
-          title={props.labels.color}
-          className={menu === "color" ? "is-active" : ""}
-          onClick={() => toggle("color")}
-        >
+      <StyleMenu
+        preferAbove
+        label={props.labels.format}
+        icon={<IconBold />}
+        open={menu === "format"}
+        onOpenChange={(open) => setMenu(open ? "format" : null)}
+      >
+        <div className="zmd-board-text-options is-mini">
+          <button
+            type="button"
+            title={props.labels.weightBold}
+            aria-label={props.labels.weightBold}
+            aria-pressed={bold}
+            className={bold ? "is-active" : ""}
+            onClick={() =>
+              props.onChange({ fontWeight: bold ? "normal" : "bold" })
+            }
+          >
+            <IconBold />
+          </button>
+          <button
+            type="button"
+            title={props.labels.textItalic}
+            aria-label={props.labels.textItalic}
+            aria-pressed={italic}
+            className={italic ? "is-active" : ""}
+            onClick={() =>
+              props.onChange({
+                fontStyle: italic ? "normal" : "italic",
+              })
+            }
+          >
+            <IconItalic />
+          </button>
+          <button
+            type="button"
+            title={props.labels.textUnderline}
+            aria-label={props.labels.textUnderline}
+            aria-pressed={underline}
+            className={underline ? "is-active" : ""}
+            onClick={() =>
+              props.onChange({
+                textDecoration: underline ? "none" : "underline",
+              })
+            }
+          >
+            <IconUnderline />
+          </button>
+          <button
+            type="button"
+            title={props.labels.textStrike}
+            aria-label={props.labels.textStrike}
+            aria-pressed={strike}
+            className={strike ? "is-active" : ""}
+            onClick={() =>
+              props.onChange({
+                textDecoration: strike ? "none" : "line-through",
+              })
+            }
+          >
+            <IconStrike />
+          </button>
+        </div>
+      </StyleMenu>
+      <StyleMenu
+        preferAbove
+        label={props.labels.color}
+        icon={
           <span className="zmd-board-color-letter" style={{ color }}>
             A
           </span>
-          {props.labels.color}
-        </button>
-        {menu === "color" ? (
-          <div className="zmd-board-popover is-color">
-            <ColorPicker
-              title={props.labels.color}
-              labels={props.labels}
-              color={color}
-              defaultColor={canvasThemePalette(props.theme).text}
-              presets={colorPalette(props.theme === "dark")}
-              onReset={() =>
-                props.onChange({ textColor: undefined, textOpacity: undefined })
-              }
-              opacity={effective.textOpacity}
-              onChange={(next) => props.onChange({ textColor: next })}
-              onOpacityChange={(next) => props.onChange({ textOpacity: next })}
-              onClose={() => setMenu(null)}
-            />
-          </div>
-        ) : null}
-      </span>
+        }
+        open={menu === "color"}
+        onOpenChange={(open) => setMenu(open ? "color" : null)}
+        kind="color"
+      >
+        <ColorPicker
+          compact
+          title={props.labels.color}
+          labels={props.labels}
+          color={color}
+          defaultColor={canvasThemePalette(props.theme).text}
+          presets={colorPalette(props.theme === "dark")}
+          onReset={() =>
+            props.onChange({ textColor: undefined, textOpacity: undefined })
+          }
+          opacity={effective.textOpacity}
+          onChange={(next) => props.onChange({ textColor: next })}
+          onOpacityChange={(next) => props.onChange({ textOpacity: next })}
+        />
+      </StyleMenu>
       <label className="zmd-board-style-group">
         <select
+          title={props.labels.fontFamily}
+          aria-label={props.labels.fontFamily}
           value={fontFamily}
           onChange={(event) =>
             props.onChange({ fontFamily: event.target.value })
@@ -200,25 +199,8 @@ export function TextStyleBar(props: {
       </label>
       <label className="zmd-board-style-group">
         <select
-          value={effective.fontWeight}
-          onChange={(event) =>
-            props.onChange({
-              fontWeight: event.target.value as "normal" | "bold",
-            })
-          }
-        >
-          {WEIGHTS.map((weight) => (
-            <option key={weight} value={weight}>
-              {weight === "bold"
-                ? props.labels.weightBold
-                : props.labels.weightRegular}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="zmd-board-style-group">
-        <span>{props.labels.size}</span>
-        <select
+          title={props.labels.size}
+          aria-label={props.labels.size}
           value={fontSize}
           onChange={(event) =>
             props.onChange({ fontSize: Number(event.target.value) })
@@ -231,68 +213,94 @@ export function TextStyleBar(props: {
           ))}
         </select>
       </label>
-      <span className="zmd-board-flyout">
-        <button
-          type="button"
-          title={props.labels.alignment}
-          className={menu === "align" ? "is-active" : ""}
-          onClick={() => toggle("align")}
-        >
-          {props.labels.alignment}
-        </button>
-        {menu === "align" ? (
-          <div className="zmd-board-popover is-align">
-            <p>{props.labels.textAlignment}</p>
-            <div className="zmd-board-align-row">
-              <button
-                type="button"
-                className={align === "left" ? "is-active" : ""}
-                onClick={() => props.onChange({ textAlign: "left" })}
-              >
-                <IconAlignTextLeft />
-              </button>
-              <button
-                type="button"
-                className={align === "center" ? "is-active" : ""}
-                onClick={() => props.onChange({ textAlign: "center" })}
-              >
-                <IconAlignTextCenter />
-              </button>
-              <button
-                type="button"
-                className={align === "right" ? "is-active" : ""}
-                onClick={() => props.onChange({ textAlign: "right" })}
-              >
-                <IconAlignTextRight />
-              </button>
-            </div>
-            <p>{props.labels.verticalAlignment}</p>
-            <div className="zmd-board-align-row">
-              <button
-                type="button"
-                className={valign === "top" ? "is-active" : ""}
-                onClick={() => props.onChange({ verticalAlign: "top" })}
-              >
-                <IconValignTop />
-              </button>
-              <button
-                type="button"
-                className={valign === "middle" ? "is-active" : ""}
-                onClick={() => props.onChange({ verticalAlign: "middle" })}
-              >
-                <IconValignMiddle />
-              </button>
-              <button
-                type="button"
-                className={valign === "bottom" ? "is-active" : ""}
-                onClick={() => props.onChange({ verticalAlign: "bottom" })}
-              >
-                <IconValignBottom />
-              </button>
-            </div>
+      <StyleMenu
+        preferAbove
+        label={props.labels.alignment}
+        icon={
+          align === "left" ? (
+            <IconAlignTextLeft />
+          ) : align === "right" ? (
+            <IconAlignTextRight />
+          ) : (
+            <IconAlignTextCenter />
+          )
+        }
+        open={menu === "align"}
+        onOpenChange={(open) => setMenu(open ? "align" : null)}
+      >
+        <div className="zmd-board-text-options is-align">
+          <p>{props.labels.textAlignment}</p>
+          <div className="zmd-board-align-row">
+            <button
+              type="button"
+              title={props.labels.alignLeft}
+              aria-label={props.labels.alignLeft}
+              aria-pressed={align === "left"}
+              className={align === "left" ? "is-active" : ""}
+              onClick={() => props.onChange({ textAlign: "left" })}
+            >
+              <IconAlignTextLeft />
+            </button>
+            <button
+              type="button"
+              title={props.labels.alignHorizontal}
+              aria-label={props.labels.alignHorizontal}
+              aria-pressed={align === "center"}
+              className={align === "center" ? "is-active" : ""}
+              onClick={() => props.onChange({ textAlign: "center" })}
+            >
+              <IconAlignTextCenter />
+            </button>
+            <button
+              type="button"
+              title={props.labels.alignRight}
+              aria-label={props.labels.alignRight}
+              aria-pressed={align === "right"}
+              className={align === "right" ? "is-active" : ""}
+              onClick={() => props.onChange({ textAlign: "right" })}
+            >
+              <IconAlignTextRight />
+            </button>
           </div>
-        ) : null}
-      </span>
+          {props.node ? (
+            <>
+              <p>{props.labels.verticalAlignment}</p>
+              <div className="zmd-board-align-row">
+                <button
+                  type="button"
+                  title={props.labels.alignTop}
+                  aria-label={props.labels.alignTop}
+                  aria-pressed={valign === "top"}
+                  className={valign === "top" ? "is-active" : ""}
+                  onClick={() => props.onChange({ verticalAlign: "top" })}
+                >
+                  <IconValignTop />
+                </button>
+                <button
+                  type="button"
+                  title={props.labels.alignVertical}
+                  aria-label={props.labels.alignVertical}
+                  aria-pressed={valign === "middle"}
+                  className={valign === "middle" ? "is-active" : ""}
+                  onClick={() => props.onChange({ verticalAlign: "middle" })}
+                >
+                  <IconValignMiddle />
+                </button>
+                <button
+                  type="button"
+                  title={props.labels.alignBottom}
+                  aria-label={props.labels.alignBottom}
+                  aria-pressed={valign === "bottom"}
+                  className={valign === "bottom" ? "is-active" : ""}
+                  onClick={() => props.onChange({ verticalAlign: "bottom" })}
+                >
+                  <IconValignBottom />
+                </button>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </StyleMenu>
     </div>
   );
 }

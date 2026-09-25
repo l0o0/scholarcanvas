@@ -50,6 +50,16 @@ export interface TutorialCanvasSample {
 
 const sampleStyle = { stroke: "#60a5fa", strokeWidth: 2, radius: 12 } as const;
 
+/** Replace the tutorial's legacy fixed opening view, but keep a saved user view. */
+export function hasDefaultTutorialViewport(document: CanvasDocument): boolean {
+  return (
+    document.nodes.some((node) => node.id === "tutorial-title") &&
+    document.viewport?.x === 40 &&
+    document.viewport.y === 70 &&
+    document.viewport.zoom === 0.5
+  );
+}
+
 // A self-contained figure, so the tutorial works offline and survives export
 // and .canvas round trips without depending on a remote image URL.
 const tutorialFigure = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
@@ -144,7 +154,7 @@ export function tutorialCanvasDocument(
     "tutorial-question",
     1040,
     430,
-    210,
+    170,
     190,
     "",
     labels.colorQuestion,
@@ -152,9 +162,9 @@ export function tutorialCanvasDocument(
   );
   const claim = note(
     "tutorial-claim",
-    1270,
+    1310,
     430,
-    210,
+    170,
     190,
     "",
     labels.colorClaim,
@@ -241,7 +251,7 @@ export function tutorialCanvasDocument(
           `tutorial-color-${type}`,
           30 + index * 290,
           940,
-          260,
+          210,
           160,
           "",
           {
@@ -283,25 +293,52 @@ export function tutorialCanvasDocument(
     },
   ];
   const connections: CanvasDocument["connections"] = [
-    createAcademicConnection(
-      "tutorial-path-literature-quotes",
-      addLiterature.id,
-      browseQuotes.id,
-    ),
-    createAcademicConnection(
-      "tutorial-path-quotes-note",
-      browseQuotes.id,
-      writeNote.id,
-    ),
+    {
+      ...createAcademicConnection(
+        "tutorial-path-literature-quotes",
+        addLiterature.id,
+        browseQuotes.id,
+        "related",
+      ),
+      color: "#64748b",
+      dashed: true,
+      arrow: false,
+    },
+    {
+      ...createAcademicConnection(
+        "tutorial-path-quotes-note",
+        browseQuotes.id,
+        writeNote.id,
+        "related",
+      ),
+      color: "#64748b",
+      dashed: true,
+      arrow: false,
+    },
     {
       ...createAcademicConnection(
         "tutorial-supports",
-        browseQuotes.id,
-        claim.id,
+        "tutorial-color-evidence",
+        "tutorial-color-claim",
         "supports",
       ),
       label: labels.supports,
-      color: "#8ba37b",
+      sourceHandle: "left",
+      targetHandle: "right",
+      color: "#2f855a",
+      arrow: true,
+    },
+    {
+      ...createAcademicConnection(
+        "tutorial-contradicts",
+        question.id,
+        claim.id,
+        "contradicts",
+      ),
+      color: "#c2413a",
+      dashed: true,
+      arrow: true,
+      startArrow: true,
     },
   ];
 
@@ -396,6 +433,8 @@ export function tutorialCanvasDocument(
             "supports",
           ),
           label: labels.supports,
+          color: "#2f855a",
+          arrow: true,
         });
       }
     }

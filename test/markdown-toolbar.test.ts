@@ -64,16 +64,12 @@ describe("toolbar insert templates", () => {
     );
   });
 
-  it("defines compact, comfortable, and large responsive toolbar sizes", () => {
+  it("uses the shared toolbar density at every window width", () => {
     const css = responsiveToolbarSizingCSS();
     assert.match(css, /--zmd-toolbar-icon-size: 18px/);
-    assert.match(css, /--zmd-toolbar-control-size: 40px/);
-    assert.match(css, /@container zmd-toolbar \(min-width: 1050px\)/);
-    assert.match(css, /--zmd-toolbar-icon-size: 20px/);
-    assert.match(css, /--zmd-toolbar-control-size: 44px/);
-    assert.match(css, /@container zmd-toolbar \(max-width: 760px\)/);
-    assert.match(css, /--zmd-toolbar-icon-size: 16px/);
     assert.match(css, /--zmd-toolbar-control-size: 36px/);
+    assert.doesNotMatch(css, /44px|40px/);
+    assert.match(css, /min-width: 0; max-width: 100%; flex-wrap: wrap/);
   });
 
   it("keeps the toolbar at the configured 60rem width", () => {

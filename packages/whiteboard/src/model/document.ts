@@ -1,6 +1,7 @@
 import {
   ACADEMIC_SOURCE_CARD_SIZE,
   isNoteType,
+  type AttachmentSource,
   type CanvasNode,
   type LiteratureSnapshot,
   type LiteratureSource,
@@ -398,6 +399,10 @@ function parseConnectionBase(
   const color = parseOptionalString(value, "color");
   const dashed = parseOptionalBoolean(value, "dashed");
   const arrow = parseOptionalBoolean(value, "arrow");
+  const startArrow = parseOptionalBoolean(value, "startArrow");
+  const textStyle = has(value, "textStyle")
+    ? parseNodeStyle(value.textStyle)
+    : undefined;
   const extensions = has(value, "extensions")
     ? parseExtensions(value.extensions)
     : undefined;
@@ -408,6 +413,8 @@ function parseConnectionBase(
     color === INVALID ||
     dashed === INVALID ||
     arrow === INVALID ||
+    startArrow === INVALID ||
+    (has(value, "textStyle") && !textStyle) ||
     (has(value, "extensions") && !extensions)
   ) {
     return undefined;
@@ -422,6 +429,8 @@ function parseConnectionBase(
     ...(color !== undefined ? { color } : {}),
     ...(dashed !== undefined ? { dashed } : {}),
     ...(arrow !== undefined ? { arrow } : {}),
+    ...(startArrow !== undefined ? { startArrow } : {}),
+    ...(textStyle ? { textStyle } : {}),
     ...(extensions ? { extensions } : {}),
   };
 }
@@ -437,6 +446,8 @@ function parseItemData(value: unknown): ItemNodeData | undefined {
 function parsePdfData(value: unknown): PdfNodeData | undefined {
   const common = parseItemLikeData(value);
   if (!common) return undefined;
+  const attachment = parseAttachmentFields(common.value);
+  if (!attachment) return undefined;
   const attachmentID = parseOptionalNumber(common.value, "attachmentID");
   const itemID = parseOptionalNumber(common.value, "itemID");
   const pdfPage = parseOptionalNumber(common.value, "pdfPage");
@@ -453,6 +464,7 @@ function parsePdfData(value: unknown): PdfNodeData | undefined {
   }
   return {
     ...common.data,
+    ...attachment,
     ...(itemID !== undefined ? { itemID } : {}),
     ...(attachmentID !== undefined ? { attachmentID } : {}),
     ...(pdfPage !== undefined ? { pdfPage } : {}),
@@ -464,13 +476,38 @@ function parsePdfData(value: unknown): PdfNodeData | undefined {
 function parseAttachmentData(value: unknown): AttachmentNodeData | undefined {
   const common = parseItemLikeData(value);
   if (!common) return undefined;
+  const attachment = parseAttachmentFields(common.value);
+  if (!attachment) return undefined;
   const attachmentID = parseOptionalNumber(common.value, "attachmentID");
   const itemID = parseOptionalNumber(common.value, "itemID");
   if (attachmentID === INVALID || itemID === INVALID) return undefined;
   return {
     ...common.data,
+    ...attachment,
     ...(itemID !== undefined ? { itemID } : {}),
     ...(attachmentID !== undefined ? { attachmentID } : {}),
+  };
+}
+
+function parseAttachmentFields(value: Record<string, unknown>) {
+  const source = has(value, "source")
+    ? parseAttachmentSource(value.source)
+    : undefined;
+  const availability = parseOptionalEnum(value, "availability", [
+    "available",
+    "not-downloaded",
+  ] as const);
+  const contentType = parseOptionalString(value, "contentType");
+  if (
+    (has(value, "source") && !source) ||
+    availability === INVALID ||
+    contentType === INVALID
+  )
+    return undefined;
+  return {
+    ...(source ? { source } : {}),
+    ...(availability !== undefined ? { availability } : {}),
+    ...(contentType !== undefined ? { contentType } : {}),
   };
 }
 
@@ -518,6 +555,15 @@ export function parseLiteratureSource(
   if (!isRecord(value) || !isNonEmptyString(value.itemKey)) return undefined;
   const library = parseLibrary(value.library);
   return library ? { library, itemKey: value.itemKey } : undefined;
+}
+
+export function parseAttachmentSource(
+  value: unknown,
+): AttachmentSource | undefined {
+  if (!isRecord(value) || !isNonEmptyString(value.attachmentKey))
+    return undefined;
+  const library = parseLibrary(value.library);
+  return library ? { library, attachmentKey: value.attachmentKey } : undefined;
 }
 
 export function parseQuoteSource(value: unknown): QuoteSource | undefined {
@@ -655,6 +701,7 @@ function parseNodeStyle(value: unknown): CanvasNodeStyle | undefined {
     if (fieldValue !== undefined) style[field] = fieldValue;
   }
   const enumFields = {
+    shape: ["diamond"],
     fontWeight: ["normal", "bold"],
     fontStyle: ["normal", "italic"],
     textDecoration: ["none", "underline", "line-through"],
@@ -837,14 +884,14 @@ function parseOptionalStringArray(
     : INVALID;
 }
 
-function parseOptionalEnum(
+function parseOptionalEnum<T extends string>(
   value: Record<string, unknown>,
   key: string,
-  values: readonly string[],
-): string | undefined | typeof INVALID {
+  values: readonly T[],
+): T | undefined | typeof INVALID {
   if (!has(value, key)) return undefined;
-  return typeof value[key] === "string" && values.includes(value[key])
-    ? value[key]
+  return typeof value[key] === "string" && values.includes(value[key] as T)
+    ? (value[key] as T)
     : INVALID;
 }
 

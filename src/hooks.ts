@@ -1,4 +1,10 @@
 import {
+  retainWorkspaceOnShutdown,
+  restoreWorkspace,
+  resumeWorkspaceTracking,
+} from "./modules/workspace-state";
+import { closeNoteIndex } from "./modules/markdown/note-index";
+import {
   createMarkdownAttachment,
   flushAllSessions,
   flushSessionsForWindow,
@@ -37,6 +43,14 @@ import { ensureDOMGlobals } from "./utils/dom";
 import { getString, initLocale } from "./utils/locale";
 import { bindMarkdownSettingsPreferencePane } from "./modules/markdown/settings";
 import { disposeMarkdownRenderer } from "./modules/markdown/async-render";
+import {
+  clearNoteLibraries,
+  registerNoteLibraryObserver,
+} from "./modules/markdown/note-library";
+import {
+  registerAttachmentIcons,
+  unregisterAttachmentIcons,
+} from "./modules/attachment-icons";
 
 let tutorialStartup: Promise<void> | undefined;
 
@@ -49,6 +63,7 @@ async function onStartup() {
 
   initLocale();
   registerPrefs();
+  await registerAttachmentIcons();
   registerFileOpenInterceptor();
   registerWhiteboardFileOpenInterceptor();
   // Register global toolbar menus first. registerMenus() performs a global
@@ -59,6 +74,7 @@ async function onStartup() {
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
   );
 
+  registerNoteLibraryObserver();
   registerSidebarSection();
   tutorialStartup = ensureTutorialWhiteboard();
 
@@ -70,6 +86,11 @@ async function onStartup() {
     getString,
   };
   addon.data.initialized = true;
+  const mainWindow = Zotero.getMainWindow();
+  if (mainWindow)
+    void restoreWorkspace(mainWindow).catch((error) =>
+      ztoolkit.log("Workspace restoration failed", error),
+    );
   ztoolkit.log(`${addon.data.config.addonName} initialized`);
 }
 
@@ -77,6 +98,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   // Plugin sandbox has no browser `document`; bridge from chrome window
   // so DOM libraries work (also via ztoolkit.getGlobal).
   ensureDOMGlobals(win);
+  resumeWorkspaceTracking();
 
   win.MozXULElement.insertFTLIfNeeded(
     `${addon.data.config.addonRef}-mainWindow.ftl`,
@@ -112,6 +134,7 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
   // window's keydown listeners), breaking shortcuts in other windows.
   // Per-window cleanup is handled by the toolkit's own Services.wm
   // onCloseWindow callbacks (unInitKeyboardListener for the closing window).
+  if (Zotero.getMainWindows().length <= 1) retainWorkspaceOnShutdown();
   await flushSessionsForWindow(_win);
   unregisterItemContextMenu(_win);
   unregisterWhiteboardMenus(_win);
@@ -120,6 +143,8 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
 }
 
 async function onShutdown(): Promise<void> {
+  retainWorkspaceOnShutdown();
+  await unregisterAttachmentIcons();
   if (tutorialStartup) {
     await tutorialStartup;
     tutorialStartup = undefined;
@@ -130,6 +155,8 @@ async function onShutdown(): Promise<void> {
   await closeAllWhiteboards();
   await unregisterSidebarSection();
   disposeMarkdownRenderer();
+  clearNoteLibraries();
+  await closeNoteIndex();
   unregisterFileOpenInterceptor();
   unregisterWhiteboardFileOpenInterceptor();
   unregisterMenus();
@@ -145,7 +172,7 @@ function registerPrefs() {
     pluginID: addon.data.config.addonID,
     src: rootURI + "content/preferences.xhtml",
     label: getString("prefs-title"),
-    image: `chrome://${addon.data.config.addonRef}/content/icons/favicon.svg`,
+    image: `chrome://${addon.data.config.addonRef}/content/icons/favicon.png`,
   });
 }
 

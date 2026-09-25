@@ -1,6 +1,8 @@
+import { writeProtectedFile, type FileRevision } from "../file-safety";
 import { extractFirstHeadingTitle } from "./frontmatter";
 import { markdownAttachmentTitle } from "./detect";
 import { cleanupUnusedImageAssets } from "./images/service";
+import { updateIndexedNote } from "./note-library";
 
 /**
  * Single write path for Markdown attachment content.
@@ -10,8 +12,6 @@ import { cleanupUnusedImageAssets } from "./images/service";
  * same treatment: file write, optional image-asset cleanup, optional item
  * title sync from the first H1, and optional Zotero file-sync marking.
  *
- * TODO: unify `persistSession` in tab.ts onto this function (kept separate
- * for now to avoid changing the editor save path without in-Zotero testing).
  */
 export async function persistMarkdownContent(
   item: Zotero.Item,
@@ -19,6 +19,7 @@ export async function persistMarkdownContent(
   opts: {
     /** Known file path (skips `getFilePathAsync`). */
     path?: string;
+    revision?: FileRevision;
     /** Remove embedded image assets that are no longer referenced. */
     cleanupImages?: boolean;
     /** Sync the Zotero item title from the first H1 (editor behavior). */
@@ -35,7 +36,16 @@ export async function persistMarkdownContent(
     throw new Error("Attachment has no file path");
   }
 
-  await Zotero.File.putContentsAsync(path, value);
+  if (opts.revision) {
+    await writeProtectedFile(path, value, opts.revision, item, (content) =>
+      IOUtils.writeUTF8(path, content, {
+        tmpPath: `${path}.scholar-canvas.tmp`,
+        flush: true,
+      }),
+    );
+  } else {
+    await Zotero.File.putContentsAsync(path, value);
+  }
 
   if (opts.cleanupImages) {
     try {
@@ -69,5 +79,6 @@ export async function persistMarkdownContent(
     }
   }
 
+  updateIndexedNote(item, value);
   return { path, titleChanged };
 }

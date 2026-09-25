@@ -10,7 +10,10 @@ import {
   effectiveCanvasNodeTextStyle,
   type CanvasNode,
 } from "../model/academic";
-import type { CanvasConnection } from "../model/connection";
+import type {
+  CanvasConnection,
+  CanvasConnectionBase,
+} from "../model/connection";
 import type { CanvasNodeStyle } from "../model/core";
 import type { CanvasDocument } from "../model/document";
 import type { SourceResolutionResult } from "../model/protocol";
@@ -120,6 +123,15 @@ export function canvasDocumentToFlow(
                 height: 16,
                 color,
               },
+        markerStart:
+          connection.startArrow === true
+            ? {
+                type: MarkerType.ArrowClosed,
+                width: 16,
+                height: 16,
+                color,
+              }
+            : undefined,
       };
     }),
     shell: {
@@ -169,6 +181,7 @@ export function flowToCanvasDocument(
         color: _color,
         dashed: _dashed,
         arrow: _arrow,
+        startArrow: _startArrow,
         ...persistentConnection
       } = connection;
       const label = typeof edge.label === "string" ? edge.label : undefined;
@@ -184,7 +197,13 @@ export function flowToCanvasDocument(
         ...(label !== undefined ? { label } : {}),
         dashed: Boolean(edge.style?.strokeDasharray),
         ...(color !== undefined ? { color } : {}),
-        arrow: Boolean(edge.markerEnd),
+        ...(connection.arrow !== undefined ||
+        !unknownCanvasEnd(connection.extensions, "toEnd")
+          ? { arrow: Boolean(edge.markerEnd) }
+          : {}),
+        ...(connection.startArrow !== undefined || edge.markerStart
+          ? { startArrow: Boolean(edge.markerStart) }
+          : {}),
       };
     }),
   });
@@ -311,28 +330,105 @@ export function toggleEditingBold(
   });
 }
 
+type CanvasEdgeStylePatch = Partial<
+  Pick<CanvasConnectionBase, "color" | "dashed" | "arrow" | "startArrow">
+>;
+
+function edgeMarker(
+  existing: CanvasFlowEdge["markerEnd"] | CanvasFlowEdge["markerStart"],
+  color: string,
+) {
+  const marker =
+    existing && typeof existing === "object" ? existing : undefined;
+  return marker
+    ? {
+        ...marker,
+        width: marker.width ?? 16,
+        height: marker.height ?? 16,
+        color,
+      }
+    : { type: MarkerType.ArrowClosed, width: 16, height: 16, color };
+}
+
+export function withEdgeStyle(
+  edge: CanvasFlowEdge,
+  patch: CanvasEdgeStylePatch,
+): CanvasFlowEdge {
+  const current =
+    edge.data?.connection ??
+    ({
+      id: edge.id,
+      kind: "basic",
+      source: edge.source,
+      target: edge.target,
+    } satisfies CanvasConnection);
+  const connection: CanvasConnection = { ...current };
+  if (current.extensions) {
+    connection.extensions = { ...current.extensions };
+  }
+  for (const key of ["color", "dashed", "arrow", "startArrow"] as const) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      const value = patch[key];
+      if (value === undefined) delete connection[key];
+      else Object.assign(connection, { [key]: value });
+      if (key === "arrow" || key === "startArrow") {
+        const endpoint = key === "arrow" ? "toEnd" : "fromEnd";
+        const extensions = connection.extensions;
+        if (
+          extensions &&
+          Object.prototype.hasOwnProperty.call(extensions, endpoint)
+        ) {
+          delete extensions[endpoint];
+          if (!Object.keys(extensions).length) delete connection.extensions;
+        }
+      }
+    }
+  }
+  const color =
+    typeof patch.color === "string"
+      ? patch.color
+      : typeof edge.style?.stroke === "string"
+        ? edge.style.stroke
+        : (connection.color ?? "#9ca3af");
+  const style = { ...(edge.style ?? {}) };
+  if (Object.prototype.hasOwnProperty.call(patch, "color")) {
+    style.stroke = patch.color;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "dashed")) {
+    style.strokeDasharray = patch.dashed ? "6 4" : undefined;
+  }
+  return {
+    ...edge,
+    data: { ...(edge.data ?? {}), connection },
+    style,
+    ...(Object.prototype.hasOwnProperty.call(patch, "arrow")
+      ? {
+          markerEnd:
+            patch.arrow === false
+              ? undefined
+              : edgeMarker(edge.markerEnd, color),
+        }
+      : Object.prototype.hasOwnProperty.call(patch, "color") && edge.markerEnd
+        ? { markerEnd: edgeMarker(edge.markerEnd, color) }
+        : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, "startArrow")
+      ? {
+          markerStart:
+            patch.startArrow === true
+              ? edgeMarker(edge.markerStart, color)
+              : undefined,
+        }
+      : Object.prototype.hasOwnProperty.call(patch, "color") && edge.markerStart
+        ? { markerStart: edgeMarker(edge.markerStart, color) }
+        : {}),
+  };
+}
+
 export function withEdgeColor(
   edge: CanvasFlowEdge,
   color: string,
 ): CanvasFlowEdge {
-  return {
-    ...edge,
-    data: edge.data
-      ? {
-          ...edge.data,
-          connection: { ...edge.data.connection, color },
-        }
-      : edge.data,
-    style: { ...(edge.style ?? {}), stroke: color },
-    markerEnd: edge.markerEnd
-      ? {
-          type: MarkerType.ArrowClosed,
-          width: 16,
-          height: 16,
-          color,
-        }
-      : undefined,
-  };
+  return withEdgeStyle(edge, { color });
 }
 
 export class CanvasDocumentHistory {
@@ -387,6 +483,14 @@ export class CanvasDocumentHistory {
 
 function numericStyleDimension(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function unknownCanvasEnd(
+  extensions: CanvasConnection["extensions"],
+  key: "fromEnd" | "toEnd",
+): boolean {
+  const value = extensions?.[key];
+  return value !== undefined && value !== "none" && value !== "arrow";
 }
 
 function omitUndefinedRecordFields<T>(

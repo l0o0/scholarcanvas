@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { renderMarkdownCore } from "../../../../src/modules/markdown/preview-render-core";
 import type { NodeProps } from "@xyflow/react";
 import { getNoteType, getNoteTitle } from "../model/academic";
 import {
@@ -98,6 +100,11 @@ export function QuoteNode({ data, selected }: NodeProps<CanvasFlowNode>) {
 function AcademicTextNode({ data, selected }: NodeProps<CanvasFlowNode>) {
   const labels = useWhiteboardLabels();
   const model = data.model;
+  const content = model.kind === "note" ? model.content : "";
+  const html = useMemo(
+    () => renderMarkdownCore(content, `card-${model.id}`),
+    [content, model.id],
+  );
   if (model.kind !== "note") return null;
   return (
     <CardShell
@@ -108,17 +115,27 @@ function AcademicTextNode({ data, selected }: NodeProps<CanvasFlowNode>) {
       selected={selected}
       nodeStyle={model.style}
     >
-      <p
-        className={`zmd-board-card-content${model.content === "" ? " is-placeholder" : ""}`}
-        style={{
-          ...nodeTextStyle(model.style ?? {}),
-          whiteSpace: "pre-wrap",
-        }}
-      >
-        {model.content === ""
-          ? noteTypePrompt(labels, getNoteType(model))
-          : model.content}
-      </p>
+      {model.content === "" ? (
+        <p className="zmd-board-card-content is-placeholder">
+          {noteTypePrompt(labels, getNoteType(model))}
+        </p>
+      ) : (
+        <div
+          className="zmd-board-card-content zmd-board-card-markdown nowheel"
+          style={nodeTextStyle(model.style ?? {})}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" &&
+              (event.target as HTMLElement).hasAttribute("data-zmd-wikilink")
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              (event.target as HTMLElement).click();
+            }
+          }}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
     </CardShell>
   );
 }

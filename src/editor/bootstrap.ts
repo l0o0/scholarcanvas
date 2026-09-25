@@ -1,3 +1,4 @@
+import { validViewState } from "../modules/markdown/editor-view-state";
 /**
  * iframe-side entry: runs CodeMirror 6 inside a clean Web document.
  * Communicates with the parent Zotero tab via postMessage.
@@ -61,6 +62,7 @@ import {
   type ParentToEditorMessage,
 } from "../modules/markdown/editor-protocol";
 import { clampOutlinePosition, extractEditorOutline } from "./outline";
+import { formatNoteLink } from "../modules/markdown/note-links";
 import { codeSyntaxHighlighting, editorThemeExtension } from "./theme";
 import { resolveCodeMirrorLanguage } from "./code-languages";
 import { imageDebug } from "./image-debug";
@@ -222,6 +224,7 @@ interface ActiveWikiQuery {
   from: number;
   to: number;
   query: string;
+  label?: string;
 }
 
 function isCodeSyntaxAt(view: EditorView, position: number): boolean {
@@ -257,6 +260,8 @@ function activeWikiQuery(view: EditorView): ActiveWikiQuery | null {
   const before = line.text.slice(0, offset);
   const open = before.lastIndexOf("[[");
   if (open < 0 || (open > 0 && line.text[open - 1] === "!")) return null;
+  const precedingEscapes = before.slice(0, open).match(/\\+$/)?.[0].length || 0;
+  if (precedingEscapes % 2 === 1) return null;
   // A completed wiki link is no longer a completion query.
   if (line.text.indexOf("]]", open + 2) >= 0) return null;
   const raw = before.slice(open + 2);
@@ -273,7 +278,12 @@ function activeWikiQuery(view: EditorView): ActiveWikiQuery | null {
   }
   const separator = raw.indexOf("|");
   const query = (separator < 0 ? raw : raw.slice(0, separator)).trim();
-  return { from: line.from + open, to: position, query };
+  return {
+    from: line.from + open,
+    to: position,
+    query,
+    ...(separator < 0 ? {} : { label: raw.slice(separator + 1).trim() }),
+  };
 }
 
 function clearLinkCompletion() {
@@ -294,7 +304,14 @@ function completeLinkCandidate(candidate: EditorLinkCandidate) {
   const view = runtime.view;
   const active = view && activeWikiQuery(view);
   if (!view || !active || view.state.readOnly) return;
-  const insert = `[${escapedMarkdownLabel(candidate.title)}](${candidate.href})`;
+  const label = active.label || candidate.title;
+  const insert =
+    candidate.kind === "markdown" && candidate.filename
+      ? formatNoteLink(
+          { ...candidate, filename: candidate.filename },
+          { label, heading: candidate.heading },
+        )
+      : `[${escapedMarkdownLabel(label)}](${candidate.href})`;
   view.dispatch({
     changes: { from: active.from, to: active.to, insert },
     selection: { anchor: active.from + insert.length },
@@ -331,7 +348,10 @@ function showLinkCompletion(
     const button = document.createElement("button");
     button.type = "button";
     button.setAttribute("role", "option");
-    button.textContent = `${candidate.title} · ${candidate.kindLabel || candidate.kind} [${candidate.key}]`;
+    const title = candidate.heading
+      ? `${candidate.title} › ${candidate.heading}`
+      : candidate.title;
+    button.textContent = `${title} · ${candidate.kindLabel || candidate.kind} [${candidate.key}]`;
     Object.assign(button.style, {
       display: "block",
       width: "100%",
@@ -999,12 +1019,29 @@ function forwardImageFile(files: File[], event: Event) {
   return true;
 }
 
+let viewStateTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleViewState(view: EditorView) {
+  clearTimeout(viewStateTimer);
+  viewStateTimer = setTimeout(() => {
+    if (runtime.view !== view) return;
+    postToParent({
+      type: "viewState",
+      payload: {
+        anchor: view.state.selection.main.anchor,
+        head: view.state.selection.main.head,
+        scrollTop: view.scrollDOM.scrollTop,
+      },
+    });
+  }, 200);
+}
+
 function postToParent(message: {
   type:
     | "ready"
     | "outline"
     | "outlineActive"
     | "change"
+    | "viewState"
     | "snapshot"
     | "resolveAsset"
     | "linkSearch"
@@ -1253,6 +1290,8 @@ function buildExtensions(
         }
       }
       if (update.viewportChanged) scheduleActiveOutline(update.view);
+      if (update.viewportChanged || update.selectionSet)
+        scheduleViewState(update.view);
       if (update.docChanged || update.selectionSet) {
         requestLinkSearch(update.view);
       }
@@ -1320,15 +1359,23 @@ function buildExtensions(
         event.preventDefault();
         return true;
       },
-      click(event, editorView) {
+      mousedown(event, editorView) {
         const mouse = event as MouseEvent;
-        if (!mouse.ctrlKey && !mouse.metaKey) return false;
-        const position = editorView.posAtCoords({
-          x: mouse.clientX,
-          y: mouse.clientY,
-        });
-        if (position == null) return false;
-        const href = sourceLinkAt(editorView, position);
+        if (mouse.button !== 0 || (!mouse.ctrlKey && !mouse.metaKey))
+          return false;
+        // Resolve the rendered link before CodeMirror moves the selection and
+        // reveals its Markdown syntax, which changes the click coordinates.
+        const renderedLink = (mouse.target as Element | null)?.closest?.(
+          "[data-zmd-link]",
+        );
+        const position = renderedLink
+          ? editorView.posAtDOM(renderedLink)
+          : editorView.posAtCoords({ x: mouse.clientX, y: mouse.clientY });
+        if (position === null || isCodeSyntaxAt(editorView, position))
+          return false;
+        const href =
+          renderedLink?.getAttribute("data-zmd-link") ||
+          sourceLinkAt(editorView, position);
         if (!href) return false;
         postToParent({ type: "openLink", payload: { href } });
         mouse.preventDefault();
@@ -1528,6 +1575,29 @@ function createOrResetEditor(init: EditorInitPayload) {
       docLength: runtime.view.state.doc.length,
     });
   }
+  const viewState = init.viewState;
+  if (validViewState(viewState)) {
+    runtime.view.dispatch({
+      selection: {
+        anchor: Math.min(viewState.anchor, runtime.view.state.doc.length),
+        head: Math.min(viewState.head, runtime.view.state.doc.length),
+      },
+    });
+    const view = runtime.view;
+    view.requestMeasure({
+      read: () => viewState.scrollTop,
+      write: (value) => {
+        view.scrollDOM.scrollTop = value;
+      },
+    });
+  }
+  runtime.view.scrollDOM.addEventListener(
+    "scroll",
+    () => {
+      if (runtime.view) scheduleViewState(runtime.view);
+    },
+    { passive: true },
+  );
   runtime.tableContextMenu = createTableContextMenu({
     document,
     parent: runtime.view.dom,
@@ -1657,6 +1727,14 @@ function handleParentMessage(data: ParentToEditorMessage) {
     case "requestSnapshot": {
       if (!runtime.view) return;
       const value = runtime.view.state.doc.toString();
+      postToParent({
+        type: "viewState",
+        payload: {
+          anchor: runtime.view.state.selection.main.anchor,
+          head: runtime.view.state.selection.main.head,
+          scrollTop: runtime.view.scrollDOM.scrollTop,
+        },
+      });
       postToParent({
         type: "snapshot",
         payload: {

@@ -23,6 +23,8 @@ export function ensureDOMGlobals(win?: Window): Window {
   }
 
   const g = globalThis as any;
+  // A browser Window already owns these globals, often as getter-only properties.
+  if (g === target) return target;
   const already = g[INJECTED_FLAG];
   // Re-bind if we never injected, or window object changed
   if (already === target) {

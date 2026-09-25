@@ -1045,3 +1045,57 @@ test("connection sides survive JSON Canvas import, changing endpoints, and expor
     parsed.connections,
   );
 });
+
+test("standard arrow endpoints override stale Bamboo fields after external edits", () => {
+  const source = parseCanvasDocument({
+    version: 2,
+    viewport: { x: 0, y: 0, zoom: 1 },
+    nodes: ["a", "b"].map((id) => ({
+      id,
+      kind: "note",
+      position: { x: 0, y: 0 },
+      width: 180,
+      height: 120,
+      content: id,
+    })),
+    connections: [
+      {
+        id: "edge",
+        kind: "basic",
+        source: "a",
+        target: "b",
+        arrow: true,
+        startArrow: false,
+      },
+    ],
+  });
+  const file = canvasDocumentToFile(source.document);
+  file.edges[0].fromEnd = "arrow";
+  file.edges[0].toEnd = "none";
+  const edited = canvasFileToDocument(file).document.connections[0];
+  assert.equal(edited.arrow, false);
+  assert.equal(edited.startArrow, true);
+  const saved = canvasDocumentToFile(canvasFileToDocument(file).document);
+  assert.equal(saved.edges[0].bamboo?.arrow, false);
+  assert.equal(saved.edges[0].bamboo?.startArrow, true);
+
+  delete file.edges[0].fromEnd;
+  delete file.edges[0].toEnd;
+  const legacy = canvasFileToDocument(file).document.connections[0];
+  assert.equal(legacy.arrow, true);
+  assert.equal(legacy.startArrow, false);
+});
+
+test("connection text formatting survives save and reload", () => {
+  const textStyle = {
+    fontSize: 24,
+    fontWeight: "bold" as const,
+    textColor: "#ff0000",
+  };
+  const doc = {
+    ...document,
+    connections: [{ ...document.connections[0], textStyle }],
+  };
+  const restored = parseStoredCanvas(serializeCanvasDocument(doc));
+  assert.deepEqual(restored.document.connections[0].textStyle, textStyle);
+});

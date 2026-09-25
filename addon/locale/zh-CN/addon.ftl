@@ -48,6 +48,9 @@ whiteboard-add-pdf = PDF
 whiteboard-add-file = 附件
 whiteboard-add-text = 文字
 whiteboard-add-rect = 矩形
+whiteboard-add-rounded-rect = 圆角矩形
+whiteboard-add-diamond = 菱形
+whiteboard-attachment-not-downloaded = 尚未下载
 whiteboard-add-ellipse = 椭圆
 whiteboard-add-line = 直线
 whiteboard-add-arrow = 箭头
@@ -136,10 +139,28 @@ whiteboard-align-vertical = 垂直居中
 whiteboard-distribute-horizontal = 水平等距
 whiteboard-distribute-vertical = 垂直等距
 whiteboard-fit-view = 适应画布
+whiteboard-group-selection = 将所选卡片组成分组
+whiteboard-remove-from-group = 移出分组
+whiteboard-fit-selection = 聚焦所选内容
+whiteboard-draw-tools = 形状与绘图
+whiteboard-selection-details = 详细属性
+whiteboard-edge-label = 连线内容
+whiteboard-edge-relation = 关系
+whiteboard-relation-none = 不指定关系
+whiteboard-relation-related = 相关
+whiteboard-relation-supports = 支持
+whiteboard-relation-contradicts = 反驳
 whiteboard-auto-layout = 自动布局
 whiteboard-edge-color = 连线颜色
 whiteboard-edge-dash = 切换虚线
 whiteboard-edge-arrow = 切换箭头
+whiteboard-edge-style = 线条类型
+whiteboard-edge-arrows = 箭头类型
+whiteboard-arrow-none = 无箭头
+whiteboard-arrow-forward = 正向箭头
+whiteboard-arrow-reverse = 反向箭头
+whiteboard-arrow-both = 双向箭头
+whiteboard-edge-selection = 连线
 whiteboard-save-saved = 已保存
 whiteboard-save-saving = 保存中…
 whiteboard-save-failed-short = 保存失败
@@ -491,3 +512,63 @@ image-size-auto = 自适应
 image-view-original = 查看原图
 image-view-close = 关闭图片
 image-size-resize = 调整图片大小（方向键微调，Shift 加大步长）
+
+# Markdown 笔记双链
+note-backlinks-title = 引用此笔记
+note-backlinks-toggle = 显示或隐藏引用侧栏
+note-backlinks-refresh = 刷新链接
+note-backlinks-loading = 正在读取已保存的笔记…
+note-backlinks-empty = 还没有已保存的笔记引用这里。
+note-backlinks-incomplete = 部分笔记无法读取，结果尚不完整
+note-backlinks-failed = 无法读取或打开此引用
+note-heading-missing = 找不到链接指向的标题。
+more-export-obsidian = 导出当前库笔记到 Obsidian…
+more-export-markdown = 导出当前库笔记为 Markdown…
+note-export-conflict = 同一篇笔记在多个编辑器中有未保存的更改，请先保存或关闭这些编辑器再导出。
+note-export-complete = 已导出 { $count } 篇笔记到 { $directory }，链接提示 { $warnings } 条。
+
+whiteboard-stroke-width = 线宽
+whiteboard-geometry = 尺寸与位置
+whiteboard-node-width = 宽度
+whiteboard-node-height = 高度
+whiteboard-position-x = 水平位置
+whiteboard-position-y = 垂直位置
+
+whiteboard-text-italic = 斜体
+
+whiteboard-text-underline = 下划线
+
+whiteboard-text-strike = 删除线
+
+whiteboard-font-family = 字体
+
+file-conflict = 文件已在编辑器外被修改，已停止覆盖。当前草稿可在附件右键菜单的“本地历史”中恢复。
+file-history = 本地历史…
+file-history-description = 预览保存版本及冲突草稿，另存恢复副本，不覆盖当前文件。历史仅保存在本机，包含正文和卡片数据，不包含图片或 PDF 文件。
+file-history-version = 版本
+file-history-preview = 版本预览
+file-history-conflict = 冲突草稿
+file-history-saved = 保存前版本
+file-history-copy = 另存恢复副本…
+file-history-empty = 暂无本地历史。
+file-history-copied = 已保存恢复副本。
+file-history-copy-failed = 保存失败。请选择新文件名，恢复副本不会覆盖已有文件。
+file-history-close = 关闭
+more-history = 本地历史…
+
+whiteboard-search-canvas = 搜索白板
+whiteboard-duplicate-selection = 复制选区副本
+whiteboard-layout-all-confirm = 当前没有选中卡片，将整理整张白板。是否继续？可以撤销此操作。
+more-search-library = 搜索文库笔记…
+note-search-placeholder = 搜索标题和笔记正文
+note-search-hint = 搜索当前文库中已保存的 Markdown 笔记。
+note-search-loading = 搜索中…
+note-search-count = 找到 { $count } 篇笔记（最多显示 100 篇）。
+menuitem-annotations-md = 从 PDF 批注生成 Markdown…
+annotation-export-hint = 选择要整理的高亮文字和评论，页码链接可返回原 PDF 批注。
+annotation-export-empty = 所选 PDF 或条目没有文字批注。
+annotation-export-create = 生成 Markdown 笔记
+annotation-export-toggle = 全选 / 全不选
+annotation-export-failed = 创建笔记失败，请重试。
+
+annotation-export-read-only = 当前文库为只读，无法在此创建批注笔记。

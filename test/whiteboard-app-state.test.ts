@@ -25,6 +25,7 @@ import {
   mergeEditingStyle,
   toggleEditingBold,
   updateFlowNodeModel,
+  withEdgeStyle,
   verticalAlignmentStyle,
   withEdgeColor,
 } from "../packages/whiteboard/src/whiteboard/document.ts";
@@ -1340,7 +1341,6 @@ test("only source-backed Notes expose refresh in properties", () => {
         labels: { ...({} as WhiteboardLabels), ...noteActionLabels },
         node,
         sourceState: { status: "resolved" },
-        onEdit: () => undefined,
         onOpen: () => undefined,
         onRefreshSource: () => undefined,
         onViewAnnotations: () => undefined,
@@ -1364,7 +1364,6 @@ test("only source-backed Notes expose refresh in properties", () => {
       labels: { ...({} as WhiteboardLabels), ...noteActionLabels },
       node: makeNode(true),
       sourceState: { status: "unavailable", message: "Item missing" },
-      onEdit: () => undefined,
       onOpen: () => undefined,
       onRefreshSource: () => undefined,
       onViewAnnotations: () => undefined,
@@ -1388,7 +1387,6 @@ test("source-backed properties distinguish every transient source state", () => 
         labels: { ...({} as WhiteboardLabels), ...noteActionLabels },
         node,
         sourceState,
-        onEdit: () => undefined,
         onOpen: () => undefined,
         onRefreshSource: () => undefined,
         onViewAnnotations: () => undefined,
@@ -1532,7 +1530,6 @@ test("Literature and Quote properties expose native source open and refresh acti
         labels: { ...({} as WhiteboardLabels), ...noteActionLabels },
         node,
         sourceState: { status: "resolved" },
-        onEdit: () => undefined,
         onOpen: () => undefined,
         onRefreshSource: () => undefined,
         onViewAnnotations: () => undefined,
@@ -1551,7 +1548,7 @@ test("Literature and Quote properties expose native source open and refresh acti
 test("context-menu open copy distinguishes source-backed and retained Basic nodes", () => {
   const menuMarkup = appSource.slice(
     appSource.indexOf('className="zmd-board-context-menu"'),
-    appSource.indexOf("{styleTarget && styleNode"),
+    appSource.indexOf("{toolbarNode && toolbarScreen"),
   );
   assert.match(menuMarkup, /sourceDescriptor\(menuNode\.data\.model\)/);
   assert.match(menuMarkup, /labels\.openSource/);
@@ -2672,7 +2669,7 @@ test("all calculated node movement routes Frame positions through one transition
   assert.ok(distribute);
   assert.match(distribute, /applyNodePositions\(distributed\)/);
   assert.ok(layout);
-  assert.match(layout, /applyNodePositions\(autoLayoutNodes\(/);
+  assert.match(layout, /applyNodePositions\(layoutSelection\(/);
   const nudge = callbackSource("nudgeSelected");
   assert.ok(nudge);
   assert.match(nudge, /applyNodePositions\(positioned\)/);
@@ -2863,6 +2860,161 @@ test("edge arrow state survives flow, snapshot, and history round trips", () => 
   assert.deepEqual(changes, [1, 2, 3]);
 });
 
+test("all edge arrow directions survive style, file, SVG, and history round trips", () => {
+  const nodes: CanvasDocument["nodes"] = [
+    {
+      id: "source",
+      kind: "rect",
+      position: { x: 0, y: 0 },
+      width: 100,
+      height: 80,
+      data: { title: "Source" },
+    },
+    {
+      id: "target",
+      kind: "rect",
+      position: { x: 240, y: 0 },
+      width: 100,
+      height: 80,
+      data: { title: "Target" },
+    },
+  ];
+  const directions = [
+    { arrow: false, startArrow: false, start: false, end: false },
+    { arrow: true, startArrow: false, start: false, end: true },
+    { arrow: false, startArrow: true, start: true, end: false },
+    { arrow: true, startArrow: true, start: true, end: true },
+  ];
+
+  for (const direction of directions) {
+    const source: CanvasDocument = {
+      version: 2,
+      nodes,
+      connections: [
+        {
+          id: "edge",
+          kind: "academic",
+          source: "source",
+          target: "target",
+          relation: "supports",
+          arrow: direction.arrow,
+          startArrow: direction.startArrow,
+        },
+      ],
+    };
+    const flow = canvasDocumentToFlow(source);
+    const styled = withEdgeStyle(flow.edges[0]!, { color: "#059669" });
+    assert.equal(Boolean(styled.markerStart), direction.start);
+    assert.equal(Boolean(styled.markerEnd), direction.end);
+    assert.equal(styled.data?.connection.relation, "supports");
+
+    const snapshot = flowToCanvasDocument(flow.nodes, [styled], {
+      x: 0,
+      y: 0,
+      zoom: 1,
+    });
+    const file = canvasDocumentToFile(snapshot, {
+      now: "2026-09-24T00:00:00.000Z",
+    });
+    assert.equal(file.edges[0]?.fromEnd, direction.start ? "arrow" : "none");
+    assert.equal(file.edges[0]?.toEnd, direction.end ? "arrow" : "none");
+    const reloaded = canvasFileToDocument(file).document;
+    const edge = reloaded.connections[0]!;
+    assert.equal(edge.arrow, direction.arrow);
+    assert.equal(edge.startArrow, direction.startArrow);
+    assert.equal(edge.color, "#059669");
+    assert.equal(edge.kind, "academic");
+    assert.equal(
+      buildCanvasSvg(reloaded).includes("marker-start"),
+      direction.start,
+    );
+    assert.equal(
+      buildCanvasSvg(reloaded).includes("marker-end"),
+      direction.end,
+    );
+
+    const history = new CanvasDocumentHistory(() => undefined);
+    history.push(EMPTY);
+    history.changed();
+    assert.equal(history.undo(snapshot)?.connections.length, 0);
+    assert.equal(
+      history.redo(EMPTY)?.connections[0]?.startArrow,
+      direction.startArrow,
+    );
+  }
+
+  const malformed = parseCanvasDocument({
+    version: 2,
+    nodes,
+    connections: [
+      {
+        id: "invalid",
+        kind: "basic",
+        source: "source",
+        target: "target",
+        startArrow: "yes",
+      },
+    ],
+  });
+  assert.deepEqual(malformed.document.connections, []);
+  assert.equal(malformed.issues[0]?.code, "malformed-connection");
+});
+
+test("color-only flow edits preserve unsupported JSON Canvas endpoint values", () => {
+  const imported = canvasFileToDocument({
+    version: 1,
+    nodes: [
+      {
+        id: "source",
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+        text: "Source",
+      },
+      {
+        id: "target",
+        type: "text",
+        x: 240,
+        y: 0,
+        width: 100,
+        height: 80,
+        text: "Target",
+      },
+    ],
+    edges: [
+      {
+        id: "edge",
+        fromNode: "source",
+        toNode: "target",
+        toEnd: "future-symbol",
+      },
+    ],
+  }).document;
+  assert.equal(imported.connections[0]?.extensions?.toEnd, "future-symbol");
+
+  const flow = canvasDocumentToFlow(imported);
+  const styled = withEdgeStyle(flow.edges[0]!, { color: "#059669" });
+  const saved = canvasDocumentToFile(
+    flowToCanvasDocument(flow.nodes, [styled], { x: 0, y: 0, zoom: 1 }),
+    { now: "2026-09-24T00:00:00.000Z" },
+  );
+  assert.equal(saved.edges[0]?.toEnd, "future-symbol");
+
+  const explicitlyArrowed = withEdgeStyle(flow.edges[0]!, { arrow: false });
+  const rewritten = canvasDocumentToFile(
+    flowToCanvasDocument(flow.nodes, [explicitlyArrowed], {
+      x: 0,
+      y: 0,
+      zoom: 1,
+    }),
+    { now: "2026-09-24T00:00:00.000Z" },
+  );
+  assert.equal(rewritten.edges[0]?.toEnd, "none");
+  assert.notEqual(rewritten.edges[0]?.toEnd, "future-symbol");
+});
+
 test("style transition commits Academic content and style in one node update", () => {
   const [node] = canvasDocumentToFlow({
     version: 2,
@@ -2994,7 +3146,7 @@ test("Academic edits reopen with the same canonical style and export it", () => 
   const svg = buildCanvasSvg(reopened);
   assert.match(
     svg,
-    /<rect x="10" y="20" width="260" height="128" rx="16" fill="#fef3c7" stroke="#7c3aed" stroke-width="4" stroke-dasharray="12 9"\/>/,
+    /<rect x="10" y="20" width="260" height="128" rx="16" fill="#fef3c7" stroke="#7c3aed" stroke-width="4" stroke-dasharray="12 12"\/>/,
   );
   assert.match(
     svg,

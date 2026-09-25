@@ -1,7 +1,8 @@
-# Single-package project; keep workspace root explicit for pnpm.
+# Keep the plugin and its independently reusable development packages explicit.
 packages:
   - "."
   - "packages/whiteboard"
+  - "packages/fake-zotero"
 
 # Settings (pnpm 10+)
 blockExoticSubdeps: false

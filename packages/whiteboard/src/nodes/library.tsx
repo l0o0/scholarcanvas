@@ -45,7 +45,7 @@ export function PdfNode({ data, selected }: NodeProps<CanvasFlowNode>) {
           src={model.data.image}
           alt={model.data.title || labels.addPdf}
         />
-      ) : (
+      ) : model.data.source ? null : (
         <div className="zmd-board-pdf-page" aria-hidden="true">
           <span>{model.data.pdfPage ? model.data.pdfPage : labels.addPdf}</span>
         </div>
@@ -56,8 +56,15 @@ export function PdfNode({ data, selected }: NodeProps<CanvasFlowNode>) {
       >
         {model.data.title}
       </h3>
-      {model.data.subtitle ? (
-        <p className="zmd-board-card-meta">{model.data.subtitle}</p>
+      {model.data.subtitle || model.data.contentType ? (
+        <p className="zmd-board-card-meta">
+          {model.data.subtitle || model.data.contentType}
+        </p>
+      ) : null}
+      {model.data.availability === "not-downloaded" ? (
+        <p className="zmd-board-card-meta">
+          {labels.attachmentNotDownloaded}
+        </p>
       ) : null}
     </CardShell>
   );
@@ -80,8 +87,15 @@ export function AttachmentNode({ data, selected }: NodeProps<CanvasFlowNode>) {
       >
         {model.data.title}
       </h3>
-      {model.data.subtitle ? (
-        <p className="zmd-board-card-meta">{model.data.subtitle}</p>
+      {model.data.subtitle || model.data.contentType ? (
+        <p className="zmd-board-card-meta">
+          {model.data.subtitle || model.data.contentType}
+        </p>
+      ) : null}
+      {model.data.availability === "not-downloaded" ? (
+        <p className="zmd-board-card-meta">
+          {labels.attachmentNotDownloaded}
+        </p>
       ) : null}
       {model.data.preview ? (
         <p

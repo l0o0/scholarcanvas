@@ -52,11 +52,11 @@ function renderToolbar(selectedNodeCount: number, selectedEdgeCount: number) {
 
 function commandGroup(markup: string, command: string) {
   return markup
-    .match(/<div class="zmd-board-top-group">[\s\S]*?<\/div>/g)
+    .match(/<div class="zmd-board-top-group(?: [^"]+)?">[\s\S]*?<\/div>/g)
     ?.find((group) => group.includes(`title="${command}"`));
 }
 
-test("toolbar keeps the top row compact and puts conditional commands on the side", () => {
+test("toolbar keeps resident tools compact and conditional commands reachable", () => {
   const base = css.match(/\.zmd-board-top-island\s*\{([^}]*)\}/)?.[1];
   assert.ok(base, "missing base toolbar rule");
   assert.match(base, /flex-wrap:\s*nowrap/);
@@ -71,35 +71,20 @@ test("toolbar keeps the top row compact and puts conditional commands on the sid
   );
   assert.match(compact, /\.zmd-board-top-island\s*\{[^}]*flex-wrap:\s*nowrap/s);
   assert.match(compact, /\.zmd-board-top-group\s*\{[^}]*flex:\s*0 0 auto/s);
-  assert.match(compact, /\.zmd-board-properties\s*\{[^}]*top:\s*64px/s);
+  assert.match(compact, /\.zmd-board-properties\s*\{[^}]*top:\s*56px/s);
   assert.match(
     compact,
-    /\.zmd-board-properties\s*\{[^}]*left:\s*64px[^}]*right:\s*8px/s,
+    /\.zmd-board-properties\s*\{[^}]*left:\s*8px[^}]*right:\s*8px/s,
   );
   assert.match(
     compact,
-    /\.zmd-board-properties\s*\{[^}]*width:\s*auto[^}]*max-height:\s*calc\(100% - 72px\)[^}]*overflow-y:\s*auto/s,
+    /\.zmd-board-properties\s*\{[^}]*width:\s*auto[^}]*max-height:\s*calc\(100% - 64px\)[^}]*overflow-y:\s*auto/s,
   );
 
-  const nodeGroup = commandGroup(renderToolbar(3, 0), "alignLeft");
-  assert.ok(nodeGroup, "selected-node controls need one toolbar group");
-  for (const title of [
-    "alignRight",
-    "alignTop",
-    "alignBottom",
-    "alignHorizontal",
-    "alignVertical",
-    "distributeHorizontal",
-    "distributeVertical",
-  ]) {
-    assert.match(nodeGroup, new RegExp(`title="${title}"`));
-  }
-
-  const edgeGroup = commandGroup(renderToolbar(0, 1), "edgeColor");
-  assert.ok(edgeGroup, "selected-edge controls need one toolbar group");
-  for (const title of ["edgeDash", "edgeArrow"]) {
-    assert.match(edgeGroup, new RegExp(`title="${title}"`));
-  }
+  assert.doesNotMatch(renderToolbar(3, 1), /title="alignLeft"/);
+  assert.doesNotMatch(renderToolbar(3, 1), /title="edgeColor"/);
+  assert.doesNotMatch(renderToolbar(0, 0), /zmd-board-side-island/);
+  assert.match(renderToolbar(0, 0), /zmd-board-draw-tools/);
 });
 
 test("toolbar exposes one local academic creation group only", () => {
@@ -115,6 +100,46 @@ test("toolbar exposes one local academic creation group only", () => {
   assert.doesNotMatch(markup, /kindLiterature|kindQuote/);
 });
 
+test("optional selection actions stay hidden until wired and then expose labels", () => {
+  const base = renderToolbar(2, 0);
+  assert.doesNotMatch(base, /title="groupSelection"/);
+  assert.doesNotMatch(base, /title="fitSelection"/);
+  const wired = renderToStaticMarkup(
+    createElement(TopIsland, {
+      labels,
+      activeTool: "select",
+      onSelectTool: () => {},
+      noteTemplates: createBuiltinNoteTemplates({
+        note: "Note",
+        question: "Question",
+        claim: "Claim",
+        evidence: "Evidence",
+        summary: "Summary",
+      }),
+      activeNoteTemplateId: "bamboo.note",
+      onSelectNoteTemplate: () => {},
+      saveState: "saved",
+      selectedNodeCount: 2,
+      selectedEdgeCount: 0,
+      onUndo: () => {},
+      onRedo: () => {},
+      onSave: () => {},
+      onFitView: () => {},
+      onFitSelection: () => {},
+      onGroupSelection: () => {},
+      onAutoLayout: () => {},
+      onAlign: () => {},
+      onDistribute: () => {},
+      onEdgeColor: () => {},
+      onEdgeDash: () => {},
+      onEdgeArrow: () => {},
+      onOpenShortcuts: () => {},
+    }),
+  );
+  assert.match(wired, /title="groupSelection"/);
+  assert.match(wired, /title="fitSelection"/);
+});
+
 test("template picker uses the toolbar menu vocabulary", () => {
   assert.doesNotMatch(css, /\.zmd-board-template-picker\s*\{/);
   assert.match(
@@ -127,7 +152,7 @@ test("template picker uses the toolbar menu vocabulary", () => {
   );
   assert.match(
     css,
-    /\.zmd-board-template-menu,\s*\.zmd-board-more-menu\s*\{[^}]*background:\s*var\(--zmd-board-surface[^}]*border:\s*1px solid var\(--zmd-board-border/s,
+    /\.zmd-board-template-menu,\s*\.zmd-board-more-menu,\s*\.zmd-board-draw-menu\s*\{[^}]*background:\s*var\(--zmd-board-surface[^}]*border:\s*1px solid var\(--zmd-board-border/s,
   );
   assert.match(
     css,

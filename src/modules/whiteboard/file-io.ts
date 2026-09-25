@@ -1,3 +1,8 @@
+import {
+  writeProtectedFile,
+  type FileRevision,
+  type HistoryItem,
+} from "../file-safety";
 import { getString } from "../../utils/locale";
 import {
   parseStoredCanvas,
@@ -48,29 +53,42 @@ export async function pickCanvasFile(
 export async function readCanvasFile(
   path: string,
   options: { readUTF8?: ReadUTF8 } = {},
-): Promise<ParsedCanvasFile> {
+): Promise<ParsedCanvasFile & { source: string }> {
   if (!/\.canvas$/i.test(path)) {
     throw new Error("Canvas files must use the .canvas extension.");
   }
   const readUTF8: ReadUTF8 =
     options.readUTF8 ??
     (async (target) => String(await Zotero.File.getContentsAsync(target)));
-  return parseStoredCanvas(await readUTF8(path));
+  const source = await readUTF8(path);
+  return { ...parseStoredCanvas(source), source };
 }
 
 export async function writeCanvasFile(
   path: string,
   document: CanvasDocument,
-  options: { writeUTF8?: AtomicWriteUTF8 } = {},
+  options: {
+    writeUTF8?: AtomicWriteUTF8;
+    revision?: FileRevision;
+    item?: HistoryItem;
+  } = {},
 ): Promise<string> {
   const target = ensureCanvasExtension(path);
   const writeUTF8: AtomicWriteUTF8 =
     options.writeUTF8 ??
     ((targetPath, value, writeOptions) =>
       IOUtils.writeUTF8(targetPath, value, writeOptions));
-  await writeUTF8(target, serializeCanvasDocument(document), {
-    tmpPath: `${target}.tmp`,
-    flush: true,
-  });
+  const write = (value: string) =>
+    writeUTF8(target, value, { tmpPath: `${target}.tmp`, flush: true });
+  const content = serializeCanvasDocument(document);
+  if (options.revision && options.item) {
+    await writeProtectedFile(
+      target,
+      content,
+      options.revision,
+      options.item,
+      write,
+    );
+  } else await write(content);
   return target;
 }

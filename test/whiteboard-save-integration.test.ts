@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   acquireAcademicItems,
+  dataUrlToBytes,
   parseDroppedItemIDs,
   resolveNativeAcademicDrop,
 } from "../src/modules/whiteboard/tab.ts";
@@ -163,7 +164,7 @@ test("architecture limits the no-local-ID promise to Academic source data", () =
   );
 });
 
-test("new Zotero acquisition uses the academic gateway without Attachment paths", () => {
+test("new Zotero acquisition uses the academic gateway for file attachments", () => {
   assert.match(tab, /createZoteroSourceGateway\(\)/);
   assert.match(tab, /gateway\.acquireItem\(item\)/);
   assert.match(tab, /onPickAcademicSource/);
@@ -174,12 +175,14 @@ test("new Zotero acquisition uses the academic gateway without Attachment paths"
   assert.doesNotMatch(tab, /editor\.rejectPick/);
 });
 
-test("generic Zotero acquisition accepts Notes and refreshes them through the source gateway", () => {
-  assert.match(tab, /item\.isRegularItem\(\) \|\| item\.isNote\(\)/);
+test("generic Zotero acquisition accepts Notes and attachments through the source gateway", () => {
+  assert.match(
+    tab,
+    /item\.isRegularItem\?\.\(\)\s*\|\|\s*item\.isNote\?\.\(\)\s*\|\|\s*item\.isAttachment\?\.\(\)/,
+  );
   assert.match(tab, /gateway\.acquireItem\(item\)/);
   assert.match(tab, /gateway\.refreshNote\(source\)/);
   assert.match(tab, /applyNoteRefresh/);
-  assert.doesNotMatch(tab, /gateway\.acquireItem\([^)]*isAttachment/);
 });
 
 test("production Zotero item drops use one canonical payload and preserve its order", () => {
@@ -321,9 +324,19 @@ test("host resolves ordered Zotero ids to native user/group keys before protocol
       userLibraryID: 1,
       getItem(itemID) {
         if (itemID === 11)
-          return { key: "PAPER123", libraryID: 1 } as Zotero.Item;
+          return {
+            key: "PAPER123",
+            libraryID: 1,
+            isRegularItem: () => true,
+            isAttachment: () => false,
+          } as Zotero.Item;
         if (itemID === 12)
-          return { key: "PDF12345", libraryID: 5 } as Zotero.Item;
+          return {
+            key: "PDF12345",
+            libraryID: 5,
+            isRegularItem: () => false,
+            isAttachment: () => true,
+          } as Zotero.Item;
         return null;
       },
       getLibrary(libraryID) {
@@ -336,7 +349,10 @@ test("host resolves ordered Zotero ids to native user/group keys before protocol
     status: "accepted",
     sources: [
       { library: { type: "user" }, itemKey: "PAPER123" },
-      { library: { type: "group", groupID: 88 }, itemKey: "PDF12345" },
+      {
+        library: { type: "group", groupID: 88 },
+        attachmentKey: "PDF12345",
+      },
       { library: { type: "user" }, itemKey: "PAPER123" },
     ],
   });
@@ -383,38 +399,42 @@ test("generic Zotero batches acquire supported inputs independently and retain s
               },
               content: "Imported note",
             }
-          : {
-              kind: "literature" as const,
-              source: {
-                library: { type: "user" as const },
-                itemKey: input.key,
-              },
-              snapshot: { title: input.key },
-            };
+          : input.isAttachment()
+            ? {
+                kind: "attachment" as const,
+                source: {
+                  library: { type: "user" as const },
+                  attachmentKey: input.key,
+                },
+                snapshot: {
+                  filename: `${input.key}.pdf`,
+                  contentType: "application/pdf",
+                  availability: "available" as const,
+                },
+              }
+            : {
+                kind: "literature" as const,
+                source: {
+                  library: { type: "user" as const },
+                  itemKey: input.key,
+                },
+                snapshot: { title: input.key },
+              };
       },
     },
   );
 
-  assert.deepEqual(calls, ["FIRST123", "FIRST123", "NOTE1234"]);
+  assert.deepEqual(calls, ["FIRST123", "PDF12345", "FIRST123", "NOTE1234"]);
   assert.deepEqual(
     result.successes.map(({ index, acquisition }) => [index, acquisition.kind]),
     [
       [0, "literature"],
+      [1, "attachment"],
       [2, "literature"],
       [3, "note"],
     ],
   );
-  assert.deepEqual(result.failures, [
-    {
-      index: 1,
-      code: "unsupported-attachment",
-      message: "Zotero attachments cannot be added to the canvas.",
-    },
-  ]);
-  assert.deepEqual(
-    result.failures.map((failure) => failure.index),
-    [1],
-  );
+  assert.deepEqual(result.failures, []);
   assert.equal(
     result.successes.filter(
       ({ acquisition }) => acquisition.kind === "literature",
@@ -428,6 +448,12 @@ test("generic Zotero batches acquire supported inputs independently and retain s
   assert.equal(
     result.successes.filter(({ acquisition }) => acquisition.kind === "note")
       .length,
+    1,
+  );
+  assert.equal(
+    result.successes.filter(
+      ({ acquisition }) => acquisition.kind === "attachment",
+    ).length,
     1,
   );
 });
@@ -475,4 +501,29 @@ test("collection generation builds source-key Literature without PDF traversal",
   assert.match(collectionBody, /createAcademicNode\(\s*"literature"/);
   assert.doesNotMatch(collectionBody, /getAttachments\(/);
   assert.doesNotMatch(collectionBody, /createBasicNode\(\s*"pdf"/);
+});
+
+test("SVG export decodes UTF-8 data URLs without losing Chinese or XML characters", () => {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg"><text>中文 &amp; &lt;测试&gt; 😀</text></svg>';
+  const result = dataUrlToBytes(
+    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+  );
+  assert.ok(result);
+  assert.equal(result.mimeType, "image/svg+xml");
+  assert.equal(new TextDecoder().decode(result.bytes), svg);
+  assert.deepEqual(
+    dataUrlToBytes(`data:image/svg+xml,${encodeURIComponent(svg)}`)?.bytes,
+    result.bytes,
+  );
+});
+
+test("image export still decodes base64 PNG bytes", () => {
+  const bytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  for (const header of ["image/png;base64", "image/png;charset=utf-8;base64"]) {
+    const result = dataUrlToBytes(`data:${header},iVBORw0KGgo=`);
+    assert.deepEqual(result?.bytes, bytes);
+    assert.equal(result?.mimeType, "image/png");
+  }
+  assert.equal(dataUrlToBytes("not a data URL"), null);
 });

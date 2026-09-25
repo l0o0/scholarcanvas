@@ -1,3 +1,4 @@
+import { updateIndexedNote } from "./note-library";
 /**
  * Sidebar (item pane) Markdown editor — a "Markdown" section in Zotero's
  * right sidebar, styled after the built-in Notes section.
@@ -25,13 +26,15 @@ import {
 } from "./images/service";
 import type { ImageAssetMap } from "./editor-protocol";
 import { navigateDocumentLink, searchDocumentLinks } from "./document-links";
+import { mountNoteBacklinks } from "./backlinks";
+import { noteHeadingPosition, type PortableNote } from "./note-links";
 import {
   iconBold,
   iconH1,
   iconItalic,
   iconLink,
   iconList,
-  iconMoreHorizontal,
+  iconMore,
   iconOnlyButtonHtml,
   iconOpenInNew,
 } from "./icons";
@@ -87,8 +90,8 @@ export async function closeSidebarSessions(itemID: number): Promise<number> {
   return closed.filter(Boolean).length;
 }
 
-function faviconURL(): string {
-  return `chrome://${addon.data.config.addonRef}/content/icons/favicon.svg`;
+function sidebarIconURL(dark = false): string {
+  return `chrome://${addon.data.config.addonRef}/content/icons/sidebar-markdown${dark ? "-dark" : ""}.svg`;
 }
 
 let sectionKey: string | null = null;
@@ -110,11 +113,13 @@ export function registerSidebarSection(): void {
       paneID: "zmd-markdown",
       pluginID: addon.data.config.addonID,
       sidenav: {
-        icon: faviconURL(),
+        icon: sidebarIconURL(),
+        darkIcon: sidebarIconURL(true),
         l10nID: getLocaleID("sidebar-section-tooltip"),
       },
       header: {
-        icon: faviconURL(),
+        icon: sidebarIconURL(),
+        darkIcon: sidebarIconURL(true),
         l10nID: getLocaleID("sidebar-section-label"),
       },
       onInit: ({ doc, body, setSectionSummary }) => {
@@ -250,6 +255,7 @@ class SidebarController {
   private documentSyncSourceID: string | null = null;
   private documentSyncRefresh: Promise<void> | null = null;
   private unbindDocumentSync: (() => void) | null = null;
+  private unbindBacklinks: (() => void) | null = null;
   private setSummary: ((summary: string) => void) | null = null;
   private lastSummary: ((summary: string) => void) | null = null;
   private pendingBody: HTMLElement | null = null;
@@ -271,6 +277,7 @@ class SidebarController {
   private focusWasCollapsible = true;
   /** Monotonic render sequence; invalidates in-flight async renders. */
   private renderSeq = 0;
+  private fileRevision = { content: "" };
 
   constructor(win: _ZoteroTypes.MainWindow) {
     this.win = win;
@@ -314,7 +321,7 @@ class SidebarController {
     const moreButton = toolbarButton(
       "more",
       getString("sidebar-more"),
-      iconMoreHorizontal(),
+      iconMore(),
     );
     this.moreButton = moreButton;
     moreButton.setAttribute("aria-expanded", "false");
@@ -576,6 +583,8 @@ class SidebarController {
     this.win.document.removeEventListener("keydown", this.onDocumentKeyDown);
     this.root.remove();
     this.moreMenu.remove();
+    this.unbindBacklinks?.();
+    this.unbindBacklinks = null;
     return (async () => {
       if (editor && save) {
         try {
@@ -797,6 +806,8 @@ class SidebarController {
     const content = await readFileText(path);
     if (seq !== this.renderSeq || this.destroyed) return;
 
+    this.fileRevision = { content };
+    const fileRevision = this.fileRevision;
     this.itemID = item.id;
     const sourceID = `sidebar:${this.controllerID}:${item.id}`;
     this.documentSyncSourceID = sourceID;
@@ -812,6 +823,27 @@ class SidebarController {
         this.root.parentElement.appendChild(this.root);
     }
 
+    const onNavigateNote = (
+      note: PortableNote,
+      heading?: string,
+      position?: number,
+    ) => {
+      if (
+        seq !== this.renderSeq ||
+        this.itemID !== item.id ||
+        note.key !== item.key ||
+        note.libraryID !== item.libraryID
+      )
+        return false;
+      const from =
+        position ??
+        (heading
+          ? noteHeadingPosition(this.editor?.getValue() ?? content, heading)
+          : 0);
+      if (from === null) throw new Error(getString("note-heading-missing"));
+      this.editor?.revealPosition(from);
+      return true;
+    };
     const editor = createMarkdownEditor(this.editorHost, {
       channel: `pane-${item.id}`,
       surface: "sidebar",
@@ -833,11 +865,13 @@ class SidebarController {
         // The editor may remain alive for one tick while Zotero switches the
         // selected item. Never return candidates for a different document.
         if (seq !== this.renderSeq || this.item?.id !== item.id) return [];
-        return searchDocumentLinks(item, query);
+        return searchDocumentLinks(item, query, false, {
+          currentContent: this.editor?.getValue() ?? content,
+        });
       },
       onOpenLink: (href) => {
         if (seq !== this.renderSeq || this.item?.id !== item.id) return;
-        navigateDocumentLink(item, this.win, href);
+        navigateDocumentLink(item, this.win, href, { onNavigateNote });
       },
       onPasteImage: ({ bytes, mimeType }) => {
         void this.insertImage(new Uint8Array(bytes), mimeType);
@@ -852,6 +886,7 @@ class SidebarController {
       }),
       write: async (value, request) => {
         await persistMarkdownContent(item, value, {
+          revision: fileRevision,
           cleanupImages: request.cleanupImages,
           syncTitle: true,
           syncFile: true,
@@ -861,12 +896,18 @@ class SidebarController {
       onStateChange: () => this.updateSummary(),
     });
     this.save = save;
+    this.unbindBacklinks?.();
+    this.unbindBacklinks = mountNoteBacklinks(this.root, item, this.win, {
+      onNavigateNote,
+    });
     this.bindDocumentSync(sourceID, item, path, editor, save);
     this.updateSummary();
     void this.refreshImages(item, content);
   }
 
   private destroyEditor(): void {
+    this.unbindBacklinks?.();
+    this.unbindBacklinks = null;
     if (this.autosaveTimer != null) {
       this.win.clearTimeout(this.autosaveTimer);
       this.autosaveTimer = null;
@@ -898,7 +939,11 @@ class SidebarController {
         await save.request({ force: true });
       },
       getCurrentValue: () => editor.getValue(),
-      readPersisted: () => readFileText(path),
+      readPersisted: async () => {
+        const value = await readFileText(path);
+        updateIndexedNote(item, value);
+        return value;
+      },
       applyPersisted: (value) => {
         if (
           this.destroyed ||
@@ -911,6 +956,7 @@ class SidebarController {
         ) {
           return;
         }
+        this.fileRevision.content = value;
         editor.setValue(value);
         save.adoptPersistedSnapshot();
         this.updateSummary();

@@ -1,3 +1,10 @@
+import {
+  documentWorkspace,
+  rememberDocument,
+  forgetOpenDocument,
+} from "../workspace-state";
+import { showNoteSearch } from "./search";
+import { showFileHistory } from "../file-history-ui";
 import { createMarkdownEditor, resolveEditorTheme } from "./editor";
 import {
   iconBold,
@@ -10,9 +17,10 @@ import {
   iconLive,
   iconList,
   iconLink,
-  iconMoreHorizontal,
+  iconMore,
   iconOnlyButtonHtml,
   iconPanelLeft,
+  iconPanelRight,
   iconRedo,
   iconSave,
   iconSource,
@@ -33,6 +41,7 @@ import {
   hydratePreviewImages,
   mountPreviewHtml,
   scrollPreviewToOutline,
+  scrollPreviewToFragment,
 } from "./preview";
 import {
   disposeMarkdownRenderer,
@@ -83,6 +92,10 @@ import { mountOutlineSidebar } from "./outline-sidebar";
 import { documentSyncRegistry } from "./document-sync";
 import { navigateDocumentLink, searchDocumentLinks } from "./document-links";
 import { switchMarkdownSurface } from "./window";
+import { mountBacklinksSidebar, mountNoteBacklinks } from "./backlinks";
+import { noteHeadingPosition, type PortableNote } from "./note-links";
+import { invalidateNoteLibrary, updateIndexedNote } from "./note-library";
+import { exportNoteLibrary } from "./export-notes";
 
 const AUTOSAVE_MS = 800;
 const TITLE_SYNC_MS = 1000;
@@ -128,6 +141,7 @@ export function mountMarkdownEditorSurface(
     sourceID: `${options.surface}:${options.sessionID}`,
     itemID: options.item.id,
     path: options.path,
+    fileRevision: { content: options.content },
     mode: "live",
     previewRenderGeneration: 0,
     outlineItems: [],
@@ -141,6 +155,11 @@ export function mountMarkdownEditorSurface(
   };
   session.save = createSessionSave(session);
   sessionRegistry.register(session);
+  rememberDocument(session.itemID, {
+    kind: "markdown",
+    surface: session.surface,
+    open: true,
+  });
   try {
     mountEditorUI(
       options.win,
@@ -149,6 +168,15 @@ export function mountMarkdownEditorSurface(
       options.content,
       options.item,
     );
+    const restored = documentWorkspace(session.itemID);
+    void session.editor?.ready.then(async () => {
+      if (session.closing) return;
+      if (restored?.mode === "preview") {
+        await showReadOnlyPreview(session);
+        if (session.view)
+          session.view.previewEl.scrollTop = restored.previewScroll ?? 0;
+      } else if (restored?.mode === "source") setMode(session, "source");
+    });
     options.updateTitle();
     return session;
   } catch (error) {
@@ -385,7 +413,10 @@ function bindSessionDocumentSync(session: OpenSession) {
     getCurrentValue: () => editor.getValue(),
     readPersisted: async () => {
       const raw = await Zotero.File.getContentsAsync(session.path);
-      return typeof raw === "string" ? raw : String(raw ?? "");
+      const value = typeof raw === "string" ? raw : String(raw ?? "");
+      const item = Zotero.Items.get(session.itemID);
+      if (item) updateIndexedNote(item, value);
+      return value;
     },
     applyPersisted: (value) => applyPersistedToSession(session, value),
   });
@@ -448,6 +479,7 @@ export function refreshMarkdownSessionOnFocus(
 function applyPersistedToSession(session: OpenSession, value: string) {
   const editor = session.editor;
   if (!editor || session.save.dirty || session.save.writing) return;
+  session.fileRevision = { content: value };
   if (editor.getValue() === value) return;
 
   editor.setValue(value);
@@ -810,13 +842,32 @@ function mountEditorUI(
               {
                 tag: "button",
                 namespace: "html",
+                classList: [
+                  "zotero-markdown-btn",
+                  "zotero-markdown-backlinks-toggle",
+                ],
+                properties: {
+                  type: "button",
+                  innerHTML: iconOnlyButtonHtml(iconPanelRight()),
+                },
+                attributes: {
+                  title: getString("note-backlinks-toggle"),
+                  "aria-label": getString("note-backlinks-toggle"),
+                  "aria-expanded": "true",
+                },
+              },
+              {
+                tag: "button",
+                namespace: "html",
                 classList: ["zotero-markdown-btn", "zotero-markdown-more"],
                 properties: {
                   type: "button",
-                  innerHTML: iconOnlyButtonHtml(iconMoreHorizontal()),
+                  innerHTML: iconOnlyButtonHtml(iconMore()),
                 },
                 attributes: {
                   "data-action": "more",
+                  "aria-haspopup": "true",
+                  "aria-expanded": "false",
                   title: getString("tab-more"),
                   "aria-label": getString("tab-more"),
                 },
@@ -868,6 +919,15 @@ function mountEditorUI(
                 classList: ["zotero-markdown-preview-host"],
               },
             ],
+          },
+          {
+            tag: "aside",
+            namespace: "html",
+            classList: ["zotero-markdown-backlinks-sidebar"],
+            attributes: {
+              id: `${session.tabID}-backlinks`,
+              "aria-label": getString("note-backlinks-title"),
+            },
           },
         ],
       },
@@ -971,6 +1031,12 @@ function mountEditorUI(
     outlineToggleEl: root.querySelector(
       ".zotero-markdown-outline-toggle",
     ) as HTMLButtonElement,
+    backlinksSidebarEl: root.querySelector(
+      ".zotero-markdown-backlinks-sidebar",
+    ) as HTMLElement,
+    backlinksToggleEl: root.querySelector(
+      ".zotero-markdown-backlinks-toggle",
+    ) as HTMLButtonElement,
     workspaceEl: root.querySelector(
       ".zotero-markdown-workspace",
     ) as HTMLElement,
@@ -1001,6 +1067,40 @@ function mountEditorUI(
     },
   });
   session.outlineSidebar.update([], null);
+  const onNavigateNote = (
+    note: PortableNote,
+    heading?: string,
+    position?: number,
+  ) => {
+    if (note.key !== item.key || note.libraryID !== item.libraryID)
+      return false;
+    const from =
+      position ??
+      (heading
+        ? noteHeadingPosition(session.editor?.getValue() ?? content, heading)
+        : 0);
+    if (from === null) throw new Error(getString("note-heading-missing"));
+    revealMarkdownSessionPosition(session, from);
+    return true;
+  };
+  const navigateLink = (href: string) =>
+    navigateDocumentLink(item, win, href, { onNavigateNote });
+  const unbindBacklinksSidebar = mountBacklinksSidebar(
+    view.root,
+    view.backlinksSidebarEl,
+    view.backlinksToggleEl,
+    () => session.editor?.view.requestMeasure(),
+  );
+  const unbindBacklinks = mountNoteBacklinks(
+    view.backlinksSidebarEl,
+    item,
+    win,
+    { onNavigateNote, fullHeight: true },
+  );
+  session.unbindBacklinks = () => {
+    unbindBacklinksSidebar();
+    unbindBacklinks();
+  };
   session.modal = createMarkdownModalController(
     win.document,
     {
@@ -1021,7 +1121,7 @@ function mountEditorUI(
         : null);
     if (!href) return;
     event.preventDefault();
-    navigateDocumentLink(item, win, href);
+    if (!scrollPreviewToFragment(view.previewEl, href)) navigateLink(href);
   });
   view.previewEl.addEventListener("keydown", (event) => {
     if ((event as KeyboardEvent).key !== "Enter") return;
@@ -1030,7 +1130,7 @@ function mountEditorUI(
     const name = wiki?.getAttribute("data-zmd-wikilink");
     if (!name) return;
     event.preventDefault();
-    navigateDocumentLink(item, win, `[[${name}]]`);
+    navigateLink(`[[${name}]]`);
   });
   bindTablePicker(session);
   mountMoreMenu(session);
@@ -1040,6 +1140,8 @@ function mountEditorUI(
   const readOnly = !item.isEditable();
   session.editor = createMarkdownEditor(view.editorHost, {
     doc: content ?? "",
+    viewState: documentWorkspace(session.itemID)?.view,
+    onViewState: (view) => rememberDocument(session.itemID, { view }),
     readOnly,
     win,
     channel: `${session.tabID}:${session.itemID}`,
@@ -1100,8 +1202,11 @@ function mountEditorUI(
         return Promise.resolve({ error: getString("error-attachment-gone") });
       return resolveImageAssetEntry(item, reference);
     },
-    onLinkSearch: (query) => searchDocumentLinks(item, query),
-    onOpenLink: (href) => navigateDocumentLink(item, win, href),
+    onLinkSearch: (query) =>
+      searchDocumentLinks(item, query, false, {
+        currentContent: session.editor?.getValue() ?? content,
+      }),
+    onOpenLink: navigateLink,
   });
   ztoolkit.log("[Bamboo][EditorDebug] tab-editor-created", {
     tabID: session.tabID,
@@ -1144,6 +1249,22 @@ function navigateToOutlineItem(session: OpenSession, item: EditorOutlineItem) {
   session.editor?.revealPosition(item.from);
 }
 
+/** Reveal a link destination in the visible surface, including preview tabs. */
+export function revealMarkdownSessionPosition(
+  session: OpenSession,
+  position: number,
+): void {
+  const heading = session.outlineItems?.find(
+    (entry) => entry.from === position,
+  );
+  if (session.mode === "preview" && heading)
+    navigateToOutlineItem(session, heading);
+  else {
+    if (session.mode === "preview") setMode(session, "live");
+    session.editor?.revealPosition(position);
+  }
+}
+
 function applyModeVisibility(
   session: OpenSession,
   mode: "live" | "source" | "preview",
@@ -1177,6 +1298,8 @@ function bindPreviewOutlineTracking(session: OpenSession): void {
   const host = session.view?.previewEl;
   if (!host) return;
   let frame: number | null = null;
+  let viewSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  let previewScroll = host.scrollTop;
 
   const publish = () => {
     frame = null;
@@ -1189,6 +1312,12 @@ function bindPreviewOutlineTracking(session: OpenSession): void {
       const id = heading.dataset.zmdOutlineId;
       return id ? [{ id, top: heading.getBoundingClientRect().top }] : [];
     });
+    previewScroll = host.scrollTop;
+    clearTimeout(viewSaveTimer);
+    viewSaveTimer = setTimeout(
+      () => rememberDocument(session.itemID, { previewScroll }),
+      200,
+    );
     const rect = host.getBoundingClientRect();
     const atBottom =
       host.scrollTop + host.clientHeight >= host.scrollHeight - 2;
@@ -1206,6 +1335,10 @@ function bindPreviewOutlineTracking(session: OpenSession): void {
   host.addEventListener("scroll", schedule, { passive: true });
   session.unbindPreviewOutline = () => {
     host.removeEventListener("scroll", schedule);
+    if (viewSaveTimer !== undefined) {
+      clearTimeout(viewSaveTimer);
+      rememberDocument(session.itemID, { previewScroll });
+    }
     if (frame != null) session.win.cancelAnimationFrame(frame);
     frame = null;
   };
@@ -1271,6 +1404,9 @@ function mountMoreMenu(session: OpenSession) {
   };
   const close = () => {
     menu.hidden = true;
+    root
+      .querySelector('[data-action="more"]')
+      ?.setAttribute("aria-expanded", "false");
     collapseModeMenu();
   };
   const onMenuClick = (event: MouseEvent) => {
@@ -1313,6 +1449,25 @@ function mountMoreMenu(session: OpenSession) {
       close();
       return;
     }
+    if (action === "search-library") {
+      close();
+      const item = Zotero.Items.get(session.itemID);
+      if (item)
+        void showNoteSearch(session.win, item).catch((error) =>
+          session.win.alert(String(error)),
+        );
+      return;
+    }
+    if (action === "history") {
+      close();
+      const item = Zotero.Items.get(session.itemID);
+      if (item)
+        void showFileHistory(session.win, item).catch((error) => {
+          ztoolkit.log("Failed to open history", error);
+          session.win.alert(String(error));
+        });
+      return;
+    }
     if (action === "document-info") {
       void openDocumentInfoModal(session);
       close();
@@ -1345,6 +1500,14 @@ function mountMoreMenu(session: OpenSession) {
     }
     if (action === "export-pdf") {
       void exportSessionPdf(session);
+      close();
+      return;
+    }
+    if (action === "export-obsidian" || action === "export-markdown") {
+      void exportSessionNotes(
+        session,
+        action === "export-obsidian" ? "wiki" : "markdown",
+      );
       close();
       return;
     }
@@ -1420,6 +1583,9 @@ function toggleMoreMenu(session: OpenSession) {
   session.closeTablePicker?.();
   const opening = menu.hidden;
   menu.hidden = !opening;
+  session.view?.root
+    .querySelector('[data-action="more"]')
+    ?.setAttribute("aria-expanded", String(opening));
   const modeMenu = menu.querySelector<HTMLElement>(
     ".zotero-markdown-mode-submenu",
   );
@@ -1517,6 +1683,9 @@ function toggleTablePicker(session: OpenSession) {
     ".zotero-markdown-more-menu",
   );
   if (moreMenu) moreMenu.hidden = true;
+  session.view?.root
+    .querySelector('[data-action="more"]')
+    ?.setAttribute("aria-expanded", "false");
   picker.hidden = !opening;
   trigger.setAttribute("aria-expanded", String(opening));
 }
@@ -1584,6 +1753,7 @@ async function renameSessionAttachment(session: OpenSession, filename: string) {
   if (result === -2) throw new Error(getString("error-rename-failed"));
   item.setField("title", newName);
   await item.saveTx({ skipSelect: true });
+  invalidateNoteLibrary(item.libraryID);
   const newPath = (await item.getFilePathAsync()) || session.path;
   for (const openSession of sessionRegistry.all()) {
     if (openSession.itemID === session.itemID) openSession.path = newPath;
@@ -1687,6 +1857,7 @@ function setMode(session: OpenSession, mode: "live" | "source" | "preview") {
   }
   session.previewRenderGeneration = (session.previewRenderGeneration ?? 0) + 1;
   session.mode = mode;
+  rememberDocument(session.itemID, { mode });
   applyModeVisibility(session, mode);
   updateModeToggle(session);
   session.editor?.setMode(mode);
@@ -1713,6 +1884,7 @@ async function showReadOnlyPreview(session: OpenSession) {
   const generation = (session.previewRenderGeneration ?? 0) + 1;
   session.previewRenderGeneration = generation;
   session.mode = "preview";
+  rememberDocument(session.itemID, { mode: "preview" });
   applyModeVisibility(session, "preview");
   updateModeToggle(session);
   const source =
@@ -1811,6 +1983,48 @@ async function exportSessionPdf(session: OpenSession) {
       throw new Error(getString("error-print-window"));
     }
     setStatus(session, "info", getString("status-print-pdf"));
+  } catch (error) {
+    showImageError(error);
+  }
+}
+
+async function exportSessionNotes(
+  session: OpenSession,
+  format: "wiki" | "markdown",
+) {
+  try {
+    const item = Zotero.Items.get(session.itemID);
+    if (!item) throw new Error(getString("error-attachment-gone"));
+    const { findSidebarSessions } = await import("./sidebar");
+    // Snapshot cell editors before checking dirty state. Never force-write a
+    // clean, stale peer over the document being edited in another surface.
+    for (const note of await Zotero.Items.getAll(item.libraryID)) {
+      const peers = [
+        ...sessionRegistry
+          .all()
+          .filter((peer) => peer.itemID === note.id && peer.editor),
+        ...findSidebarSessions(note.id),
+      ];
+      for (const peer of peers) await peer.editor?.requestSnapshot();
+      const dirty = peers.filter(
+        (peer) => peer.save.dirty || peer.save.writing,
+      );
+      if (dirty.length > 1) throw new Error(getString("note-export-conflict"));
+      if (dirty[0]) await dirty[0].save.request();
+    }
+    const result = await exportNoteLibrary(session.win, item.libraryID, format);
+    if (result)
+      setStatus(
+        session,
+        "info",
+        getString("note-export-complete", {
+          args: {
+            count: result.notes,
+            warnings: result.warnings.length,
+            directory: result.directory,
+          },
+        }),
+      );
   } catch (error) {
     showImageError(error);
   }
@@ -2047,6 +2261,8 @@ async function persistSession(
   if (!item) throw new Error("Item gone");
   const { path, titleChanged } = await persistMarkdownContent(item, value, {
     cleanupImages: opts.cleanupImages,
+    revision: session.fileRevision,
+    syncFile: true,
     syncTitle: true,
   });
   if (session.documentSyncSourceID) {
@@ -2164,9 +2380,12 @@ export async function closeMarkdownSession(
       // ignore
     }
     session.outlineSidebar?.destroy();
+    session.unbindBacklinks?.();
     session.unbindPreviewOutline?.();
     session.editor?.destroy();
     sessionRegistry.unregister(tabID);
+    if (!sessionRegistry.all().some((other) => other.itemID === session.itemID))
+      forgetOpenDocument(session.itemID);
   })();
   try {
     await session.closePromise;

@@ -200,7 +200,9 @@ export function createAcademicAcquisitionRuntime(
     const ordered = successes
       .filter(
         ({ acquisition }) =>
-          acquisition.kind === "literature" || acquisition.kind === "note",
+          acquisition.kind === "literature" ||
+          acquisition.kind === "note" ||
+          acquisition.kind === "attachment",
       )
       .slice()
       .sort((left, right) => left.index - right.index);
@@ -286,7 +288,11 @@ export function resolveAcademicPlaceholder(
   nodeId: string,
   acquisition: AcademicAcquisition,
 ): CanvasFlowNode[] | undefined {
-  if (acquisition.kind !== "literature" && acquisition.kind !== "note") {
+  if (
+    acquisition.kind !== "literature" &&
+    acquisition.kind !== "note" &&
+    acquisition.kind !== "attachment"
+  ) {
     return undefined;
   }
   const placeholder = nodes.find((node) => node.id === nodeId);
@@ -297,14 +303,39 @@ export function resolveAcademicPlaceholder(
           source: acquisition.source,
           snapshot: acquisition.snapshot,
         })
-      : {
-          ...createAcademicNode("note", placeholder.position, nodeId),
-          source: acquisition.source,
-          ...(acquisition.sourceSnapshot
-            ? { sourceSnapshot: acquisition.sourceSnapshot }
-            : {}),
-          content: acquisition.content,
-        };
+        : acquisition.kind === "note"
+          ? {
+              ...createAcademicNode("note", placeholder.position, nodeId),
+              source: acquisition.source,
+              ...(acquisition.sourceSnapshot
+                ? { sourceSnapshot: acquisition.sourceSnapshot }
+                : {}),
+              content: acquisition.content,
+            }
+        : (() => {
+            const kind =
+              acquisition.snapshot.contentType?.toLowerCase() ===
+              "application/pdf"
+                ? "pdf"
+                : "attachment";
+            const basic = createBasicNode(kind, placeholder.position, nodeId);
+            const { subtitle: _defaultSubtitle, ...basicData } = basic.data;
+            return {
+              ...basic,
+              data: {
+                ...basicData,
+                title: acquisition.snapshot.filename,
+                ...(acquisition.snapshot.contentType
+                  ? { subtitle: acquisition.snapshot.contentType }
+                  : {}),
+                source: acquisition.source,
+                ...(acquisition.snapshot.contentType
+                  ? { contentType: acquisition.snapshot.contentType }
+                  : {}),
+                availability: acquisition.snapshot.availability,
+              },
+            };
+          })();
   const replacement = canvasDocumentToFlow({
     version: 2,
     nodes: [academic],

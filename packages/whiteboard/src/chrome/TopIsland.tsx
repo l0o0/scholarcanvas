@@ -14,6 +14,7 @@ import {
   IconArrow,
   IconCheck,
   IconChevronDown,
+  IconDiamond,
   IconDistributeH,
   IconDistributeV,
   IconEllipse,
@@ -27,6 +28,7 @@ import {
   IconMore,
   IconNote,
   IconRect,
+  IconRoundedRect,
   IconRedo,
   IconSave,
   IconExport,
@@ -35,6 +37,24 @@ import {
   IconUndo,
 } from "../whiteboard/icons";
 import type { CanvasTool } from "./tools";
+
+type ToolbarLabel =
+  | "drawTools"
+  | "groupSelection"
+  | "fitSelection"
+  | "addRoundedRect"
+  | "addDiamond";
+
+function toolbarLabel(
+  labels: WhiteboardLabels,
+  key: ToolbarLabel,
+  fallback: string,
+): string {
+  return (
+    (labels as WhiteboardLabels & Partial<Record<ToolbarLabel, string>>)[key] ??
+    fallback
+  );
+}
 
 interface ToolButton {
   tool: CanvasTool;
@@ -58,9 +78,15 @@ export function TopIsland(props: {
   onSave: () => void;
   onSwitchWindow?: () => void;
   onExportPng?: () => void;
+  onExportSvg?: () => void;
+  onExportMarkdown?: () => void;
+  onGroupSelection?: () => void;
+  onFitSelection?: () => void;
   exportBusy?: boolean;
   onFitView: () => void;
   onAutoLayout: () => void;
+  onDuplicate?: () => void;
+  onSearch?: () => void;
   onAlign: (
     mode: "left" | "right" | "top" | "bottom" | "horizontal" | "vertical",
   ) => void;
@@ -71,9 +97,12 @@ export function TopIsland(props: {
   onOpenShortcuts: () => void;
 }) {
   const { labels, activeTool, onSelectTool } = props;
-  const [openMenu, setOpenMenu] = useState<"templates" | "more" | null>(null);
+  const [openMenu, setOpenMenu] = useState<
+    "templates" | "draw" | "more" | null
+  >(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const templateTriggerRef = useRef<HTMLButtonElement>(null);
+  const drawTriggerRef = useRef<HTMLButtonElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -84,19 +113,69 @@ export function TopIsland(props: {
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key === "Escape") {
+        const trigger =
+          openMenu === "templates"
+            ? templateTriggerRef.current
+            : openMenu === "draw"
+              ? drawTriggerRef.current
+              : moreTriggerRef.current;
+        setOpenMenu(null);
+        trigger?.focus();
+        return;
+      }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        return;
+      }
+      const menu = menuRef.current?.querySelector<HTMLElement>(
+        openMenu === "templates"
+          ? ".zmd-board-template-menu"
+          : openMenu === "draw"
+            ? ".zmd-board-draw-menu"
+            : ".zmd-board-more-menu",
+      );
       const trigger =
         openMenu === "templates"
           ? templateTriggerRef.current
-          : moreTriggerRef.current;
-      setOpenMenu(null);
-      trigger?.focus();
+          : openMenu === "draw"
+            ? drawTriggerRef.current
+            : moreTriggerRef.current;
+      const target = event.target;
+      if (
+        !(target instanceof Node) ||
+        (!menu?.contains(target) && !trigger?.contains(target))
+      ) {
+        return;
+      }
+      const items = Array.from(
+        menu?.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitem"], [role="menuitemradio"]',
+        ) ?? [],
+      ).filter((item) => !item.disabled);
+      if (!items.length) return;
+      const current = items.indexOf(
+        document.activeElement as HTMLButtonElement,
+      );
+      const next =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? items.length - 1
+            : current < 0
+              ? event.key === "ArrowUp"
+                ? items.length - 1
+                : 0
+              : (current + (event.key === "ArrowUp" ? -1 : 1) + items.length) %
+                items.length;
+      event.preventDefault();
+      event.stopPropagation();
+      items[next]?.focus();
     };
     window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     return () => {
       window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
     };
   }, [openMenu]);
   const activeNoteTemplate =
@@ -119,17 +198,31 @@ export function TopIsland(props: {
     ],
     [{ tool: "text", title: `${labels.addText} (T)`, icon: <IconText /> }],
   ];
-  const sideTools: ToolButton[] = [
+  const drawTools: ToolButton[] = [
     { tool: "rect", title: `${labels.addRect} (R)`, icon: <IconRect /> },
+    {
+      tool: "roundedRect",
+      title: `${toolbarLabel(labels, "addRoundedRect", "Rounded rectangle")}`,
+      icon: <IconRoundedRect />,
+    },
     {
       tool: "ellipse",
       title: `${labels.addEllipse} (O)`,
       icon: <IconEllipse />,
     },
+    {
+      tool: "diamond",
+      title: toolbarLabel(labels, "addDiamond", "Diamond"),
+      icon: <IconDiamond />,
+    },
     { tool: "arrow", title: `${labels.addArrow} (A)`, icon: <IconArrow /> },
     { tool: "line", title: `${labels.addLine} (L)`, icon: <IconLine /> },
     { tool: "eraser", title: `${labels.eraser} (E)`, icon: <IconEraser /> },
   ];
+  const drawToolsOpen = openMenu === "draw";
+  const hasSelectionActions =
+    (props.selectedNodeCount >= 2 && !!props.onGroupSelection) ||
+    (props.selectedNodeCount >= 1 && !!props.onFitSelection);
 
   return (
     <div ref={menuRef} className="zmd-board-toolbars">
@@ -238,11 +331,99 @@ export function TopIsland(props: {
             ) : null}
           </div>
         ))}
+        <div className="zmd-board-draw-tools">
+          <button
+            ref={drawTriggerRef}
+            type="button"
+            title={toolbarLabel(labels, "drawTools", labels.more)}
+            aria-label={toolbarLabel(labels, "drawTools", labels.more)}
+            aria-haspopup="menu"
+            aria-expanded={drawToolsOpen}
+            aria-pressed={drawTools.some((item) => item.tool === activeTool)}
+            className={
+              drawToolsOpen ||
+              drawTools.some((item) => item.tool === activeTool)
+                ? "is-active"
+                : ""
+            }
+            onClick={() =>
+              setOpenMenu((current) => (current === "draw" ? null : "draw"))
+            }
+          >
+            {drawTools.find((item) => item.tool === activeTool)?.icon ?? (
+              <IconRect />
+            )}
+            <IconChevronDown />
+          </button>
+          {drawToolsOpen ? (
+            <div className="zmd-board-draw-menu" role="menu">
+              {drawTools.map((item) => (
+                <button
+                  key={item.tool}
+                  type="button"
+                  role="menuitemradio"
+                  aria-label={item.title}
+                  aria-checked={activeTool === item.tool}
+                  className={activeTool === item.tool ? "is-active" : ""}
+                  onClick={() => {
+                    setOpenMenu(null);
+                    onSelectTool(item.tool);
+                    drawTriggerRef.current?.focus();
+                  }}
+                >
+                  {item.icon}
+                  <span>{item.title}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        {hasSelectionActions ? (
+          <div className="zmd-board-top-group zmd-board-selection-tools">
+            {props.selectedNodeCount >= 2 && props.onGroupSelection ? (
+              <button
+                type="button"
+                title={toolbarLabel(labels, "groupSelection", labels.addFrame)}
+                aria-label={toolbarLabel(
+                  labels,
+                  "groupSelection",
+                  labels.addFrame,
+                )}
+                onClick={props.onGroupSelection}
+              >
+                <IconFrame />
+              </button>
+            ) : null}
+            {props.onFitSelection ? (
+              <button
+                type="button"
+                title={toolbarLabel(labels, "fitSelection", labels.fitView)}
+                aria-label={toolbarLabel(
+                  labels,
+                  "fitSelection",
+                  labels.fitView,
+                )}
+                onClick={props.onFitSelection}
+              >
+                <IconFitView />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="zmd-board-top-group zmd-board-history-tools">
+          <button type="button" title={labels.undo} onClick={props.onUndo}>
+            <IconUndo />
+          </button>
+          <button type="button" title={labels.redo} onClick={props.onRedo}>
+            <IconRedo />
+          </button>
+        </div>
         <div className="zmd-board-more">
           <button
             ref={moreTriggerRef}
             type="button"
             title={labels.more}
+            aria-label={labels.more}
             aria-haspopup="menu"
             aria-expanded={openMenu === "more"}
             className={openMenu === "more" ? "is-active" : ""}
@@ -254,6 +435,217 @@ export function TopIsland(props: {
           </button>
           {openMenu === "more" ? (
             <div className="zmd-board-more-menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpenMenu(null);
+                  props.onSearch?.();
+                }}
+              >
+                {labels.searchCanvas ?? "Search canvas"} · Ctrl/⌘ F
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!props.selectedNodeCount}
+                onClick={() => {
+                  setOpenMenu(null);
+                  props.onDuplicate?.();
+                }}
+              >
+                {labels.duplicateSelection ?? "Duplicate selection"}
+              </button>
+              {props.selectedNodeCount >= 2 ? (
+                <div className="zmd-board-menu-section" role="group">
+                  <span className="zmd-board-menu-section-label">
+                    {labels.alignment}
+                  </span>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={labels.alignLeft}
+                    onClick={() => props.onAlign("left")}
+                  >
+                    <IconAlignLeft />
+                    <span>{labels.alignLeft}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={labels.alignRight}
+                    onClick={() => props.onAlign("right")}
+                  >
+                    <IconAlignRight />
+                    <span>{labels.alignRight}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={labels.alignTop}
+                    onClick={() => props.onAlign("top")}
+                  >
+                    <IconAlignTop />
+                    <span>{labels.alignTop}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={labels.alignBottom}
+                    onClick={() => props.onAlign("bottom")}
+                  >
+                    <IconAlignBottom />
+                    <span>{labels.alignBottom}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={labels.alignHorizontal}
+                    onClick={() => props.onAlign("horizontal")}
+                  >
+                    <IconAlignHCenter />
+                    <span>{labels.alignHorizontal}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={labels.alignVertical}
+                    onClick={() => props.onAlign("vertical")}
+                  >
+                    <IconAlignVCenter />
+                    <span>{labels.alignVertical}</span>
+                  </button>
+                  {props.selectedNodeCount >= 3 ? (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        title={labels.distributeHorizontal}
+                        onClick={() => props.onDistribute("horizontal")}
+                      >
+                        <IconDistributeH />
+                        <span>{labels.distributeHorizontal}</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        title={labels.distributeVertical}
+                        onClick={() => props.onDistribute("vertical")}
+                      >
+                        <IconDistributeV />
+                        <span>{labels.distributeVertical}</span>
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+              {props.selectedEdgeCount >= 1 ? (
+                <div className="zmd-board-menu-section" role="group">
+                  <span className="zmd-board-menu-section-label">
+                    {labels.style}
+                  </span>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={labels.edgeColor}
+                    onClick={props.onEdgeColor}
+                  >
+                    <IconLine />
+                    <span>{labels.edgeColor}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={labels.edgeDash}
+                    onClick={props.onEdgeDash}
+                  >
+                    <IconLine />
+                    <span>{labels.edgeDash}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={labels.edgeArrow}
+                    onClick={props.onEdgeArrow}
+                  >
+                    <IconArrow />
+                    <span>{labels.edgeArrow}</span>
+                  </button>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpenMenu(null);
+                  props.onSave();
+                }}
+              >
+                <IconSave />
+                <span>{labels.save}</span>
+              </button>
+              {props.onExportPng ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={props.exportBusy}
+                  onClick={() => {
+                    setOpenMenu(null);
+                    props.onExportPng?.();
+                  }}
+                >
+                  <IconExport />
+                  <span>{labels.exportPng} · 2×</span>
+                </button>
+              ) : null}
+              {props.onExportSvg ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenMenu(null);
+                    props.onExportSvg?.();
+                  }}
+                >
+                  <IconExport />
+                  <span>{labels.exportSvg}</span>
+                </button>
+              ) : null}
+              {props.onExportMarkdown ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenMenu(null);
+                    props.onExportMarkdown?.();
+                  }}
+                >
+                  <IconExport />
+                  <span>{labels.exportMarkdown}</span>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpenMenu(null);
+                  props.onFitView();
+                }}
+              >
+                <IconFitView />
+                <span>{labels.fitView}</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpenMenu(null);
+                  props.onAutoLayout();
+                }}
+              >
+                <IconLayout />
+                <span>{labels.autoLayout}</span>
+              </button>
               {props.onSwitchWindow ? (
                 <button
                   type="button"
@@ -279,52 +671,6 @@ export function TopIsland(props: {
             </div>
           ) : null}
         </div>
-      </div>
-      <div
-        className="zmd-board-side-island"
-        role="toolbar"
-        aria-label={labels.more}
-        aria-orientation="vertical"
-      >
-        <div className="zmd-board-top-group">
-          {sideTools.map((item) => (
-            <button
-              key={item.tool}
-              type="button"
-              title={item.title}
-              aria-label={item.title}
-              aria-pressed={activeTool === item.tool}
-              className={activeTool === item.tool ? "is-active" : ""}
-              onClick={() => {
-                setOpenMenu(null);
-                onSelectTool(item.tool);
-              }}
-            >
-              {item.icon}
-            </button>
-          ))}
-        </div>
-        <span className="zmd-board-toolbar-sep" />
-        <button type="button" title={labels.undo} onClick={props.onUndo}>
-          <IconUndo />
-        </button>
-        <button type="button" title={labels.redo} onClick={props.onRedo}>
-          <IconRedo />
-        </button>
-        <button type="button" title={labels.save} onClick={props.onSave}>
-          <IconSave />
-        </button>
-        {props.onExportPng ? (
-          <button
-            type="button"
-            title={`${labels.exportPng} · 2×`}
-            aria-label={`${labels.exportPng} · 2×`}
-            disabled={props.exportBusy}
-            onClick={props.onExportPng}
-          >
-            <IconExport />
-          </button>
-        ) : null}
         <span className={`zmd-board-save-state is-${props.saveState}`}>
           {props.saveState === "saving"
             ? labels.saving
@@ -332,108 +678,6 @@ export function TopIsland(props: {
               ? labels.saveFailed
               : labels.saved}
         </span>
-        {props.selectedNodeCount >= 2 ? (
-          <div className="zmd-board-top-group">
-            <span className="zmd-board-toolbar-sep" />
-            <button
-              type="button"
-              title={labels.alignLeft}
-              onClick={() => props.onAlign("left")}
-            >
-              <IconAlignLeft />
-            </button>
-            <button
-              type="button"
-              title={labels.alignRight}
-              onClick={() => props.onAlign("right")}
-            >
-              <IconAlignRight />
-            </button>
-            <button
-              type="button"
-              title={labels.alignTop}
-              onClick={() => props.onAlign("top")}
-            >
-              <IconAlignTop />
-            </button>
-            <button
-              type="button"
-              title={labels.alignBottom}
-              onClick={() => props.onAlign("bottom")}
-            >
-              <IconAlignBottom />
-            </button>
-            <button
-              type="button"
-              title={labels.alignHorizontal}
-              onClick={() => props.onAlign("horizontal")}
-            >
-              <IconAlignHCenter />
-            </button>
-            <button
-              type="button"
-              title={labels.alignVertical}
-              onClick={() => props.onAlign("vertical")}
-            >
-              <IconAlignVCenter />
-            </button>
-            {props.selectedNodeCount >= 3 ? (
-              <>
-                <button
-                  type="button"
-                  title={labels.distributeHorizontal}
-                  onClick={() => props.onDistribute("horizontal")}
-                >
-                  <IconDistributeH />
-                </button>
-                <button
-                  type="button"
-                  title={labels.distributeVertical}
-                  onClick={() => props.onDistribute("vertical")}
-                >
-                  <IconDistributeV />
-                </button>
-              </>
-            ) : null}
-          </div>
-        ) : null}
-        {props.selectedEdgeCount >= 1 ? (
-          <div className="zmd-board-top-group">
-            <span className="zmd-board-toolbar-sep" />
-            <button
-              type="button"
-              title={labels.edgeColor}
-              onClick={props.onEdgeColor}
-            >
-              <IconLine />
-            </button>
-            <button
-              type="button"
-              title={labels.edgeDash}
-              onClick={props.onEdgeDash}
-            >
-              <IconLine />
-            </button>
-            <button
-              type="button"
-              title={labels.edgeArrow}
-              onClick={props.onEdgeArrow}
-            >
-              <IconArrow />
-            </button>
-          </div>
-        ) : null}
-        <span className="zmd-board-toolbar-sep" />
-        <button type="button" title={labels.fitView} onClick={props.onFitView}>
-          <IconFitView />
-        </button>
-        <button
-          type="button"
-          title={labels.autoLayout}
-          onClick={props.onAutoLayout}
-        >
-          <IconLayout />
-        </button>
       </div>
     </div>
   );

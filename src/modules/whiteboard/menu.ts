@@ -1,3 +1,4 @@
+import { registerFileHistoryMenu } from "../file-history-ui";
 import { getString } from "../../utils/locale";
 import {
   createWhiteboardAttachment,
@@ -11,7 +12,7 @@ import { openWhiteboardWindow } from "./tab";
 const itemCleanups = new Map<Window, () => void>();
 
 function icon() {
-  return `chrome://${addon.data.config.addonRef}/content/icons/favicon@0.5x.png`;
+  return `chrome://${addon.data.config.addonRef}/content/icons/favicon.png`;
 }
 
 async function createAndOpen(parent?: Zotero.Item | null) {
@@ -125,6 +126,9 @@ export function registerWhiteboardMenus(win: _ZoteroTypes.MainWindow) {
   }
 
   if (itemPopup) {
+    cleanups.push(
+      registerFileHistoryMenu(win, itemPopup, isWhiteboardAttachment),
+    );
     const openItem = doc.createXULElement("menuitem") as HTMLElement;
     openItem.id = `${addon.data.config.addonRef}-item-open-canvas`;
     openItem.setAttribute("label", getString("menuitem-open-whiteboard"));

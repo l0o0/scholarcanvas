@@ -86,13 +86,13 @@ test("document links query only host metadata and preserve library identity", as
     ["regular", "markdown", "canvas"],
   );
   assert.equal(found[1].title, "Note");
-  assert.equal(found[1].href, "zotero://select/library/items/KEY00002");
+  assert.equal(found[1].href, "source--KEY00002.md");
 
   records = [item(6, "Group doc", "markdown", 7)];
   assert.equal(
     (await searchDocumentLinks({ libraryID: 7 } as Zotero.Item, "Group"))[0]
       .href,
-    "zotero://select/groups/42/items/KEY00006",
+    "source--KEY00006.md",
   );
   knownGroup = false;
   assert.deepEqual(

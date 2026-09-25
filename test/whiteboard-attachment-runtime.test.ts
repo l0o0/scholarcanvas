@@ -14,15 +14,16 @@ function placeholder() {
 }
 
 test("attachment acquisitions become PDF cards with stable source data", () => {
-  const [node] = resolveAcademicPlaceholder(placeholder(), "pending", {
-    kind: "attachment",
-    source: { library: { type: "group", groupID: 42 }, attachmentKey: "PDF" },
-    snapshot: {
-      filename: "paper.pdf",
-      contentType: "application/pdf",
-      availability: "available",
-    },
-  }) ?? [];
+  const [node] =
+    resolveAcademicPlaceholder(placeholder(), "pending", {
+      kind: "attachment",
+      source: { library: { type: "group", groupID: 42 }, attachmentKey: "PDF" },
+      snapshot: {
+        filename: "paper.pdf",
+        contentType: "application/pdf",
+        availability: "available",
+      },
+    }) ?? [];
   assert.equal(node?.data.model.kind, "pdf");
   if (node?.data.model.kind !== "pdf") return;
   assert.equal(node.data.model.data.title, "paper.pdf");
@@ -35,15 +36,16 @@ test("attachment acquisitions become PDF cards with stable source data", () => {
 });
 
 test("non-PDF attachment acquisitions retain a not-downloaded status", () => {
-  const [node] = resolveAcademicPlaceholder(placeholder(), "pending", {
-    kind: "attachment",
-    source: { library: { type: "user" }, attachmentKey: "ZIP" },
-    snapshot: {
-      filename: "dataset.zip",
-      contentType: "application/zip",
-      availability: "not-downloaded",
-    },
-  }) ?? [];
+  const [node] =
+    resolveAcademicPlaceholder(placeholder(), "pending", {
+      kind: "attachment",
+      source: { library: { type: "user" }, attachmentKey: "ZIP" },
+      snapshot: {
+        filename: "dataset.zip",
+        contentType: "application/zip",
+        availability: "not-downloaded",
+      },
+    }) ?? [];
   assert.equal(node?.data.model.kind, "attachment");
   if (node?.data.model.kind !== "attachment") return;
   assert.equal(node.data.model.data.title, "dataset.zip");
@@ -51,15 +53,16 @@ test("non-PDF attachment acquisitions retain a not-downloaded status", () => {
 });
 
 test("source refresh keeps the React Flow renderer kind in sync with MIME changes", () => {
-  const [initial] = resolveAcademicPlaceholder(placeholder(), "pending", {
-    kind: "attachment",
-    source: { library: { type: "user" }, attachmentKey: "FILE" },
-    snapshot: {
-      filename: "file.bin",
-      contentType: "application/octet-stream",
-      availability: "available",
-    },
-  }) ?? [];
+  const [initial] =
+    resolveAcademicPlaceholder(placeholder(), "pending", {
+      kind: "attachment",
+      source: { library: { type: "user" }, attachmentKey: "FILE" },
+      snapshot: {
+        filename: "file.bin",
+        contentType: "application/octet-stream",
+        availability: "available",
+      },
+    }) ?? [];
   if (!initial) return;
   const updated = applyResolvedAcquisition(initial, {
     kind: "attachment",

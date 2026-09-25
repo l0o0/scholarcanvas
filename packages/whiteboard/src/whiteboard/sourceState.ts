@@ -115,10 +115,7 @@ export function sourceDescriptor(
   if (node.kind === "note" && node.source) {
     return { kind: "note", source: node.source };
   }
-  if (
-    (node.kind === "pdf" || node.kind === "attachment") &&
-    node.data.source
-  ) {
+  if ((node.kind === "pdf" || node.kind === "attachment") && node.data.source) {
     return { kind: "attachment", source: node.data.source };
   }
   return undefined;

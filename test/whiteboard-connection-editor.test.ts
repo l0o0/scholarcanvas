@@ -71,15 +71,13 @@ test("edge editor commits text only and supports clearing the label", async (t) 
   assert.equal(container.querySelectorAll("textarea").length, 1);
   assert.equal(container.querySelector("select"), null);
   await act(async () =>
-    container
-      .querySelector("textarea")!
-      .dispatchEvent(
-        new window.KeyboardEvent("keydown", {
-          key: "Enter",
-          shiftKey: true,
-          bubbles: true,
-        }),
-      ),
+    container.querySelector("textarea")!.dispatchEvent(
+      new window.KeyboardEvent("keydown", {
+        key: "Enter",
+        shiftKey: true,
+        bubbles: true,
+      }),
+    ),
   );
   assert.deepEqual(commits, [], "Shift+Enter keeps multiline editing open");
   assert.equal(container.querySelector("button"), null);

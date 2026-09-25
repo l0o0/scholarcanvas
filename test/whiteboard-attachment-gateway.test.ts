@@ -28,8 +28,7 @@ function deps(item: Zotero.Item, opened: string[]): SourceGatewayDependencies {
     userLibraryID: 1,
     getLibrary: () => ({ libraryType: "user" }),
     groupLibraryID: () => null,
-    getByLibraryAndKey: (_libraryID, key) =>
-      key === item.key ? item : null,
+    getByLibraryAndKey: (_libraryID, key) => (key === item.key ? item : null),
     cleanTags: (html) => html,
     unescapeHTML: (html) => html,
     openItem: async () => undefined,
@@ -110,7 +109,10 @@ test("async Zotero file checks update the resolution snapshot without rejecting 
     source: { library: { type: "user" }, attachmentKey: "ATTACHMENT" },
   });
   assert.equal(result.status, "resolved");
-  if (result.status !== "resolved" || result.acquisition.kind !== "attachment") {
+  if (
+    result.status !== "resolved" ||
+    result.acquisition.kind !== "attachment"
+  ) {
     return;
   }
   assert.equal(result.acquisition.snapshot.availability, "not-downloaded");

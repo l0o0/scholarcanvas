@@ -303,15 +303,15 @@ export function resolveAcademicPlaceholder(
           source: acquisition.source,
           snapshot: acquisition.snapshot,
         })
-        : acquisition.kind === "note"
-          ? {
-              ...createAcademicNode("note", placeholder.position, nodeId),
-              source: acquisition.source,
-              ...(acquisition.sourceSnapshot
-                ? { sourceSnapshot: acquisition.sourceSnapshot }
-                : {}),
-              content: acquisition.content,
-            }
+      : acquisition.kind === "note"
+        ? {
+            ...createAcademicNode("note", placeholder.position, nodeId),
+            source: acquisition.source,
+            ...(acquisition.sourceSnapshot
+              ? { sourceSnapshot: acquisition.sourceSnapshot }
+              : {}),
+            content: acquisition.content,
+          }
         : (() => {
             const kind =
               acquisition.snapshot.contentType?.toLowerCase() ===

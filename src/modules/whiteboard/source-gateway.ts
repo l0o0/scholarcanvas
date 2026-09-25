@@ -436,7 +436,9 @@ function acquisitionForDescriptor(
 ): Promise<AcademicAcquisition> {
   if (descriptor.kind === "literature") {
     if (!item.isRegularItem()) throw new SourceIntegrityError("wrong-kind");
-    return Promise.resolve(literatureAcquisition(item, descriptor.source.library));
+    return Promise.resolve(
+      literatureAcquisition(item, descriptor.source.library),
+    );
   }
   if (descriptor.kind === "note")
     return Promise.resolve(noteForSource(item, descriptor.source, utilities));
@@ -543,7 +545,8 @@ function keyFor(descriptor: AcademicSourceDescriptor): string {
 function attachmentFilename(item: Zotero.Item): string {
   const candidate = (item as unknown as { attachmentFilename?: unknown })
     .attachmentFilename;
-  if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  if (typeof candidate === "string" && candidate.trim())
+    return candidate.trim();
   const field = textField(item, "title");
   return field || item.key;
 }
@@ -557,7 +560,9 @@ function attachmentContentType(item: Zotero.Item): string | undefined {
   return undefined;
 }
 
-function attachmentAvailability(item: Zotero.Item): "available" | "not-downloaded" {
+function attachmentAvailability(
+  item: Zotero.Item,
+): "available" | "not-downloaded" {
   const candidate = item as unknown as {
     fileExists?: (() => boolean | Promise<boolean>) | boolean;
     isStoredFileAttachment?: () => boolean;
@@ -571,7 +576,9 @@ function attachmentAvailability(item: Zotero.Item): "available" | "not-downloade
       return candidate.fileExists ? "available" : "not-downloaded";
     }
     if (typeof candidate.isStoredFileAttachment === "function") {
-      return candidate.isStoredFileAttachment() ? "available" : "not-downloaded";
+      return candidate.isStoredFileAttachment()
+        ? "available"
+        : "not-downloaded";
     }
   } catch {
     return "not-downloaded";
@@ -765,8 +772,10 @@ function productionDependencies(): GatewayDependencies {
           // Fall through for older panes and non-file attachments.
         }
       }
-      if (attachment.attachmentContentType === "application/pdf" &&
-          typeof zotero.Reader?.open === "function") {
+      if (
+        attachment.attachmentContentType === "application/pdf" &&
+        typeof zotero.Reader?.open === "function"
+      ) {
         await zotero.Reader.open(attachment.id);
         return;
       }

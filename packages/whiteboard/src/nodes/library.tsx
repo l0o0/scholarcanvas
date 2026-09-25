@@ -62,9 +62,7 @@ export function PdfNode({ data, selected }: NodeProps<CanvasFlowNode>) {
         </p>
       ) : null}
       {model.data.availability === "not-downloaded" ? (
-        <p className="zmd-board-card-meta">
-          {labels.attachmentNotDownloaded}
-        </p>
+        <p className="zmd-board-card-meta">{labels.attachmentNotDownloaded}</p>
       ) : null}
     </CardShell>
   );
@@ -93,9 +91,7 @@ export function AttachmentNode({ data, selected }: NodeProps<CanvasFlowNode>) {
         </p>
       ) : null}
       {model.data.availability === "not-downloaded" ? (
-        <p className="zmd-board-card-meta">
-          {labels.attachmentNotDownloaded}
-        </p>
+        <p className="zmd-board-card-meta">{labels.attachmentNotDownloaded}</p>
       ) : null}
       {model.data.preview ? (
         <p

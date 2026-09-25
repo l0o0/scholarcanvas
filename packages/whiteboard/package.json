@@ -15,16 +15,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@xyflow/react": "^12.11.3",
-    "html-to-image": "1.11.11",
-    "react": "^19.2.8",
+    "@xyflow/react": "^12.11.6",
+    "html-to-image": "1.11.13",
+    "react": "^19.3.0",
     "react-colorful": "5.8.1",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@zotero-plugin/fake-zotero": "workspace:*",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^6.0.3",
     "vite": "^5.4.8"

@@ -13,9 +13,12 @@ test("uses Scholar Canvas branding with stable Bamboo compatibility identifiers"
   assert.equal(pkg.config.addonRef, "bamboo");
   assert.equal(pkg.config.addonInstance, "scholarcanvas");
   assert.equal(pkg.config.prefsPrefix, "extensions.zotero.bamboo");
-  assert.equal(pkg.repository.url, "git+https://github.com/l0o0/bamboo.git");
-  assert.equal(pkg.bugs.url, "https://github.com/l0o0/bamboo/issues");
-  assert.equal(pkg.homepage, "https://github.com/l0o0/bamboo#readme");
+  assert.equal(
+    pkg.repository.url,
+    "git+https://github.com/l0o0/scholarcanvas.git",
+  );
+  assert.equal(pkg.bugs.url, "https://github.com/l0o0/scholarcanvas/issues");
+  assert.equal(pkg.homepage, "https://github.com/l0o0/scholarcanvas#readme");
 });
 
 test("uses packaged branding icons and a theme-aware Markdown sidebar icon", async () => {
@@ -93,7 +96,7 @@ test("documents repository and Scholar Canvas public API", async () => {
   ]);
   const combined = readmes.join("\n");
 
-  assert.match(combined, /github\.com\/l0o0\/bamboo\/releases/);
+  assert.match(combined, /github\.com\/l0o0\/scholarcanvas\/releases/);
   assert.match(combined, /Zotero\.scholarcanvas\.api\.markdown/);
   assert.match(combined, /Zotero\.scholarcanvas\.api\.version/);
   assert.doesNotMatch(combined, /github\.com\/l0o0\/zotero-markdown/);

@@ -7,7 +7,7 @@
 **Markdown & Whiteboard for Zotero**
 
 [![Zotero compatibility](https://img.shields.io/badge/Zotero-9%2F10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![version](https://img.shields.io/badge/version-0.1.9-blue?style=flat-square)](https://github.com/l0o0/bamboo/releases)
+[![version](https://img.shields.io/badge/version-0.1.10-blue?style=flat-square)](https://github.com/l0o0/scholarcanvas/releases)
 [![license](https://img.shields.io/badge/license-AGPL--3.0-orange?style=flat-square)](./LICENSE)
 
 **Write Markdown and connect your research on a visual whiteboard, inside Zotero.** Create, edit, and preview native `.md` attachments, then organize literature, quotes, and notes on `.canvas` whiteboards.
@@ -68,7 +68,7 @@ See [link and export conventions](docs/obsidian-links.md), [save protection and 
 
 ## Install
 
-Download the latest `scholarcanvas-v{version}.xpi` from [Releases](https://github.com/l0o0/bamboo/releases), then in Zotero: **Tools → Plugins → gear → Install Plugin From File…** and restart if prompted.
+Download the latest `scholarcanvas-v{version}.xpi` from [Releases](https://github.com/l0o0/scholarcanvas/releases), then in Zotero: **Tools → Plugins → gear → Install Plugin From File…** and restart if prompted.
 
 ### Development build
 
@@ -180,7 +180,7 @@ for agent inspection, supported APIs, and manual adoption in other plugins.
 
 ## API for other plugins
 
-Scholar Canvas was previously named Bamboo. The public API is `Zotero.scholarcanvas`, and packages use `scholarcanvas-v{version}.xpi`. The repository, add-on ID, preference keys, chrome resource namespace, and existing canvas data fields retain their compatibility identifiers.
+Scholar Canvas was previously named Bamboo. The public API is `Zotero.scholarcanvas`, and packages use `scholarcanvas-v{version}.xpi`. The repository is now `l0o0/scholarcanvas`. The add-on ID, preference keys, chrome resource namespace, and existing canvas data fields retain their compatibility identifiers.
 
 Scholar Canvas exposes its in-process API at `Zotero.scholarcanvas.api.markdown`
 for other plugins / MCP bridges to create and edit `.md` documents inside Zotero.

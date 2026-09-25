@@ -110,6 +110,36 @@ jobs:
       - name: Publish GitHub Release
         run: pnpm run release
 
+      - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          VERIFY_DIR="$RUNNER_TEMP/scholar-release-verification"
+          mkdir -p "$VERIFY_DIR"
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --pattern "scholarcanvas-v$VERSION.xpi" --dir "$VERIFY_DIR"
+          MANIFEST=update.json
+          if [[ "$VERSION" == *-* ]]; then MANIFEST=update-beta.json; fi
+          gh release download release --repo "$GITHUB_REPOSITORY" --pattern "$MANIFEST" --dir "$VERIFY_DIR"
+          cmp ".scaffold/build/scholarcanvas-v$VERSION.xpi" "$VERIFY_DIR/scholarcanvas-v$VERSION.xpi"
+          python3 - <<'PYVERIFY'
+          import hashlib, json, os
+          from pathlib import Path
+          version = os.environ["VERSION"]
+          directory = Path(os.environ["RUNNER_TEMP"]) / "scholar-release-verification"
+          package = json.loads(Path("package.json").read_text())
+          manifest = "update-beta.json" if "-" in version else "update.json"
+          updates = json.loads((directory / manifest).read_text())["addons"][package["config"]["addonID"]]["updates"]
+          entry = next(update for update in updates if update["version"] == version)
+          filename = f"scholarcanvas-v{version}.xpi"
+          expected_url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/v{version}/{filename}"
+          assert entry["update_link"] == expected_url, "Update manifest points to the wrong repository or asset"
+          digest = hashlib.sha512((directory / filename).read_bytes()).hexdigest()
+          assert entry["update_hash"] == f"sha512:{digest}", "Update manifest hash does not match the published XPI"
+          print("Published XPI and update manifest verified")
+          PYVERIFY
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:

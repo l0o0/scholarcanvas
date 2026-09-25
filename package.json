@@ -1,7 +1,7 @@
 {
   "name": "scholarcanvas",
   "type": "module",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Markdown & Whiteboard for Zotero — edit Markdown files and connect literature, notes, and ideas on a visual canvas.",
   "config": {
     "addonName": "Scholar Canvas",
@@ -12,13 +12,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/l0o0/bamboo.git"
+    "url": "git+https://github.com/l0o0/scholarcanvas.git"
   },
   "author": "l0o0",
   "bugs": {
-    "url": "https://github.com/l0o0/bamboo/issues"
+    "url": "https://github.com/l0o0/scholarcanvas/issues"
   },
-  "homepage": "https://github.com/l0o0/bamboo#readme",
+  "homepage": "https://github.com/l0o0/scholarcanvas#readme",
   "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@9.15.9",
   "engines": {

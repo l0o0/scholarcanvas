@@ -9,7 +9,7 @@
 Zotero 中的 Markdown 编辑器与可视化白板
 
 [![Zotero compatibility](https://img.shields.io/badge/Zotero-9%2F10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![version](https://img.shields.io/badge/version-0.1.9-blue?style=flat-square)](https://github.com/l0o0/bamboo/releases)
+[![version](https://img.shields.io/badge/version-0.1.10-blue?style=flat-square)](https://github.com/l0o0/scholarcanvas/releases)
 [![license](https://img.shields.io/badge/license-AGPL--3.0-orange?style=flat-square)](../LICENSE)
 
 **在 Zotero 中书写 Markdown，用可视化白板连接文献与想法。** 创建、编辑和预览原生 `.md` 附件，并在 `.canvas` 白板上组织文献、摘录和笔记。
@@ -70,7 +70,7 @@ Zotero 擅长文献收集与组织。在 AI 时代，**纯 Markdown 文件**才�
 
 ## 安装
 
-从 [Releases](https://github.com/l0o0/bamboo/releases) 下载最新的 `scholarcanvas-v{version}.xpi`，在 Zotero 中：**工具 → 插件 → 齿轮 → 从文件安装插件…**，如有提示重启 Zotero。
+从 [Releases](https://github.com/l0o0/scholarcanvas/releases) 下载最新的 `scholarcanvas-v{version}.xpi`，在 Zotero 中：**工具 → 插件 → 齿轮 → 从文件安装插件…**，如有提示重启 Zotero。
 
 ### 本地构建
 
@@ -176,7 +176,7 @@ pnpm start          # 构建并启动 Zotero，支持热重载
 
 ## 供其他插件调用的 API
 
-Scholar Canvas 原名 Bamboo。公开 API 已更新为 `Zotero.scholarcanvas`，安装包使用 `scholarcanvas-v{version}.xpi`。仓库地址、插件 ID、偏好设置键、chrome 资源命名空间和已有白板数据字段继续使用兼容标识。
+Scholar Canvas 原名 Bamboo。公开 API 已更新为 `Zotero.scholarcanvas`，安装包使用 `scholarcanvas-v{version}.xpi`。仓库地址已更新为 `l0o0/scholarcanvas`；插件 ID、偏好设置键、chrome 资源命名空间和已有白板数据字段继续使用兼容标识。
 
 Scholar Canvas 在 `Zotero.scholarcanvas.api.markdown` 暴露进程内 API，供其他插件 / MCP 桥接层在 Zotero 内创建与编辑 `.md` 文档。所有方法均为异步、JSON 友好，失败时抛出 `MarkdownApiError`（`error.code` 稳定不变）。
 

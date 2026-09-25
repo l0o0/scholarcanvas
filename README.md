@@ -7,7 +7,7 @@
 **Markdown & Whiteboard for Zotero**
 
 [![Zotero compatibility](https://img.shields.io/badge/Zotero-9%2F10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![version](https://img.shields.io/badge/version-0.1.7-blue?style=flat-square)](https://github.com/l0o0/bamboo/releases)
+[![version](https://img.shields.io/badge/version-0.1.8-blue?style=flat-square)](https://github.com/l0o0/bamboo/releases)
 [![license](https://img.shields.io/badge/license-AGPL--3.0-orange?style=flat-square)](./LICENSE)
 
 **Write Markdown and connect your research on a visual whiteboard, inside Zotero.** Create, edit, and preview native `.md` attachments, then organize literature, quotes, and notes on `.canvas` whiteboards.

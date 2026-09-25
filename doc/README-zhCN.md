@@ -9,7 +9,7 @@
 Zotero 中的 Markdown 编辑器与可视化白板
 
 [![Zotero compatibility](https://img.shields.io/badge/Zotero-9%2F10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![version](https://img.shields.io/badge/version-0.1.7-blue?style=flat-square)](https://github.com/l0o0/bamboo/releases)
+[![version](https://img.shields.io/badge/version-0.1.8-blue?style=flat-square)](https://github.com/l0o0/bamboo/releases)
 [![license](https://img.shields.io/badge/license-AGPL--3.0-orange?style=flat-square)](../LICENSE)
 
 **在 Zotero 中书写 Markdown，用可视化白板连接文献与想法。** 创建、编辑和预览原生 `.md` 附件，并在 `.canvas` 白板上组织文献、摘录和笔记。
